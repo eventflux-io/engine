@@ -294,7 +294,7 @@ async fn test_sql_query_3_window_tumbling_avg() {
 
         SELECT symbol, AVG(price) as avg_price
         FROM StockStream
-        WINDOW TUMBLING(INTERVAL '5' SECOND)
+        WINDOW('tumbling', INTERVAL '5' SECOND)
         GROUP BY symbol;
     "#;
 
@@ -358,7 +358,7 @@ async fn test_sql_query_4_window_length_count() {
 
         SELECT symbol, COUNT(*) as count
         FROM StockStream
-        WINDOW LENGTH(3)
+        WINDOW('length', 3)
         GROUP BY symbol;
     "#;
 
@@ -415,7 +415,7 @@ async fn test_sql_query_9_order_by_limit() {
 
         SELECT symbol, price
         FROM StockStream
-        WINDOW LENGTH(5)
+        WINDOW('length', 5)
         ORDER BY price DESC
         LIMIT 3;
     "#;
@@ -569,7 +569,7 @@ async fn test_sql_query_6_sum_having() {
 
         SELECT symbol, SUM(volume) AS total_volume
         FROM StockStream
-        WINDOW TUMBLING(INTERVAL '5' SECOND)
+        WINDOW('tumbling', INTERVAL '5' SECOND)
         GROUP BY symbol
         HAVING SUM(volume) > 1000;
     "#;
@@ -686,7 +686,7 @@ async fn test_sql_query_8_multiple_aggregations() {
             MIN(price) AS min_price,
             MAX(price) AS max_price
         FROM StockStream
-        WINDOW TUMBLING(INTERVAL '5' SECOND)
+        WINDOW('tumbling', INTERVAL '5' SECOND)
         GROUP BY symbol;
     "#;
 

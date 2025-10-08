@@ -49,12 +49,12 @@ impl DdlParser {
         }
 
         match &statements[0] {
-            Statement::CreateTable { name, columns, .. } => {
-                let stream_name = Self::extract_table_name(name)?;
+            Statement::CreateTable(create_table) => {
+                let stream_name = Self::extract_table_name(&create_table.name)?;
 
                 Ok(CreateStreamInfo {
                     name: stream_name,
-                    columns: columns.clone(),
+                    columns: create_table.columns.clone(),
                 })
             }
             _ => Err(DdlError::InvalidCreateStream(
@@ -67,6 +67,7 @@ impl DdlParser {
     fn extract_table_name(name: &ObjectName) -> Result<String, DdlError> {
         name.0
             .last()
+            .and_then(|part| part.as_ident())
             .map(|ident| ident.value.clone())
             .ok_or_else(|| DdlError::InvalidCreateStream("No table name found".to_string()))
     }
@@ -187,8 +188,8 @@ mod tests {
         let normalized = sql.replace("CREATE STREAM", "CREATE TABLE");
         let statements = Parser::parse_sql(&GenericDialect, &normalized).unwrap();
 
-        if let Statement::CreateTable { name, .. } = &statements[0] {
-            let extracted = DdlParser::extract_table_name(name).unwrap();
+        if let Statement::CreateTable(create_table) = &statements[0] {
+            let extracted = DdlParser::extract_table_name(&create_table.name).unwrap();
             assert_eq!(extracted, "MyStream");
         }
     }
