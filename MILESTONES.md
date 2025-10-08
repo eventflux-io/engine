@@ -111,14 +111,70 @@ EMIT CHANGES;
 
 ---
 
-## 🔌 Milestone 2: Essential Connectivity (v0.2)
+## 🔌 Milestone 2: Grammar Completion & Essential Connectivity (v0.2)
 
 **Timeline**: Q3 2025 (10-12 weeks)
-**Theme**: "Connect to the Real World"
+**Theme**: "Complete SQL Grammar & Connect to the Real World"
 **Status**: 📋 Next Priority
 
 ### Goals
-Enable production deployments by implementing critical I/O connectors, allowing EventFlux to integrate with external systems and data sources.
+1. Enable all disabled tests (74 → 0) by implementing remaining grammar features
+2. Enable production deployments by implementing critical I/O connectors
+
+### Part A: Grammar Completion (4-6 weeks) - **IMMEDIATE PRIORITY**
+
+**Current Status**: M1 complete with 675 passing tests, 74 ignored tests awaiting grammar features
+
+#### 1. Additional Window Types (1-2 weeks) - **HIGHEST PRIORITY**
+- 🆕 **Window SQL Syntax**: Complete remaining window types
+  - `WINDOW time(<duration>)` - Time-based window
+  - `WINDOW timeBatch(<duration>)` - Time-based batch window
+  - `WINDOW lengthBatch(<count>)` - Count-based batch window
+  - `WINDOW externalTime/externalTimeBatch` - External timestamp windows
+  - `WINDOW lossyCounting(<support>, <error>)` - Approximate counting
+- **Status**: Runtime processors exist, SQL syntax missing
+- **Implementation**: Extend `SqlPreprocessor` window regex patterns
+- **Tests**: Enables 7 tests in `app_runner_windows.rs`
+
+#### 2. PARTITION Syntax (2-3 weeks)
+- 🆕 **Partition Clause**: Partitioning for parallel processing
+  ```sql
+  PARTITION WITH (symbol OF StockStream)
+  BEGIN
+      SELECT symbol, SUM(volume) FROM StockStream GROUP BY symbol;
+  END;
+  ```
+- **Status**: Runtime fully supports partitioning
+- **Implementation**: New partition clause parser in `SqlConverter`
+- **Tests**: Enables 6 tests in `app_runner_partitions.rs`, `app_runner_partition_stress.rs`
+
+#### 3. DEFINE AGGREGATION (2-3 weeks)
+- 🆕 **Aggregation DDL**: Incremental aggregation definitions
+  ```sql
+  CREATE AGGREGATION SalesAggregation
+  AS SELECT symbol, SUM(value) as total
+  FROM In GROUP BY value
+  AGGREGATE EVERY SECONDS, MINUTES, HOURS;
+  ```
+- **Status**: Incremental aggregation runtime exists
+- **Implementation**: New DDL parser for aggregation definitions
+- **Tests**: Enables 3 tests in `app_runner_aggregations.rs`
+
+#### 4. Built-in Functions (1 week)
+- 🆕 **Function Registry**: Additional string/math functions
+  - `LOG()`, `UPPER()`, and other standard functions
+- **Status**: Function executors exist, need registry mapping
+- **Implementation**: Function mapping in `SqlConverter`
+- **Tests**: Enables 1 test in `app_runner_functions.rs`
+
+**Part A Success Criteria**:
+- [ ] Enable 17 high-priority tests (window types + PARTITION + aggregations + functions)
+- [ ] Window syntax parses correctly for all types
+- [ ] PARTITION queries execute with proper isolation
+- [ ] Incremental aggregations work via SQL syntax
+- [ ] Test count: 692 passing, 57 ignored (down from 74)
+
+### Part B: Essential Connectivity (6 weeks) - **PARALLEL TRACK**
 
 ### Key Features
 

@@ -98,6 +98,171 @@ EventFlux Rust is an experimental port of the Java-based EventFlux CEP (Complex 
 - Script executors
 - Multi-tenancy support
 
+## Java Reference Implementation
+
+### Overview
+
+The original Siddhi Java implementation is available locally at `references/siddhi/` for easier comparison and reference during feature porting. This directory is git-ignored and serves as a local-only reference.
+
+**Location**: `references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/`
+
+### Naming Convention: Siddhi → EventFlux
+
+**CRITICAL**: All "Siddhi" terminology is replaced with "EventFlux" in this Rust codebase.
+
+| Java (Siddhi) | Rust (EventFlux) |
+|---------------|------------------|
+| `SiddhiManager` | `EventFluxManager` |
+| `SiddhiApp` | `EventFluxApp` |
+| `SiddhiAppRuntime` | `EventFluxAppRuntime` |
+| `SiddhiQL` | `EventFluxQL` |
+| `io.siddhi.core.*` | `eventflux::core::*` |
+| `io.siddhi.query.api.*` | `eventflux::query_api::*` |
+
+**Examples**:
+- Java: `SiddhiManager siddhiManager = new SiddhiManager();`
+- Rust: `let manager = EventFluxManager::new();`
+
+### Finding Java Reference Implementations
+
+When implementing a new feature or porting functionality from Java:
+
+#### 1. **Locate the Java Source**
+
+```bash
+# Search for class definitions
+find references/siddhi -name "*.java" | grep -i "WindowProcessor"
+
+# Search for specific functionality
+grep -r "lengthBatch" references/siddhi/modules/siddhi-core/src/main/java/
+```
+
+#### 2. **Common Java Package Mappings**
+
+| Java Package | Rust Module | Purpose |
+|-------------|-------------|---------|
+| `io.siddhi.core.executor` | `src/core/executor/` | Expression executors |
+| `io.siddhi.core.query.processor.stream.window` | `src/core/query/processor/stream/window/` | Window processors |
+| `io.siddhi.query.api.definition` | `src/query_api/definition/` | Query definitions |
+| `io.siddhi.core.table` | `src/core/table/` | Table implementations |
+| `io.siddhi.core.stream` | `src/core/stream/` | Stream handling |
+| `io.siddhi.core.aggregation` | `src/core/aggregation/` | Aggregation functions |
+| `io.siddhi.core.partition` | `src/core/partition/` | Partitioning logic |
+| `io.siddhi.core.util` | `src/core/util/` | Utility functions |
+
+#### 3. **Example: Implementing a Window Processor**
+
+**Step 1: Find the Java implementation**
+```bash
+# Look for the Java window processor
+cat references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/query/processor/stream/window/LengthWindowProcessor.java
+```
+
+**Step 2: Understand the Java logic**
+- Study the `process()` method for event handling
+- Review state management and cleanup logic
+- Note any special edge cases or optimizations
+
+**Step 3: Translate to Rust with EventFlux naming**
+```rust
+// Create in src/core/query/processor/stream/window/length_window_processor.rs
+pub struct LengthWindowProcessor {
+    meta: CommonProcessorMeta,
+    length: usize,
+    buffer: VecDeque<Arc<StreamEvent>>,
+}
+
+impl WindowProcessor for LengthWindowProcessor {
+    // Port Java logic here with Rust idioms
+}
+```
+
+#### 4. **Search Patterns for Common Features**
+
+**Finding Window Implementations**:
+```bash
+# List all window processors
+ls references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/query/processor/stream/window/
+
+# Search for window factory registration
+grep -r "extension.*window" references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/query/processor/stream/window/
+```
+
+**Finding Function Executors**:
+```bash
+# List all function executors
+find references/siddhi -path "*/executor/function/*FunctionExecutor.java"
+
+# Search for specific function
+grep -r "coalesce" references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/executor/function/
+```
+
+**Finding Aggregators**:
+```bash
+# List all aggregation executors
+ls references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/query/selector/attribute/aggregator/
+
+# Search for incremental aggregation logic
+grep -r "incremental" references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/aggregation/
+```
+
+#### 5. **Key Files to Reference**
+
+**Core Architecture**:
+- `references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/SiddhiManager.java`
+  → Rust: `src/core/eventflux_manager.rs`
+- `references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/SiddhiAppRuntime.java`
+  → Rust: `src/core/eventflux_app_runtime.rs`
+
+**Query Processing**:
+- `references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/query/QueryRuntime.java`
+  → Rust: `src/core/query/query_runtime.rs`
+- `references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/query/input/stream/StreamRuntime.java`
+  → Rust: `src/core/stream/stream_runtime.rs`
+
+**Event Processing**:
+- `references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/event/Event.java`
+  → Rust: `src/core/event/event.rs`
+- `references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/event/stream/StreamEvent.java`
+  → Rust: `src/core/event/stream_event.rs`
+
+### Best Practices for Java Reference Usage
+
+1. **Study, Don't Copy**: Understand the Java logic, then implement idiomatic Rust
+2. **Improve Performance**: Leverage Rust's zero-cost abstractions and ownership model
+3. **Modern Patterns**: Use current best practices, not legacy Java patterns
+4. **Test Coverage**: Port Java tests and add Rust-specific edge case coverage
+5. **Documentation**: Document differences and improvements over Java implementation
+
+### Java Reference Search Examples
+
+**Example 1: Understanding State Management**
+```bash
+# Find how Java handles state persistence
+grep -r "StatePersist" references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/util/persistence/
+
+# Look for snapshot service implementation
+cat references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/util/snapshot/SnapshotService.java
+```
+
+**Example 2: Finding Pattern Matching Logic**
+```bash
+# Locate pattern processing
+ls references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/query/processor/stream/pattern/
+
+# Study pattern state machines
+grep -r "PatternState" references/siddhi/modules/siddhi-core/src/main/java/io/siddhi/core/query/processor/stream/pattern/
+```
+
+**Example 3: Distributed Processing Architecture**
+```bash
+# Find clustering implementation
+find references/siddhi -name "*Cluster*" -o -name "*Distributed*"
+
+# Study HA (High Availability) logic
+grep -r "HAManager" references/siddhi/
+```
+
 ## Build & Development Commands
 
 ```bash
@@ -244,16 +409,41 @@ Input → OptimizedStreamJunction → Processors → Output
 
 ### 🎯 **IMPORTANT: Task Prioritization**
 
-**When determining next tasks or implementation priorities, ALWAYS consult [ROADMAP.md](ROADMAP.md) first.**
+**When determining next tasks or implementation priorities, ALWAYS consult these documents in order:**
 
-The ROADMAP.md file contains:
-- Current priority levels and critical blockers
-- Detailed implementation status for each component
-- Strategic decisions needed for extension implementations
-- Timeline and success criteria for all initiatives
-- Future vision and platform evolution plans
+1. **[ROADMAP.md](ROADMAP.md) - Main Roadmap & Grammar Status** (PRIMARY SOURCE)
+   - **Grammar/Parser Status & Disabled Tests** section - CRITICAL for grammar work
+   - Current priority levels and critical blockers
+   - Detailed implementation status for each component
+   - Strategic decisions needed for extension implementations
+   - Timeline and success criteria for all initiatives
+   - Future vision and platform evolution plans
 
-**Do not guess or assume priorities - the roadmap is the single source of truth for what needs to be done next.**
+2. **[MILESTONES.md](MILESTONES.md) - Release Milestones**
+   - M1: SQL Streaming Foundation (✅ COMPLETE)
+   - M2: Grammar Completion (Part A) + Essential Connectivity (Part B) - NEXT
+   - M3+: Future milestones with detailed timelines
+
+**Do not guess or assume priorities - these documents are the single source of truth for what needs to be done next.**
+
+#### **For Grammar/Parser Work Specifically**
+
+**ALWAYS check `ROADMAP.md` → "Grammar/Parser Status & Disabled Tests" section first!**
+
+This section tracks:
+- ✅ M1 features fully implemented (what works now)
+- 📋 74 disabled tests categorized by priority
+- 🔴 Priority 1: High business value features (20 tests) - TARGET M2
+- 🟠 Priority 2: CEP capabilities (10 tests) - TARGET M3-M4
+- 🟡 Priority 3: Advanced features (7 tests) - TARGET M5+
+- ⚪ Priority 4: Edge cases (2 tests) - Future
+
+**Test File Locations**: Each feature lists the exact test files (e.g., `app_runner_windows.rs`, `app_runner_partitions.rs`)
+
+**When asked "what grammar features are missing"**:
+1. Check ROADMAP.md → Grammar/Parser Status section
+2. Check the specific test files mentioned
+3. Prioritize based on the documented priority levels
 
 ### New Engine Approach
 - **No Backward Compatibility**: Design optimal solutions without legacy constraints
@@ -854,4 +1044,4 @@ Zstd: 274 bytes (4.3% of original) - 95.7% reduction
 - Focus on >1M events/sec performance targets
 - Maintain comprehensive test coverage and documentation
 
-Last Updated: 2025-08-11
+Last Updated: 2025-10-07

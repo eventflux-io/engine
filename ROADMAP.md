@@ -52,6 +52,121 @@
     - [ ] Interactive query builder
     - [ ] Production debugging tools
 
+### **Grammar/Parser Status & Disabled Tests**
+
+**Last Updated**: 2025-10-08
+**Test Status**: 675 passing, 74 ignored (awaiting M2+ grammar features)
+
+#### **M1 Features - Fully Implemented** ✅
+- Basic queries (SELECT, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT/OFFSET)
+- Window support (TUMBLING, SLIDING, LENGTH, LENGTH_BATCH, SESSION)
+- JOINs (INNER, LEFT, RIGHT, FULL OUTER with simple conditions)
+- Aggregations (COUNT, SUM, AVG, MIN, MAX, COUNT(*))
+- Built-in functions (ROUND, arithmetic, comparisons)
+
+#### **Disabled Tests Breakdown** (74 tests awaiting grammar features)
+
+**🔴 PRIORITY 1: High Business Value** (20 tests - Target: M2)
+
+1. **Additional Window Types** (7 tests) - `app_runner_windows.rs`
+   - `WINDOW time(<duration>)` - Time window (2 tests)
+   - `WINDOW lengthBatch(<count>)` - Length batch window (2 tests)
+   - `WINDOW timeBatch(<duration>)` - Time batch window (2 tests)
+   - `WINDOW externalTime/externalTimeBatch` - External time windows (2 tests)
+   - `WINDOW lossyCounting` - Lossy counting window (1 test)
+   - **Status**: Runtime exists, SQL syntax missing
+   - **Effort**: 1-2 weeks (extend SqlPreprocessor regex)
+   - **Impact**: Windows are fundamental CEP feature
+
+2. **PARTITION Syntax** (6 tests) - `app_runner_partitions.rs`, `app_runner_partition_stress.rs`
+   ```sql
+   PARTITION WITH (symbol OF StockStream)
+   BEGIN
+       SELECT symbol, SUM(volume) FROM StockStream GROUP BY symbol;
+   END;
+   ```
+   - **Status**: Runtime fully supports partitioning
+   - **Effort**: 2-3 weeks (new partition clause parser)
+   - **Impact**: Critical for scalability and parallel processing
+
+3. **DEFINE AGGREGATION** (3 tests) - `app_runner_aggregations.rs`
+   ```sql
+   CREATE AGGREGATION SalesAggregation
+   AS SELECT symbol, SUM(value) as total
+   FROM In GROUP BY value
+   AGGREGATE EVERY SECONDS, MINUTES, HOURS;
+   ```
+   - **Status**: Incremental aggregation runtime exists
+   - **Effort**: 2-3 weeks (aggregation definition DDL)
+   - **Impact**: Enterprise time-series analytics
+
+4. **Built-in Functions** (1 test) - `app_runner_functions.rs`
+   - Missing: `LOG()`, `UPPER()` and other string/math functions
+   - **Status**: Functions exist, just need registry mapping
+   - **Effort**: 1 week (function mapping)
+   - **Impact**: Low - nice to have
+
+**🟠 PRIORITY 2: CEP Capabilities** (10 tests - Target: M3-M4)
+
+5. **Pattern Matching Syntax** (2 tests) - `app_runner_patterns.rs`
+   ```sql
+   -- EventFluxQL style
+   FROM AStream -> BStream
+   SELECT AStream.val, BStream.val;
+
+   -- OR SQL:2016 MATCH_RECOGNIZE (recommended)
+   ```
+   - **Status**: Pattern runtime exists (basic sequences)
+   - **Effort**: 4-6 weeks (complex new syntax)
+   - **Impact**: Core CEP pattern detection
+
+6. **DEFINE TRIGGER** (2 tests) - `app_runner_triggers.rs`
+   ```sql
+   CREATE TRIGGER PT AT EVERY 50 MS;
+   CREATE TRIGGER CronStr AT '*/1 * * * * *';
+   ```
+   - **Status**: Trigger runtime exists
+   - **Effort**: 1 week (simple DDL)
+   - **Impact**: Periodic event generation
+
+7. **Table Support with @store** (5 tests) - `app_runner_tables.rs`
+   ```sql
+   @store(type='cache', max_size='5')
+   CREATE TABLE T (v VARCHAR);
+
+   @store(type='jdbc', data_source='DS1')
+   CREATE TABLE J (v VARCHAR);
+   ```
+   - **Status**: Table runtime exists
+   - **Effort**: 2-3 weeks (annotation + DDL parsing)
+   - **Impact**: State management and lookups
+
+**🟡 PRIORITY 3: Advanced Features** (7 tests - Target: M5+)
+
+8. **@Async Annotations** (6 tests) - `app_runner_async_junction.rs`
+   - `@app(name='MyApp', async='true')`
+   - **Status**: Async runtime works programmatically
+   - **Effort**: 1 week (annotation framework)
+   - **Impact**: Low - programmatic API sufficient
+
+9. **Complex JOIN Conditions** (1 test) - `app_runner_joins.rs`
+   - Nested boolean expressions: `(L.id > R.id AND R.id > 0) OR L.id = 10`
+   - **Status**: Simple conditions work
+   - **Effort**: 1 week
+   - **Impact**: Low - edge case
+
+**⚪ PRIORITY 4: Edge Cases** (2 tests - Target: Future)
+
+10. **Event Serialization** (2 tests) - `app_runner_event_ser.rs`
+    - Internal testing feature
+    - **Impact**: Very low
+
+#### **Implementation Roadmap**
+
+**M2 (Next Priority)**: Window types + PARTITION + DEFINE AGGREGATION (16 tests, 4-6 weeks)
+**M3-M4**: Pattern syntax + Tables + Triggers (9 tests, 6-8 weeks)
+**M5+**: Annotations + Advanced features (7 tests, 2-3 weeks)
+
 ### **Strategic Benefits of Hybrid Architecture**
 
 | Feature               | Current (LALRPOP)            | Future (Hybrid: sqlparser-rs + Pattern Parser) | Impact                                                   |
