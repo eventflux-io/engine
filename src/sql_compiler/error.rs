@@ -77,6 +77,9 @@ pub enum ExpansionError {
 
     #[error("Invalid SELECT item: {0}")]
     InvalidSelectItem(String),
+
+    #[error("Unsupported feature: {0}")]
+    UnsupportedFeature(String),
 }
 
 #[derive(Debug, Error)]

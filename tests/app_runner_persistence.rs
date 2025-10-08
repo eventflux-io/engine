@@ -14,7 +14,7 @@ async fn persist_restore_no_error() {
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW length(2);\n";
+        SELECT v FROM In WINDOW('length', 2);\n";
     let runner = AppRunner::new_with_store(app, "Out", Arc::clone(&store)).await;
     runner.send("In", vec![AttributeValue::Int(1)]);
     let rev = runner.persist();
@@ -32,7 +32,7 @@ async fn length_window_restore_state() {
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW length(2);\n";
+        SELECT v FROM In WINDOW('length', 2);\n";
     let runner = AppRunner::new_with_store(app, "Out", Arc::clone(&store)).await;
     runner.send("In", vec![AttributeValue::Int(1)]);
     runner.send("In", vec![AttributeValue::Int(2)]);
@@ -61,7 +61,7 @@ async fn persist_shutdown_restore_state() {
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW length(2);\n";
+        SELECT v FROM In WINDOW('length', 2);\n";
     let runner = AppRunner::new_with_store(app, "Out", Arc::clone(&store)).await;
     runner.send("In", vec![AttributeValue::Int(1)]);
     runner.send("In", vec![AttributeValue::Int(2)]);

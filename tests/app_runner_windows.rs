@@ -27,7 +27,7 @@ async fn length_window_basic() {
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW length(2);\n";
+        SELECT v FROM In WINDOW('length', 2);\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send("In", vec![AttributeValue::Int(1)]);
     runner.send("In", vec![AttributeValue::Int(2)]);
@@ -50,7 +50,7 @@ async fn length_window_batch() {
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW length(2);\n";
+        SELECT v FROM In WINDOW('length', 2);\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send_batch(
         "In",
@@ -72,19 +72,13 @@ async fn length_window_batch() {
     );
 }
 
-// TODO: NOT PART OF M1 - time window SQL syntax not yet supported
-// The time window is a core window type, but SQL syntax support is not implemented in M1.
-// M1 currently only supports length window in SQL syntax.
-// Other window types (time, timeBatch, externalTime, etc.) will be added in Phase 2.
-// See feat/grammar/GRAMMAR_STATUS.md for M1 feature list.
 #[tokio::test]
-#[ignore = "time window SQL syntax not supported in M1"]
 async fn time_window_expiry() {
     let app = "\
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW time(100);\n";
+        SELECT v FROM In WINDOW('time', 100);\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send("In", vec![AttributeValue::Int(5)]);
     sleep(Duration::from_millis(150));
@@ -93,16 +87,13 @@ async fn time_window_expiry() {
     assert_eq!(out[0], vec![AttributeValue::Int(5)]);
 }
 
-// TODO: NOT PART OF M1 - lengthBatch window SQL syntax not yet supported
-// See comment above for details.
 #[tokio::test]
-#[ignore = "lengthBatch window SQL syntax not supported in M1"]
 async fn length_batch_window() {
     let app = "\
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW lengthBatch(2);\n";
+        SELECT v FROM In WINDOW('lengthBatch', 2);\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send("In", vec![AttributeValue::Int(1)]);
     runner.send("In", vec![AttributeValue::Int(2)]);
@@ -122,16 +113,13 @@ async fn length_batch_window() {
     );
 }
 
-// TODO: NOT PART OF M1 - timeBatch window SQL syntax not yet supported
-// See comment above for details.
 #[tokio::test]
-#[ignore = "timeBatch window SQL syntax not supported in M1"]
 async fn time_batch_window() {
     let app = "\
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW timeBatch(100);\n";
+        SELECT v FROM In WINDOW('timeBatch', 100);\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send("In", vec![AttributeValue::Int(1)]);
     sleep(Duration::from_millis(120));
@@ -142,16 +130,13 @@ async fn time_batch_window() {
     assert_eq!(out[0], vec![AttributeValue::Int(1)]);
 }
 
-// TODO: NOT PART OF M1 - externalTime window SQL syntax not yet supported
-// See comment above for details.
 #[tokio::test]
-#[ignore = "externalTime window SQL syntax not supported in M1"]
 async fn external_time_window_basic() {
     let app = "\
         CREATE STREAM In (ts BIGINT, v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW externalTime(ts, 100);\n";
+        SELECT v FROM In WINDOW('externalTime', ts, 100);\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send_with_ts(
         "In",
@@ -174,16 +159,13 @@ async fn external_time_window_basic() {
     );
 }
 
-// TODO: NOT PART OF M1 - externalTimeBatch window SQL syntax not yet supported
-// See comment above for details.
 #[tokio::test]
-#[ignore = "externalTimeBatch window SQL syntax not supported in M1"]
 async fn external_time_batch_window() {
     let app = "\
         CREATE STREAM In (ts BIGINT, v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW externalTimeBatch(ts, 100);\n";
+        SELECT v FROM In WINDOW('externalTimeBatch', ts, 100);\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send_with_ts(
         "In",

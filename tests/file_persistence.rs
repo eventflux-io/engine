@@ -18,7 +18,7 @@ async fn persist_restore_file_store() {
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW length(2);\n";
+        SELECT v FROM In WINDOW('length', 2);\n";
     let runner = AppRunner::new_with_store(app, "Out", Arc::clone(&store)).await;
     runner.send("In", vec![AttributeValue::Int(1)]);
     let rev = runner.persist();
@@ -37,7 +37,7 @@ async fn persist_restore_sqlite_store() {
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW length(2);\n";
+        SELECT v FROM In WINDOW('length', 2);\n";
     let runner = AppRunner::new_with_store(app, "Out", Arc::clone(&store)).await;
     runner.send("In", vec![AttributeValue::Int(1)]);
     let rev = runner.persist();

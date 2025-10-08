@@ -40,11 +40,21 @@ impl SelectExpander {
                     }
                 }
 
-                SelectItem::QualifiedWildcard(object_name, _) => {
+                SelectItem::QualifiedWildcard(kind, _) => {
                     // Handle qualified wildcard: stream.*
+                    let object_name = match kind {
+                        sqlparser::ast::SelectItemQualifiedWildcardKind::ObjectName(name) => name,
+                        sqlparser::ast::SelectItemQualifiedWildcardKind::Expr(_) => {
+                            return Err(ExpansionError::UnsupportedFeature(
+                                "Expression wildcards not supported".to_string(),
+                            ));
+                        }
+                    };
+
                     let stream_name = object_name
                         .0
                         .last()
+                        .and_then(|part| part.as_ident())
                         .map(|ident| ident.value.as_str())
                         .ok_or_else(|| {
                             ExpansionError::InvalidSelectItem(

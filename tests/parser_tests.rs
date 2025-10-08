@@ -32,7 +32,7 @@ async fn test_length_window() {
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW length(2);\n";
+        SELECT v FROM In WINDOW('length', 2);\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send("In", vec![AttributeValue::Int(1)]);
     runner.send("In", vec![AttributeValue::Int(2)]);

@@ -92,7 +92,7 @@ mod tests {
 
             SELECT temp
             FROM SensorStream
-            WINDOW LENGTH(10);
+            WINDOW('length', 10);
         "#;
 
         let app = parse_sql_application(sql).unwrap();

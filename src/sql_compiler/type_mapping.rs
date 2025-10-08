@@ -5,7 +5,7 @@
 //! Maps SQL data types to EventFlux's AttributeType system.
 
 use crate::query_api::definition::attribute::Type as AttributeType;
-use sqlparser::ast::DataType;
+use sqlparser::ast::{DataType, ExactNumberInfo};
 
 use super::error::TypeError;
 
@@ -29,7 +29,7 @@ pub fn sql_type_to_attribute_type(sql_type: &DataType) -> Result<AttributeType, 
         DataType::Float(_) | DataType::Real => Ok(AttributeType::FLOAT),
 
         // Double types
-        DataType::Double | DataType::DoublePrecision => Ok(AttributeType::DOUBLE),
+        DataType::Double(_) | DataType::DoublePrecision => Ok(AttributeType::DOUBLE),
 
         // Boolean types
         DataType::Boolean => Ok(AttributeType::BOOL),
@@ -50,7 +50,7 @@ pub fn sql_type_to_attribute_type(sql_type: &DataType) -> Result<AttributeType, 
         DataType::Array(_) => Err(TypeError::UnsupportedType(
             "ARRAY types not supported in M1".to_string(),
         )),
-        DataType::Struct(_) => Err(TypeError::UnsupportedType(
+        DataType::Struct(_, _) => Err(TypeError::UnsupportedType(
             "STRUCT types not supported in M1".to_string(),
         )),
         DataType::JSON => Err(TypeError::UnsupportedType(
@@ -71,8 +71,8 @@ pub fn attribute_type_to_sql_type(attr_type: &AttributeType) -> DataType {
         AttributeType::STRING => DataType::Varchar(None),
         AttributeType::INT => DataType::Int(None),
         AttributeType::LONG => DataType::BigInt(None),
-        AttributeType::FLOAT => DataType::Float(None),
-        AttributeType::DOUBLE => DataType::Double,
+        AttributeType::FLOAT => DataType::Float(ExactNumberInfo::None),
+        AttributeType::DOUBLE => DataType::Double(ExactNumberInfo::None),
         AttributeType::BOOL => DataType::Boolean,
         AttributeType::OBJECT => DataType::JSON, // Best approximation
     }
@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn test_float_types() {
         assert_eq!(
-            sql_type_to_attribute_type(&DataType::Float(None)).unwrap(),
+            sql_type_to_attribute_type(&DataType::Float(ExactNumberInfo::None)).unwrap(),
             AttributeType::FLOAT
         );
         assert_eq!(
@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn test_double_types() {
         assert_eq!(
-            sql_type_to_attribute_type(&DataType::Double).unwrap(),
+            sql_type_to_attribute_type(&DataType::Double(ExactNumberInfo::None)).unwrap(),
             AttributeType::DOUBLE
         );
         assert_eq!(
@@ -154,7 +154,7 @@ mod tests {
         );
         assert_eq!(
             attribute_type_to_sql_type(&AttributeType::DOUBLE),
-            DataType::Double
+            DataType::Double(ExactNumberInfo::None)
         );
     }
 }
