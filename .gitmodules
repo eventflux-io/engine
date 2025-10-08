@@ -1,0 +1,3 @@
+[submodule "vendor/datafusion-sqlparser-rs"]
+	path = vendor/datafusion-sqlparser-rs
+	url = git@github.com:eventflux-io/datafusion-sqlparser-rs.git
