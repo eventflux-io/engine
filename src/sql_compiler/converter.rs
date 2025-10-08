@@ -25,7 +25,6 @@ use crate::query_api::expression::Expression;
 use super::catalog::SqlCatalog;
 use super::error::ConverterError;
 use super::expansion::SelectExpander;
-use super::preprocessor::{SqlPreprocessor, WindowSpec};
 
 /// SQL to Query Converter
 pub struct SqlConverter;
@@ -33,12 +32,8 @@ pub struct SqlConverter;
 impl SqlConverter {
     /// Convert SQL query to Query
     pub fn convert(sql: &str, catalog: &SqlCatalog) -> Result<Query, ConverterError> {
-        // Step 1: Preprocess to extract WINDOW clause
-        let preprocessed = SqlPreprocessor::preprocess(sql)
-            .map_err(|e| ConverterError::ConversionFailed(e.to_string()))?;
-
-        // Step 2: Parse SQL
-        let statements = Parser::parse_sql(&GenericDialect, &preprocessed.standard_sql)
+        // Parse SQL directly (WINDOW clause now handled natively by parser)
+        let statements = Parser::parse_sql(&GenericDialect, sql)
             .map_err(|e| ConverterError::ConversionFailed(format!("SQL parse error: {}", e)))?;
 
         if statements.is_empty() {
@@ -47,21 +42,33 @@ impl SqlConverter {
             ));
         }
 
-        // Step 3: Convert SELECT or INSERT INTO statement to Query
+        // Convert SELECT or INSERT INTO statement to Query
         match &statements[0] {
             Statement::Query(query) => {
                 // Plain SELECT query - output to default "OutputStream"
-                Self::convert_query(query, catalog, preprocessed.window_clause.as_ref(), None)
+                Self::convert_query(query, catalog, None)
             }
-            Statement::Insert {
-                table_name, source, ..
-            } => {
+            Statement::Insert(insert) => {
                 // INSERT INTO TargetStream SELECT ... - extract target stream name
-                let target_stream = table_name.to_string();
+                let target_stream = match &insert.table {
+                    sqlparser::ast::TableObject::TableName(name) => name.to_string(),
+                    sqlparser::ast::TableObject::TableFunction(_) => {
+                        return Err(ConverterError::UnsupportedFeature(
+                            "Table functions not supported in INSERT".to_string(),
+                        ))
+                    }
+                };
+
+                // Extract source query
+                let source = insert.source.as_ref().ok_or_else(|| {
+                    ConverterError::UnsupportedFeature(
+                        "INSERT without SELECT source not supported".to_string(),
+                    )
+                })?;
+
                 Self::convert_query(
                     source,
                     catalog,
-                    preprocessed.window_clause.as_ref(),
                     Some(target_stream),
                 )
             }
@@ -75,17 +82,30 @@ impl SqlConverter {
     fn convert_query(
         sql_query: &sqlparser::ast::Query,
         catalog: &SqlCatalog,
-        window_spec: Option<&super::preprocessor::WindowClauseText>,
         output_stream_name: Option<String>,
     ) -> Result<Query, ConverterError> {
+        // Extract limit and offset from limit_clause
+        let (limit, offset) = match &sql_query.limit_clause {
+            Some(sqlparser::ast::LimitClause::LimitOffset {
+                limit,
+                offset,
+                ..
+            }) => (limit.as_ref(), offset.as_ref()),
+            Some(sqlparser::ast::LimitClause::OffsetCommaLimit { .. }) => {
+                return Err(ConverterError::UnsupportedFeature(
+                    "MySQL-style LIMIT offset,limit syntax not supported".to_string(),
+                ))
+            }
+            None => (None, None),
+        };
+
         match sql_query.body.as_ref() {
             SetExpr::Select(select) => Self::convert_select(
                 select,
                 catalog,
-                window_spec,
-                &sql_query.order_by,
-                sql_query.limit.as_ref(),
-                sql_query.offset.as_ref(),
+                sql_query.order_by.as_ref(),
+                limit,
+                offset,
                 output_stream_name,
             ),
             _ => Err(ConverterError::UnsupportedFeature(
@@ -98,8 +118,7 @@ impl SqlConverter {
     fn convert_select(
         select: &SqlSelect,
         catalog: &SqlCatalog,
-        window_spec: Option<&super::preprocessor::WindowClauseText>,
-        order_by: &[OrderByExpr],
+        order_by: Option<&sqlparser::ast::OrderBy>,
         limit: Option<&SqlExpr>,
         offset: Option<&sqlparser::ast::Offset>,
         output_stream_name: Option<String>,
@@ -128,9 +147,9 @@ impl SqlConverter {
                 Vec::new(), // pre_window_handlers
             );
 
-            // Add WINDOW if present
-            if let Some(window) = window_spec {
-                single_stream = Self::add_window(single_stream, window)?;
+            // Add WINDOW if present from AST
+            if let Some(window_ast) = Self::extract_window_from_table_factor(&select.from) {
+                single_stream = Self::add_window_from_ast(single_stream, window_ast, catalog)?;
             }
 
             // Add WHERE filter (BEFORE aggregation)
@@ -158,7 +177,13 @@ impl SqlConverter {
         .map_err(|e| ConverterError::ConversionFailed(e.to_string()))?;
 
         // Add GROUP BY if present
-        if let sqlparser::ast::GroupByExpr::Expressions(group_exprs) = &select.group_by {
+        if let sqlparser::ast::GroupByExpr::Expressions(group_exprs, modifiers) = &select.group_by {
+            if !modifiers.is_empty() {
+                return Err(ConverterError::UnsupportedFeature(
+                    "GROUP BY modifiers (ROLLUP, CUBE, etc.) not supported in M1".to_string(),
+                ));
+            }
+
             for expr in group_exprs {
                 if let SqlExpr::Identifier(ident) = expr {
                     selector = selector.group_by(Variable::new(ident.value.clone()));
@@ -177,39 +202,51 @@ impl SqlConverter {
         }
 
         // Add ORDER BY
-        for order_expr in order_by {
-            // Extract variable from order_expr.expr
-            let variable = match &order_expr.expr {
-                SqlExpr::Identifier(ident) => Variable::new(ident.value.clone()),
-                SqlExpr::CompoundIdentifier(idents) => {
-                    if idents.len() == 1 {
-                        Variable::new(idents[0].value.clone())
-                    } else {
-                        return Err(ConverterError::UnsupportedFeature(
-                            "Qualified column names in ORDER BY not supported".to_string(),
-                        ));
-                    }
-                }
-                _ => {
+        if let Some(order_by) = order_by {
+            // Extract expressions from OrderBy
+            let order_exprs = match &order_by.kind {
+                sqlparser::ast::OrderByKind::Expressions(exprs) => exprs,
+                sqlparser::ast::OrderByKind::All(_) => {
                     return Err(ConverterError::UnsupportedFeature(
-                        "Complex expressions in ORDER BY not supported in M1".to_string(),
+                        "ORDER BY ALL not supported in M1".to_string(),
                     ))
                 }
             };
 
-            // Determine order (ASC/DESC)
-            let order = if let Some(asc) = order_expr.asc {
-                if asc {
-                    crate::query_api::execution::query::selection::order_by_attribute::Order::Asc
-                } else {
-                    crate::query_api::execution::query::selection::order_by_attribute::Order::Desc
-                }
-            } else {
-                // Default to ASC if not specified
-                crate::query_api::execution::query::selection::order_by_attribute::Order::Asc
-            };
+            for order_expr in order_exprs {
+                // Extract variable from order_expr.expr
+                let variable = match &order_expr.expr {
+                    SqlExpr::Identifier(ident) => Variable::new(ident.value.clone()),
+                    SqlExpr::CompoundIdentifier(idents) => {
+                        if idents.len() == 1 {
+                            Variable::new(idents[0].value.clone())
+                        } else {
+                            return Err(ConverterError::UnsupportedFeature(
+                                "Qualified column names in ORDER BY not supported".to_string(),
+                            ));
+                        }
+                    }
+                    _ => {
+                        return Err(ConverterError::UnsupportedFeature(
+                            "Complex expressions in ORDER BY not supported in M1".to_string(),
+                        ))
+                    }
+                };
 
-            selector = selector.order_by_with_order(variable, order);
+                // Determine order (ASC/DESC)
+                let order = if let Some(asc) = order_expr.options.asc {
+                    if asc {
+                        crate::query_api::execution::query::selection::order_by_attribute::Order::Asc
+                    } else {
+                        crate::query_api::execution::query::selection::order_by_attribute::Order::Desc
+                    }
+                } else {
+                    // Default to ASC if not specified
+                    crate::query_api::execution::query::selection::order_by_attribute::Order::Asc
+                };
+
+                selector = selector.order_by_with_order(variable, order);
+            }
         }
 
         // Add LIMIT
@@ -258,6 +295,7 @@ impl SqlConverter {
             TableFactor::Table { name, .. } => name
                 .0
                 .last()
+                .and_then(|part| part.as_ident())
                 .map(|ident| ident.value.clone())
                 .ok_or_else(|| {
                     ConverterError::ConversionFailed("No table name in FROM".to_string())
@@ -265,6 +303,20 @@ impl SqlConverter {
             _ => Err(ConverterError::UnsupportedFeature(
                 "Complex FROM clauses not supported in M1".to_string(),
             )),
+        }
+    }
+
+    /// Extract window specification from TableFactor (native AST field)
+    fn extract_window_from_table_factor(
+        from: &[sqlparser::ast::TableWithJoins],
+    ) -> Option<&sqlparser::ast::StreamingWindowSpec> {
+        if from.is_empty() {
+            return None;
+        }
+
+        match &from[0].relation {
+            TableFactor::Table { window, .. } => window.as_ref(),
+            _ => None,
         }
     }
 
@@ -290,6 +342,7 @@ impl SqlConverter {
                 let stream_name =
                     name.0
                         .last()
+                        .and_then(|part| part.as_ident())
                         .map(|ident| ident.value.clone())
                         .ok_or_else(|| {
                             ConverterError::ConversionFailed("No left table name".to_string())
@@ -331,6 +384,7 @@ impl SqlConverter {
                 let stream_name =
                     name.0
                         .last()
+                        .and_then(|part| part.as_ident())
                         .map(|ident| ident.value.clone())
                         .ok_or_else(|| {
                             ConverterError::ConversionFailed("No right table name".to_string())
@@ -398,53 +452,65 @@ impl SqlConverter {
     }
 
     /// Add window to SingleInputStream
-    fn add_window(
+    /// Add window from native AST StreamingWindowSpec
+    fn add_window_from_ast(
         stream: SingleInputStream,
-        window: &super::preprocessor::WindowClauseText,
+        window: &sqlparser::ast::StreamingWindowSpec,
+        catalog: &SqlCatalog,
     ) -> Result<SingleInputStream, ConverterError> {
-        use super::preprocessor::TimeUnit;
+        use sqlparser::ast::StreamingWindowSpec;
 
-        match &window.spec {
-            WindowSpec::Tumbling { value, unit } => {
-                let time_expr = Self::create_time_expression(*value, unit)?;
-                Ok(stream.window(None, "timeBatch".to_string(), vec![time_expr]))
+        match window {
+            StreamingWindowSpec::Tumbling { duration } => {
+                let duration_expr = Self::convert_expression(duration, catalog)?;
+                Ok(stream.window(None, "tumbling".to_string(), vec![duration_expr]))
             }
-            WindowSpec::Sliding {
-                window_value,
-                window_unit,
-                slide_value: _,
-                slide_unit: _,
+            StreamingWindowSpec::Sliding { size, slide } => {
+                let size_expr = Self::convert_expression(size, catalog)?;
+                let slide_expr = Self::convert_expression(slide, catalog)?;
+                Ok(stream.window(None, "sliding".to_string(), vec![size_expr, slide_expr]))
+            }
+            StreamingWindowSpec::Length { size } => {
+                let size_expr = Self::convert_expression(size, catalog)?;
+                Ok(stream.window(None, "length".to_string(), vec![size_expr]))
+            }
+            StreamingWindowSpec::Session { gap } => {
+                let gap_expr = Self::convert_expression(gap, catalog)?;
+                Ok(stream.window(None, "session".to_string(), vec![gap_expr]))
+            }
+            StreamingWindowSpec::Time { duration } => {
+                let duration_expr = Self::convert_expression(duration, catalog)?;
+                Ok(stream.window(None, "time".to_string(), vec![duration_expr]))
+            }
+            StreamingWindowSpec::TimeBatch { duration } => {
+                let duration_expr = Self::convert_expression(duration, catalog)?;
+                Ok(stream.window(None, "timeBatch".to_string(), vec![duration_expr]))
+            }
+            StreamingWindowSpec::LengthBatch { size } => {
+                let size_expr = Self::convert_expression(size, catalog)?;
+                Ok(stream.window(None, "lengthBatch".to_string(), vec![size_expr]))
+            }
+            StreamingWindowSpec::ExternalTime {
+                timestamp_field,
+                duration,
             } => {
-                let time_expr = Self::create_time_expression(*window_value, window_unit)?;
-                Ok(stream.window(None, "time".to_string(), vec![time_expr]))
+                let ts_expr = Self::convert_expression(timestamp_field, catalog)?;
+                let duration_expr = Self::convert_expression(duration, catalog)?;
+                Ok(stream.window(None, "externalTime".to_string(), vec![ts_expr, duration_expr]))
             }
-            WindowSpec::Length { size } => Ok(stream.window(
-                None,
-                "length".to_string(),
-                vec![Expression::value_int(*size as i32)],
-            )),
-            WindowSpec::Session { value, unit } => {
-                let time_expr = Self::create_time_expression(*value, unit)?;
-                Ok(stream.window(None, "session".to_string(), vec![time_expr]))
+            StreamingWindowSpec::ExternalTimeBatch {
+                timestamp_field,
+                duration,
+            } => {
+                let ts_expr = Self::convert_expression(timestamp_field, catalog)?;
+                let duration_expr = Self::convert_expression(duration, catalog)?;
+                Ok(stream.window(
+                    None,
+                    "externalTimeBatch".to_string(),
+                    vec![ts_expr, duration_expr],
+                ))
             }
         }
-    }
-
-    /// Create time expression from value and unit
-    fn create_time_expression(
-        value: i64,
-        unit: &super::preprocessor::TimeUnit,
-    ) -> Result<Expression, ConverterError> {
-        use super::preprocessor::TimeUnit;
-
-        let expr = match unit {
-            TimeUnit::Milliseconds => Expression::time_millisec(value),
-            TimeUnit::Seconds => Expression::time_sec(value),
-            TimeUnit::Minutes => Expression::time_minute(value),
-            TimeUnit::Hours => Expression::time_hour(value),
-        };
-
-        Ok(expr)
     }
 
     /// Convert SQL expression to EventFlux Expression
@@ -471,7 +537,7 @@ impl SqlConverter {
                 }
             }
 
-            SqlExpr::Value(value) => match value {
+            SqlExpr::Value(value_with_span) => match &value_with_span.value {
                 sqlparser::ast::Value::Number(n, _) => {
                     if n.contains('.') {
                         Ok(Expression::value_double(n.parse().map_err(|_| {
@@ -490,7 +556,7 @@ impl SqlConverter {
                 sqlparser::ast::Value::Boolean(b) => Ok(Expression::value_bool(*b)),
                 _ => Err(ConverterError::UnsupportedFeature(format!(
                     "Value type {:?}",
-                    value
+                    value_with_span.value
                 ))),
             },
 
@@ -582,9 +648,23 @@ impl SqlConverter {
     ) -> Result<Expression, ConverterError> {
         let func_name = func.name.to_string().to_lowercase();
 
+        // Extract function argument list
+        let arg_list = match &func.args {
+            sqlparser::ast::FunctionArguments::List(list) => list,
+            sqlparser::ast::FunctionArguments::None => {
+                // Functions like CURRENT_TIMESTAMP with no args
+                return Ok(Expression::function(None, func_name, Vec::new()));
+            }
+            sqlparser::ast::FunctionArguments::Subquery(_) => {
+                return Err(ConverterError::UnsupportedFeature(
+                    "Subquery as function argument not supported".to_string(),
+                ));
+            }
+        };
+
         // Convert function arguments
         let mut args = Vec::new();
-        for arg in &func.args {
+        for arg in &arg_list.args {
             match arg {
                 sqlparser::ast::FunctionArg::Unnamed(sqlparser::ast::FunctionArgExpr::Expr(
                     expr,
@@ -638,15 +718,21 @@ impl SqlConverter {
         expr: &SqlExpr,
     ) -> Result<crate::query_api::expression::constant::Constant, ConverterError> {
         match expr {
-            SqlExpr::Value(sqlparser::ast::Value::Number(n, _)) => {
-                // Try to parse as i64 for LIMIT/OFFSET
-                let num = n.parse::<i64>().map_err(|_| {
-                    ConverterError::ConversionFailed(format!(
-                        "Invalid number for LIMIT/OFFSET: {}",
-                        n
+            SqlExpr::Value(value_with_span) => {
+                if let sqlparser::ast::Value::Number(n, _) = &value_with_span.value {
+                    // Try to parse as i64 for LIMIT/OFFSET
+                    let num = n.parse::<i64>().map_err(|_| {
+                        ConverterError::ConversionFailed(format!(
+                            "Invalid number for LIMIT/OFFSET: {}",
+                            n
+                        ))
+                    })?;
+                    Ok(crate::query_api::expression::constant::Constant::long(num))
+                } else {
+                    Err(ConverterError::UnsupportedFeature(
+                        "LIMIT/OFFSET must be numeric constants".to_string(),
                     ))
-                })?;
-                Ok(crate::query_api::expression::constant::Constant::long(num))
+                }
             }
             _ => Err(ConverterError::UnsupportedFeature(
                 "LIMIT/OFFSET must be numeric constants".to_string(),
@@ -696,7 +782,7 @@ mod tests {
     #[test]
     fn test_select_with_window() {
         let catalog = setup_catalog();
-        let sql = "SELECT symbol, price FROM StockStream WINDOW LENGTH(5)";
+        let sql = "SELECT symbol, price FROM StockStream WINDOW('length', 5)";
         let query = SqlConverter::convert(sql, &catalog).unwrap();
 
         assert!(query.get_input_stream().is_some());
