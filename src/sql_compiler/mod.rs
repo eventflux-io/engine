@@ -8,12 +8,13 @@
 //! # Architecture
 //!
 //! The SQL compiler follows a multi-stage pipeline:
-//! 1. **Preprocessing** - Extract streaming extensions (WINDOW clauses)
+//! 1. **SQL Parsing** - Forked sqlparser-rs with native WINDOW() support
 //! 2. **DDL Parsing** - Parse CREATE STREAM statements
-//! 3. **SQL Parsing** - Use sqlparser-rs for standard SQL
-//! 4. **Type Mapping** - Convert SQL types to AttributeType
-//! 5. **SELECT Expansion** - Expand SELECT * using schema
-//! 6. **Conversion** - Convert to query_api::Query structures
+//! 3. **Type Mapping** - Convert SQL types to AttributeType
+//! 4. **SELECT Expansion** - Expand SELECT * using schema
+//! 5. **Conversion** - Convert to query_api::Query structures
+//!
+//! Note: The legacy Preprocessing stage (regex-based) is deprecated as of v0.1.2.
 //!
 //! # Example
 //!
@@ -50,7 +51,13 @@ pub use error::{
     SqlCompilerError, TypeError,
 };
 pub use expansion::SelectExpander;
+
+#[deprecated(
+    since = "0.1.2",
+    note = "Use native parser with StreamingWindowSpec instead. See FORK_MAINTENANCE.md"
+)]
 pub use preprocessor::{PreprocessedSql, SqlPreprocessor, WindowClauseText};
+
 pub use type_mapping::{attribute_type_to_sql_type, sql_type_to_attribute_type};
 
 /// Parse a complete SQL application with multiple statements
