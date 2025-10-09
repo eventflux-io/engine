@@ -5,7 +5,7 @@
 //! Converts SQL statements to EventFlux query_api::Query structures.
 
 use sqlparser::ast::{
-    BinaryOperator, Expr as SqlExpr, JoinConstraint, JoinOperator, OrderByExpr, PartitionKey,
+    BinaryOperator, Expr as SqlExpr, JoinConstraint, JoinOperator, PartitionKey,
     Select as SqlSelect, SetExpr, Statement, TableFactor, UnaryOperator,
 };
 use sqlparser::dialect::GenericDialect;
@@ -15,16 +15,13 @@ use crate::core::query::processor::stream::window::types::{
     WINDOW_TYPE_EXTERNAL_TIME, WINDOW_TYPE_EXTERNAL_TIME_BATCH, WINDOW_TYPE_LENGTH,
     WINDOW_TYPE_LENGTH_BATCH, WINDOW_TYPE_SESSION, WINDOW_TYPE_TIME, WINDOW_TYPE_TIME_BATCH,
 };
-use crate::query_api::execution::partition::value_partition_type::ValuePartitionType;
 use crate::query_api::execution::partition::Partition;
 use crate::query_api::execution::query::input::stream::input_stream::InputStream;
 use crate::query_api::execution::query::input::stream::single_input_stream::SingleInputStream;
 use crate::query_api::execution::query::output::output_stream::{
     InsertIntoStreamAction, OutputStream, OutputStreamAction,
 };
-use crate::query_api::execution::query::selection::selector::Selector;
 use crate::query_api::execution::query::Query;
-use crate::query_api::execution::ExecutionElement;
 use crate::query_api::expression::variable::Variable;
 use crate::query_api::expression::CompareOperator;
 use crate::query_api::expression::Expression;
@@ -86,40 +83,6 @@ impl SqlConverter {
         output_stream_name: Option<String>,
     ) -> Result<Query, ConverterError> {
         Self::convert_query_internal(query, catalog, output_stream_name)
-    }
-
-    /// Convert SQL statement to ExecutionElement (Query or Partition)
-    pub fn convert_to_execution_element(
-        sql: &str,
-        catalog: &SqlCatalog,
-    ) -> Result<ExecutionElement, ConverterError> {
-        // Parse SQL
-        let statements = Parser::parse_sql(&GenericDialect, sql)
-            .map_err(|e| ConverterError::ConversionFailed(format!("SQL parse error: {}", e)))?;
-
-        if statements.is_empty() {
-            return Err(ConverterError::ConversionFailed(
-                "No SQL statements found".to_string(),
-            ));
-        }
-
-        // Convert based on statement type
-        match &statements[0] {
-            Statement::Partition {
-                partition_keys,
-                body,
-            } => {
-                let partition = Self::convert_partition(partition_keys, body, catalog)?;
-                Ok(ExecutionElement::Partition(partition))
-            }
-            Statement::Query(_) | Statement::Insert(_) => {
-                let query = Self::convert(sql, catalog)?;
-                Ok(ExecutionElement::Query(query))
-            }
-            _ => Err(ConverterError::UnsupportedFeature(
-                "Unsupported statement type".to_string(),
-            )),
-        }
     }
 
     /// Convert PARTITION statement to Partition execution element
@@ -434,7 +397,7 @@ impl SqlConverter {
     /// Convert JOIN from clause to JoinInputStream
     fn convert_join_from_clause(
         from: &[sqlparser::ast::TableWithJoins],
-        where_clause: &Option<SqlExpr>,
+        _where_clause: &Option<SqlExpr>, // Reserved for future filter optimization
         catalog: &SqlCatalog,
     ) -> Result<InputStream, ConverterError> {
         use crate::query_api::execution::query::input::stream::join_input_stream::{
@@ -879,9 +842,9 @@ impl SqlConverter {
                     // EventFlux count() takes no arguments
                 }
                 _ => {
-                    return Err(ConverterError::UnsupportedFeature(format!(
-                        "Function argument type not supported"
-                    )));
+                    return Err(ConverterError::UnsupportedFeature(
+                        "Function argument type not supported".to_string(),
+                    ));
                 }
             }
         }
