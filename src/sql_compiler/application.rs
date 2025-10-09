@@ -4,28 +4,30 @@
 //!
 //! Parses multi-statement SQL applications with DDL and queries.
 
+use sqlparser::dialect::GenericDialect;
+use sqlparser::parser::Parser;
+
 use super::catalog::{SqlApplication, SqlCatalog};
 use super::converter::SqlConverter;
-use super::ddl::DdlParser;
 use super::error::ApplicationError;
+use super::normalization::normalize_stream_syntax;
+use super::type_mapping::sql_type_to_attribute_type;
 
 /// Parse a complete SQL application with multiple statements
 pub fn parse_sql_application(sql: &str) -> Result<SqlApplication, ApplicationError> {
-    use sqlparser::dialect::GenericDialect;
-    use sqlparser::parser::Parser;
-    use crate::sql_compiler::type_mapping::sql_type_to_attribute_type;
-
     let mut catalog = SqlCatalog::new();
     let mut execution_elements = Vec::new();
 
-    // Replace CREATE STREAM with CREATE TABLE for sqlparser compatibility
-    let normalized_sql = sql
-        .replace("CREATE STREAM", "CREATE TABLE")
-        .replace("create stream", "CREATE TABLE");
+    // Normalize EventFlux-specific syntax for standard SQL parsing
+    let normalized_sql = normalize_stream_syntax(sql);
 
     // Parse all statements at once using sqlparser
-    let parsed_statements = Parser::parse_sql(&GenericDialect, &normalized_sql)
-        .map_err(|e| ApplicationError::Converter(super::error::ConverterError::ConversionFailed(format!("SQL parse error: {}", e))))?;
+    let parsed_statements = Parser::parse_sql(&GenericDialect, &normalized_sql).map_err(|e| {
+        ApplicationError::Converter(super::error::ConverterError::ConversionFailed(format!(
+            "SQL parse error: {}",
+            e
+        )))
+    })?;
 
     if parsed_statements.is_empty() {
         return Err(ApplicationError::EmptyApplication);
@@ -37,32 +39,60 @@ pub fn parse_sql_application(sql: &str) -> Result<SqlApplication, ApplicationErr
             sqlparser::ast::Statement::CreateTable(create) => {
                 // Handle CREATE STREAM (parsed as CREATE TABLE by sqlparser)
                 let stream_name = create.name.to_string();
-                let mut stream_def = crate::query_api::definition::StreamDefinition::new(stream_name.clone());
+                let mut stream_def =
+                    crate::query_api::definition::StreamDefinition::new(stream_name.clone());
 
                 for col in &create.columns {
-                    let attr_type = sql_type_to_attribute_type(&col.data_type)
-                        .map_err(|e| ApplicationError::Ddl(super::error::DdlError::InvalidCreateStream(e.to_string())))?;
+                    let attr_type = sql_type_to_attribute_type(&col.data_type)?;
                     stream_def = stream_def.attribute(col.name.value.clone(), attr_type);
                 }
 
                 catalog.register_stream(stream_name, stream_def)?;
             }
-            sqlparser::ast::Statement::Query(_) | sqlparser::ast::Statement::Insert(_) => {
-                // Convert to execution element
-                let sql_text = stmt.to_string();
-                let elem = SqlConverter::convert_to_execution_element(&sql_text, &catalog)?;
-                execution_elements.push(elem);
+            sqlparser::ast::Statement::Query(query) => {
+                // Convert query AST directly (no re-parsing!)
+                let q = SqlConverter::convert_query_ast(&query, &catalog, None)?;
+                execution_elements.push(crate::query_api::execution::ExecutionElement::Query(q));
             }
-            sqlparser::ast::Statement::Partition { partition_keys, body } => {
+            sqlparser::ast::Statement::Insert(insert) => {
+                // Convert INSERT AST directly (no re-parsing!)
+                let target_stream = match &insert.table {
+                    sqlparser::ast::TableObject::TableName(name) => name.to_string(),
+                    sqlparser::ast::TableObject::TableFunction(_) => {
+                        return Err(ApplicationError::Converter(
+                            super::error::ConverterError::UnsupportedFeature(
+                                "Table functions not supported in INSERT".to_string(),
+                            ),
+                        ))
+                    }
+                };
+
+                let source = insert.source.as_ref().ok_or_else(|| {
+                    ApplicationError::Converter(super::error::ConverterError::UnsupportedFeature(
+                        "INSERT without SELECT source not supported".to_string(),
+                    ))
+                })?;
+
+                let q = SqlConverter::convert_query_ast(source, &catalog, Some(target_stream))?;
+                execution_elements.push(crate::query_api::execution::ExecutionElement::Query(q));
+            }
+            sqlparser::ast::Statement::Partition {
+                partition_keys,
+                body,
+            } => {
                 // Handle partition directly without re-parsing
                 let partition = SqlConverter::convert_partition(&partition_keys, &body, &catalog)?;
-                execution_elements.push(crate::query_api::execution::ExecutionElement::Partition(partition));
+                execution_elements.push(crate::query_api::execution::ExecutionElement::Partition(
+                    partition,
+                ));
             }
             _ => {
-                return Err(ApplicationError::Converter(super::error::ConverterError::UnsupportedFeature(format!(
-                    "Unsupported statement type: {}",
-                    stmt
-                ))))
+                return Err(ApplicationError::Converter(
+                    super::error::ConverterError::UnsupportedFeature(format!(
+                        "Unsupported statement type: {}",
+                        stmt
+                    )),
+                ))
             }
         }
     }

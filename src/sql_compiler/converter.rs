@@ -5,8 +5,8 @@
 //! Converts SQL statements to EventFlux query_api::Query structures.
 
 use sqlparser::ast::{
-    BinaryOperator, Expr as SqlExpr, JoinConstraint, JoinOperator, OrderByExpr,
-    PartitionKey, Select as SqlSelect, SetExpr, Statement, TableFactor, UnaryOperator,
+    BinaryOperator, Expr as SqlExpr, JoinConstraint, JoinOperator, OrderByExpr, PartitionKey,
+    Select as SqlSelect, SetExpr, Statement, TableFactor, UnaryOperator,
 };
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
@@ -17,7 +17,6 @@ use crate::core::query::processor::stream::window::types::{
 };
 use crate::query_api::execution::partition::value_partition_type::ValuePartitionType;
 use crate::query_api::execution::partition::Partition;
-use crate::query_api::execution::ExecutionElement;
 use crate::query_api::execution::query::input::stream::input_stream::InputStream;
 use crate::query_api::execution::query::input::stream::single_input_stream::SingleInputStream;
 use crate::query_api::execution::query::output::output_stream::{
@@ -25,6 +24,7 @@ use crate::query_api::execution::query::output::output_stream::{
 };
 use crate::query_api::execution::query::selection::selector::Selector;
 use crate::query_api::execution::query::Query;
+use crate::query_api::execution::ExecutionElement;
 use crate::query_api::expression::variable::Variable;
 use crate::query_api::expression::CompareOperator;
 use crate::query_api::expression::Expression;
@@ -37,7 +37,7 @@ use super::expansion::SelectExpander;
 pub struct SqlConverter;
 
 impl SqlConverter {
-    /// Convert SQL query to Query
+    /// Convert SQL string to Query (legacy API - parses then converts)
     pub fn convert(sql: &str, catalog: &SqlCatalog) -> Result<Query, ConverterError> {
         // Parse SQL directly (WINDOW clause now handled natively by parser)
         let statements = Parser::parse_sql(&GenericDialect, sql)
@@ -51,12 +51,8 @@ impl SqlConverter {
 
         // Convert SELECT or INSERT INTO statement to Query
         match &statements[0] {
-            Statement::Query(query) => {
-                // Plain SELECT query - output to default "OutputStream"
-                Self::convert_query(query, catalog, None)
-            }
+            Statement::Query(query) => Self::convert_query_ast(query, catalog, None),
             Statement::Insert(insert) => {
-                // INSERT INTO TargetStream SELECT ... - extract target stream name
                 let target_stream = match &insert.table {
                     sqlparser::ast::TableObject::TableName(name) => name.to_string(),
                     sqlparser::ast::TableObject::TableFunction(_) => {
@@ -66,23 +62,30 @@ impl SqlConverter {
                     }
                 };
 
-                // Extract source query
                 let source = insert.source.as_ref().ok_or_else(|| {
                     ConverterError::UnsupportedFeature(
                         "INSERT without SELECT source not supported".to_string(),
                     )
                 })?;
 
-                Self::convert_query(
-                    source,
-                    catalog,
-                    Some(target_stream),
-                )
+                Self::convert_query_ast(source, catalog, Some(target_stream))
             }
             _ => Err(ConverterError::UnsupportedFeature(
-                "Only SELECT and INSERT INTO queries supported in M1".to_string(),
+                "Only SELECT and INSERT INTO queries are supported".to_string(),
             )),
         }
+    }
+
+    /// Convert parsed Query AST directly to Query (no re-parsing!)
+    ///
+    /// This is the preferred method when you already have a parsed AST.
+    /// It avoids the overhead of serializing and re-parsing the AST.
+    pub fn convert_query_ast(
+        query: &sqlparser::ast::Query,
+        catalog: &SqlCatalog,
+        output_stream_name: Option<String>,
+    ) -> Result<Query, ConverterError> {
+        Self::convert_query_internal(query, catalog, output_stream_name)
     }
 
     /// Convert SQL statement to ExecutionElement (Query or Partition)
@@ -127,15 +130,26 @@ impl SqlConverter {
     ) -> Result<Partition, ConverterError> {
         let mut partition = Partition::new();
 
-        // Convert partition keys to partition types
+        // Validate and convert partition keys
         for key in partition_keys {
             let stream_name = key.stream_name.to_string();
             let attribute_name = key.attribute.value.clone();
 
-            // Create an Expression::Variable for the partition key
-            let partition_expr = Expression::Variable(Variable::new(attribute_name.clone()));
+            // Validate stream exists
+            catalog
+                .get_stream(&stream_name)
+                .map_err(|_| ConverterError::SchemaNotFound(stream_name.clone()))?;
 
-            // Add value partition for this stream
+            // Validate attribute exists in stream
+            if !catalog.has_column(&stream_name, &attribute_name) {
+                return Err(ConverterError::InvalidExpression(format!(
+                    "Attribute '{}' not found in stream '{}'",
+                    attribute_name, stream_name
+                )));
+            }
+
+            // Create partition expression
+            let partition_expr = Expression::Variable(Variable::new(attribute_name.clone()));
             partition = partition.with_value_partition(stream_name, partition_expr);
         }
 
@@ -143,11 +157,10 @@ impl SqlConverter {
         for stmt in body {
             match stmt {
                 Statement::Query(query) => {
-                    let q = Self::convert_query(query, catalog, None)?;
+                    let q = Self::convert_query_ast(query, catalog, None)?;
                     partition = partition.add_query(q);
                 }
                 Statement::Insert(insert) => {
-                    // Extract target stream name
                     let target_stream = match &insert.table {
                         sqlparser::ast::TableObject::TableName(name) => name.to_string(),
                         sqlparser::ast::TableObject::TableFunction(_) => {
@@ -157,19 +170,19 @@ impl SqlConverter {
                         }
                     };
 
-                    // Extract source query
                     let source = insert.source.as_ref().ok_or_else(|| {
                         ConverterError::UnsupportedFeature(
                             "INSERT without SELECT source not supported".to_string(),
                         )
                     })?;
 
-                    let q = Self::convert_query(source, catalog, Some(target_stream))?;
+                    let q = Self::convert_query_ast(source, catalog, Some(target_stream))?;
                     partition = partition.add_query(q);
                 }
                 _ => {
                     return Err(ConverterError::UnsupportedFeature(
-                        "Only SELECT and INSERT INTO statements supported inside PARTITION".to_string(),
+                        "Only SELECT and INSERT INTO statements supported inside PARTITION"
+                            .to_string(),
                     ))
                 }
             }
@@ -178,19 +191,17 @@ impl SqlConverter {
         Ok(partition)
     }
 
-    /// Convert sqlparser Query to EventFlux Query
-    fn convert_query(
+    /// Internal method to convert sqlparser Query AST to EventFlux Query
+    fn convert_query_internal(
         sql_query: &sqlparser::ast::Query,
         catalog: &SqlCatalog,
         output_stream_name: Option<String>,
     ) -> Result<Query, ConverterError> {
         // Extract limit and offset from limit_clause
         let (limit, offset) = match &sql_query.limit_clause {
-            Some(sqlparser::ast::LimitClause::LimitOffset {
-                limit,
-                offset,
-                ..
-            }) => (limit.as_ref(), offset.as_ref()),
+            Some(sqlparser::ast::LimitClause::LimitOffset { limit, offset, .. }) => {
+                (limit.as_ref(), offset.as_ref())
+            }
             Some(sqlparser::ast::LimitClause::OffsetCommaLimit { .. }) => {
                 return Err(ConverterError::UnsupportedFeature(
                     "MySQL-style LIMIT offset,limit syntax not supported".to_string(),
@@ -209,7 +220,7 @@ impl SqlConverter {
                 output_stream_name,
             ),
             _ => Err(ConverterError::UnsupportedFeature(
-                "Only simple SELECT supported in M1".to_string(),
+                "Only simple SELECT supported".to_string(),
             )),
         }
     }
@@ -280,7 +291,7 @@ impl SqlConverter {
         if let sqlparser::ast::GroupByExpr::Expressions(group_exprs, modifiers) = &select.group_by {
             if !modifiers.is_empty() {
                 return Err(ConverterError::UnsupportedFeature(
-                    "GROUP BY modifiers (ROLLUP, CUBE, etc.) not supported in M1".to_string(),
+                    "GROUP BY modifiers (ROLLUP, CUBE, etc.) not supported".to_string(),
                 ));
             }
 
@@ -289,7 +300,7 @@ impl SqlConverter {
                     selector = selector.group_by(Variable::new(ident.value.clone()));
                 } else {
                     return Err(ConverterError::UnsupportedFeature(
-                        "Complex GROUP BY expressions not supported in M1".to_string(),
+                        "Complex GROUP BY expressions not supported".to_string(),
                     ));
                 }
             }
@@ -308,7 +319,7 @@ impl SqlConverter {
                 sqlparser::ast::OrderByKind::Expressions(exprs) => exprs,
                 sqlparser::ast::OrderByKind::All(_) => {
                     return Err(ConverterError::UnsupportedFeature(
-                        "ORDER BY ALL not supported in M1".to_string(),
+                        "ORDER BY ALL not supported".to_string(),
                     ))
                 }
             };
@@ -328,7 +339,7 @@ impl SqlConverter {
                     }
                     _ => {
                         return Err(ConverterError::UnsupportedFeature(
-                            "Complex expressions in ORDER BY not supported in M1".to_string(),
+                            "Complex expressions in ORDER BY not supported".to_string(),
                         ))
                     }
                 };
@@ -401,7 +412,7 @@ impl SqlConverter {
                     ConverterError::ConversionFailed("No table name in FROM".to_string())
                 }),
             _ => Err(ConverterError::UnsupportedFeature(
-                "Complex FROM clauses not supported in M1".to_string(),
+                "Complex FROM clauses not supported".to_string(),
             )),
         }
     }
@@ -439,14 +450,14 @@ impl SqlConverter {
         // Extract left stream
         let left_stream_name = match &from[0].relation {
             TableFactor::Table { name, alias, .. } => {
-                let stream_name =
-                    name.0
-                        .last()
-                        .and_then(|part| part.as_ident())
-                        .map(|ident| ident.value.clone())
-                        .ok_or_else(|| {
-                            ConverterError::ConversionFailed("No left table name".to_string())
-                        })?;
+                let stream_name = name
+                    .0
+                    .last()
+                    .and_then(|part| part.as_ident())
+                    .map(|ident| ident.value.clone())
+                    .ok_or_else(|| {
+                        ConverterError::ConversionFailed("No left table name".to_string())
+                    })?;
 
                 // Validate stream exists
                 catalog
@@ -475,20 +486,20 @@ impl SqlConverter {
             }
         };
 
-        // Get first JOIN (only support single JOIN for M1)
+        // Get first JOIN (only support single JOIN currently)
         let join = &from[0].joins[0];
 
         // Extract right stream
         let right_stream_name = match &join.relation {
             TableFactor::Table { name, alias, .. } => {
-                let stream_name =
-                    name.0
-                        .last()
-                        .and_then(|part| part.as_ident())
-                        .map(|ident| ident.value.clone())
-                        .ok_or_else(|| {
-                            ConverterError::ConversionFailed("No right table name".to_string())
-                        })?;
+                let stream_name = name
+                    .0
+                    .last()
+                    .and_then(|part| part.as_ident())
+                    .map(|ident| ident.value.clone())
+                    .ok_or_else(|| {
+                        ConverterError::ConversionFailed("No right table name".to_string())
+                    })?;
 
                 // Validate stream exists
                 catalog
@@ -544,8 +555,8 @@ impl SqlConverter {
             right_stream_name,
             on_condition,
             EventTrigger::All, // Default trigger
-            None,              // No WITHIN clause for M1
-            None,              // No PER clause for M1
+            None,              // No WITHIN clause currently
+            None,              // No PER clause currently
         );
 
         Ok(InputStream::Join(Box::new(join_stream)))
@@ -564,7 +575,11 @@ impl SqlConverter {
             StreamingWindowSpec::Tumbling { duration } => {
                 // Tumbling windows are non-overlapping time-based batches
                 let duration_expr = Self::convert_expression(duration, catalog)?;
-                Ok(stream.window(None, WINDOW_TYPE_TIME_BATCH.to_string(), vec![duration_expr]))
+                Ok(stream.window(
+                    None,
+                    WINDOW_TYPE_TIME_BATCH.to_string(),
+                    vec![duration_expr],
+                ))
             }
             StreamingWindowSpec::Sliding { size, slide } => {
                 // Sliding/hopping windows not yet implemented
@@ -589,7 +604,11 @@ impl SqlConverter {
             }
             StreamingWindowSpec::TimeBatch { duration } => {
                 let duration_expr = Self::convert_expression(duration, catalog)?;
-                Ok(stream.window(None, WINDOW_TYPE_TIME_BATCH.to_string(), vec![duration_expr]))
+                Ok(stream.window(
+                    None,
+                    WINDOW_TYPE_TIME_BATCH.to_string(),
+                    vec![duration_expr],
+                ))
             }
             StreamingWindowSpec::LengthBatch { size } => {
                 let size_expr = Self::convert_expression(size, catalog)?;
@@ -601,7 +620,11 @@ impl SqlConverter {
             } => {
                 let ts_expr = Self::convert_expression(timestamp_field, catalog)?;
                 let duration_expr = Self::convert_expression(duration, catalog)?;
-                Ok(stream.window(None, WINDOW_TYPE_EXTERNAL_TIME.to_string(), vec![ts_expr, duration_expr]))
+                Ok(stream.window(
+                    None,
+                    WINDOW_TYPE_EXTERNAL_TIME.to_string(),
+                    vec![ts_expr, duration_expr],
+                ))
             }
             StreamingWindowSpec::ExternalTimeBatch {
                 timestamp_field,
@@ -752,6 +775,21 @@ impl SqlConverter {
     }
 
     /// Convert SQL INTERVAL to milliseconds as a Long expression
+    ///
+    /// # Approximations
+    ///
+    /// Note that YEAR and MONTH intervals use fixed approximations:
+    /// - 1 YEAR = 365 days (does not account for leap years)
+    /// - 1 MONTH = 30 days (months vary from 28-31 days)
+    ///
+    /// For precise time-based window operations, prefer SECOND, MINUTE, HOUR, or DAY units.
+    ///
+    /// # Example
+    ///
+    /// ```sql
+    /// INTERVAL '5' SECOND  -- Exact: 5000 milliseconds
+    /// INTERVAL '1' MONTH   -- Approximation: 2592000000 milliseconds (30 days)
+    /// ```
     fn convert_interval_to_millis(
         interval: &sqlparser::ast::Interval,
     ) -> Result<Expression, ConverterError> {
@@ -779,8 +817,14 @@ impl SqlConverter {
 
         // Convert based on time unit
         let millis = match &interval.leading_field {
-            Some(sqlparser::ast::DateTimeField::Year) => value * 365 * 24 * 60 * 60 * 1000,
-            Some(sqlparser::ast::DateTimeField::Month) => value * 30 * 24 * 60 * 60 * 1000,
+            Some(sqlparser::ast::DateTimeField::Year) => {
+                // Approximation: 365 days (ignores leap years)
+                value * 365 * 24 * 60 * 60 * 1000
+            }
+            Some(sqlparser::ast::DateTimeField::Month) => {
+                // Approximation: 30 days (months vary 28-31 days)
+                value * 30 * 24 * 60 * 60 * 1000
+            }
             Some(sqlparser::ast::DateTimeField::Day) => value * 24 * 60 * 60 * 1000,
             Some(sqlparser::ast::DateTimeField::Hour) => value * 60 * 60 * 1000,
             Some(sqlparser::ast::DateTimeField::Minute) => value * 60 * 1000,
@@ -860,7 +904,7 @@ impl SqlConverter {
             "concat" => "concat",
             _ => {
                 return Err(ConverterError::UnsupportedFeature(format!(
-                    "Function '{}' not supported in M1",
+                    "Function '{}' not supported",
                     func_name
                 )))
             }

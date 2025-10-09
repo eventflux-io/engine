@@ -10,10 +10,18 @@ use crate::query_api::eventflux_app::EventFluxApp;
 use crate::query_api::execution::query::Query;
 use crate::query_api::execution::ExecutionElement;
 use crate::query_api::expression::Expression;
+use sqlparser::ast::ColumnDef;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::error::DdlError;
+use super::error::CatalogError;
+
+/// Information extracted from CREATE STREAM statement
+#[derive(Debug, Clone)]
+pub struct CreateStreamInfo {
+    pub name: String,
+    pub columns: Vec<ColumnDef>,
+}
 
 /// SQL Catalog manages stream and table schemas
 #[derive(Debug, Clone)]
@@ -38,9 +46,9 @@ impl SqlCatalog {
         &mut self,
         name: String,
         definition: StreamDefinition,
-    ) -> Result<(), DdlError> {
+    ) -> Result<(), CatalogError> {
         if self.streams.contains_key(&name) {
-            return Err(DdlError::DuplicateStream(name));
+            return Err(CatalogError::DuplicateStream(name));
         }
         self.streams.insert(name, Arc::new(definition));
         Ok(())
@@ -57,7 +65,7 @@ impl SqlCatalog {
     }
 
     /// Get a stream definition by name (or alias)
-    pub fn get_stream(&self, name: &str) -> Result<Arc<StreamDefinition>, DdlError> {
+    pub fn get_stream(&self, name: &str) -> Result<Arc<StreamDefinition>, CatalogError> {
         // Try direct lookup
         if let Some(def) = self.streams.get(name) {
             return Ok(Arc::clone(def));
@@ -70,7 +78,7 @@ impl SqlCatalog {
             }
         }
 
-        Err(DdlError::UnknownStream(name.to_string()))
+        Err(CatalogError::UnknownStream(name.to_string()))
     }
 
     /// Get a table definition by name
@@ -96,7 +104,7 @@ impl SqlCatalog {
         &self,
         stream_name: &str,
         column_name: &str,
-    ) -> Result<AttributeType, DdlError> {
+    ) -> Result<AttributeType, CatalogError> {
         let stream = self.get_stream(stream_name)?;
 
         stream
@@ -106,15 +114,12 @@ impl SqlCatalog {
             .find(|attr| attr.get_name() == column_name)
             .map(|attr| attr.get_type().clone())
             .ok_or_else(|| {
-                DdlError::InvalidCreateStream(format!(
-                    "Column {} not found in stream {}",
-                    column_name, stream_name
-                ))
+                CatalogError::UnknownColumn(stream_name.to_string(), column_name.to_string())
             })
     }
 
     /// Get all columns from a stream
-    pub fn get_all_columns(&self, stream_name: &str) -> Result<Vec<Attribute>, DdlError> {
+    pub fn get_all_columns(&self, stream_name: &str) -> Result<Vec<Attribute>, CatalogError> {
         let stream = self.get_stream(stream_name)?;
         Ok(stream.abstract_definition.get_attribute_list().to_vec())
     }
@@ -208,7 +213,8 @@ impl SqlApplication {
                             });
 
                             // Default to STRING type (type inference would be better)
-                            output_stream = output_stream.attribute(attr_name, AttributeType::STRING);
+                            output_stream =
+                                output_stream.attribute(attr_name, AttributeType::STRING);
                         }
 
                         app.stream_definition_map
@@ -226,18 +232,23 @@ impl SqlApplication {
 
                         if !app.stream_definition_map.contains_key(&target_stream_name) {
                             let selector = query.get_selector();
-                            let mut output_stream = StreamDefinition::new(target_stream_name.clone());
+                            let mut output_stream =
+                                StreamDefinition::new(target_stream_name.clone());
 
                             for output_attr in selector.get_selection_list() {
-                                let attr_name = output_attr.get_rename().clone().unwrap_or_else(|| {
-                                    if let Expression::Variable(var) = output_attr.get_expression() {
-                                        var.get_attribute_name().to_string()
-                                    } else {
-                                        "output".to_string()
-                                    }
-                                });
+                                let attr_name =
+                                    output_attr.get_rename().clone().unwrap_or_else(|| {
+                                        if let Expression::Variable(var) =
+                                            output_attr.get_expression()
+                                        {
+                                            var.get_attribute_name().to_string()
+                                        } else {
+                                            "output".to_string()
+                                        }
+                                    });
 
-                                output_stream = output_stream.attribute(attr_name, AttributeType::STRING);
+                                output_stream =
+                                    output_stream.attribute(attr_name, AttributeType::STRING);
                             }
 
                             app.stream_definition_map
