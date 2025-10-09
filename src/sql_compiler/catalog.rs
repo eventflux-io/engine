@@ -152,18 +152,6 @@ impl SqlApplication {
         }
     }
 
-    /// Create from queries (backward compatibility)
-    pub fn from_queries(catalog: SqlCatalog, queries: Vec<Query>) -> Self {
-        let execution_elements = queries
-            .into_iter()
-            .map(ExecutionElement::Query)
-            .collect();
-        SqlApplication {
-            catalog,
-            execution_elements,
-        }
-    }
-
     /// Get the catalog
     pub fn get_catalog(&self) -> &SqlCatalog {
         &self.catalog
@@ -172,17 +160,6 @@ impl SqlApplication {
     /// Get the execution elements
     pub fn get_execution_elements(&self) -> &[ExecutionElement] {
         &self.execution_elements
-    }
-
-    /// Get only queries (for backward compatibility)
-    pub fn get_queries(&self) -> Vec<&Query> {
-        self.execution_elements
-            .iter()
-            .filter_map(|elem| match elem {
-                ExecutionElement::Query(q) => Some(q),
-                _ => None,
-            })
-            .collect()
     }
 
     /// Check if application is empty

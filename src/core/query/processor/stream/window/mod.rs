@@ -21,6 +21,9 @@ use crate::core::persistence::state_holder::{
     StateHolder as NewStateHolder, StateMetadata, StateSize, StateSnapshot,
 };
 
+// Window type constants
+pub mod types;
+
 // Import session window processor
 mod session_window_processor;
 use session_window_processor::SessionWindowProcessor;
