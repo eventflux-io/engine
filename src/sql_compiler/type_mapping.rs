@@ -37,7 +37,7 @@ pub fn sql_type_to_attribute_type(sql_type: &DataType) -> Result<AttributeType, 
         // Decimal types (precision loss warning)
         DataType::Decimal(_) | DataType::Numeric(_) => {
             // TODO: Add proper logging when log crate is configured
-            // For M1, just map to DOUBLE silently
+            // Map NUMERIC to DOUBLE (precision limited to f64)
             Ok(AttributeType::DOUBLE)
         }
 
@@ -48,16 +48,16 @@ pub fn sql_type_to_attribute_type(sql_type: &DataType) -> Result<AttributeType, 
 
         // Unsupported types
         DataType::Array(_) => Err(TypeError::UnsupportedType(
-            "ARRAY types not supported in M1".to_string(),
+            "ARRAY types not supported".to_string(),
         )),
         DataType::Struct(_, _) => Err(TypeError::UnsupportedType(
-            "STRUCT types not supported in M1".to_string(),
+            "STRUCT types not supported".to_string(),
         )),
         DataType::JSON => Err(TypeError::UnsupportedType(
-            "JSON type not supported in M1".to_string(),
+            "JSON type not supported".to_string(),
         )),
         DataType::Binary(_) | DataType::Varbinary(_) | DataType::Blob(_) => Err(
-            TypeError::UnsupportedType("Binary types not supported in M1".to_string()),
+            TypeError::UnsupportedType("Binary types not supported".to_string()),
         ),
 
         // Catch-all for other types

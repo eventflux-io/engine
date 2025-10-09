@@ -6,8 +6,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum SqlCompilerError {
-    #[error("DDL error: {0}")]
-    Ddl(#[from] DdlError),
+    #[error("Catalog error: {0}")]
+    Catalog(#[from] CatalogError),
 
     #[error("Type error: {0}")]
     Type(#[from] TypeError),
@@ -23,18 +23,15 @@ pub enum SqlCompilerError {
 }
 
 #[derive(Debug, Error)]
-pub enum DdlError {
-    #[error("SQL parse error: {0}")]
-    SqlParseFailed(String),
-
-    #[error("Invalid CREATE STREAM syntax: {0}")]
-    InvalidCreateStream(String),
-
+pub enum CatalogError {
     #[error("Duplicate stream definition: {0}")]
     DuplicateStream(String),
 
     #[error("Unknown stream: {0}")]
     UnknownStream(String),
+
+    #[error("Unknown column: {0}.{1}")]
+    UnknownColumn(String, String),
 }
 
 #[derive(Debug, Error)]
@@ -84,15 +81,15 @@ pub enum ConverterError {
 
 #[derive(Debug, Error)]
 pub enum ApplicationError {
-    #[error("Failed to split SQL statements: {0}")]
-    StatementSplitFailed(String),
-
     #[error("Empty SQL application")]
     EmptyApplication,
 
-    #[error("DDL error: {0}")]
-    Ddl(#[from] DdlError),
+    #[error("Catalog error: {0}")]
+    Catalog(#[from] CatalogError),
 
     #[error("Converter error: {0}")]
     Converter(#[from] ConverterError),
+
+    #[error("Type error: {0}")]
+    Type(#[from] TypeError),
 }

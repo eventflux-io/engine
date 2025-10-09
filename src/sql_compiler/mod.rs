@@ -33,20 +33,20 @@
 pub mod application;
 pub mod catalog;
 pub mod converter;
-pub mod ddl;
 pub mod error;
 pub mod expansion;
+pub mod normalization;
 pub mod type_mapping;
 
 // Re-export main types for convenient access
 pub use application::parse_sql_application;
-pub use catalog::{SqlApplication, SqlCatalog};
+pub use catalog::{CreateStreamInfo, SqlApplication, SqlCatalog};
 pub use converter::SqlConverter;
-pub use ddl::{CreateStreamInfo, DdlParser};
 pub use error::{
-    ApplicationError, ConverterError, DdlError, ExpansionError, SqlCompilerError, TypeError,
+    ApplicationError, CatalogError, ConverterError, ExpansionError, SqlCompilerError, TypeError,
 };
 pub use expansion::SelectExpander;
+pub use normalization::{is_create_stream, normalize_stream_syntax};
 pub use type_mapping::{attribute_type_to_sql_type, sql_type_to_attribute_type};
 
 /// Parse a complete SQL application with multiple statements
