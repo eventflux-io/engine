@@ -7,7 +7,6 @@
 use crate::query_api::definition::attribute::{Attribute, Type as AttributeType};
 use crate::query_api::definition::{StreamDefinition, TableDefinition};
 use crate::query_api::eventflux_app::EventFluxApp;
-use crate::query_api::execution::query::Query;
 use crate::query_api::execution::ExecutionElement;
 use crate::query_api::expression::Expression;
 use sqlparser::ast::ColumnDef;
@@ -112,7 +111,7 @@ impl SqlCatalog {
             .get_attribute_list()
             .iter()
             .find(|attr| attr.get_name() == column_name)
-            .map(|attr| attr.get_type().clone())
+            .map(|attr| *attr.get_type())
             .ok_or_else(|| {
                 CatalogError::UnknownColumn(stream_name.to_string(), column_name.to_string())
             })
@@ -197,44 +196,15 @@ impl SqlApplication {
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| "OutputStream".to_string());
 
-                    // Create output stream if it doesn't exist
-                    if !app.stream_definition_map.contains_key(&target_stream_name) {
-                        let selector = query.get_selector();
-                        let mut output_stream = StreamDefinition::new(target_stream_name.clone());
-
-                        // Add attributes from selector output
-                        for output_attr in selector.get_selection_list() {
-                            let attr_name = output_attr.get_rename().clone().unwrap_or_else(|| {
-                                if let Expression::Variable(var) = output_attr.get_expression() {
-                                    var.get_attribute_name().to_string()
-                                } else {
-                                    "output".to_string()
-                                }
-                            });
-
-                            // Default to STRING type (type inference would be better)
-                            output_stream =
-                                output_stream.attribute(attr_name, AttributeType::STRING);
-                        }
-
-                        app.stream_definition_map
-                            .insert(target_stream_name, Arc::new(output_stream));
-                    }
-                }
-                ExecutionElement::Partition(partition) => {
-                    // Auto-create output streams from queries within partition
-                    for query in &partition.query_list {
-                        let output_stream = query.get_output_stream();
-                        let target_stream_name = output_stream
-                            .get_target_id()
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| "OutputStream".to_string());
-
-                        if !app.stream_definition_map.contains_key(&target_stream_name) {
+                    // Create output stream if it doesn't exist (using entry API)
+                    app.stream_definition_map
+                        .entry(target_stream_name.clone())
+                        .or_insert_with(|| {
                             let selector = query.get_selector();
                             let mut output_stream =
                                 StreamDefinition::new(target_stream_name.clone());
 
+                            // Add attributes from selector output
                             for output_attr in selector.get_selection_list() {
                                 let attr_name =
                                     output_attr.get_rename().clone().unwrap_or_else(|| {
@@ -247,13 +217,48 @@ impl SqlApplication {
                                         }
                                     });
 
+                                // Default to STRING type (type inference would be better)
                                 output_stream =
                                     output_stream.attribute(attr_name, AttributeType::STRING);
                             }
 
-                            app.stream_definition_map
-                                .insert(target_stream_name, Arc::new(output_stream));
-                        }
+                            Arc::new(output_stream)
+                        });
+                }
+                ExecutionElement::Partition(partition) => {
+                    // Auto-create output streams from queries within partition
+                    for query in &partition.query_list {
+                        let output_stream = query.get_output_stream();
+                        let target_stream_name = output_stream
+                            .get_target_id()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| "OutputStream".to_string());
+
+                        app.stream_definition_map
+                            .entry(target_stream_name.clone())
+                            .or_insert_with(|| {
+                                let selector = query.get_selector();
+                                let mut output_stream =
+                                    StreamDefinition::new(target_stream_name.clone());
+
+                                for output_attr in selector.get_selection_list() {
+                                    let attr_name =
+                                        output_attr.get_rename().clone().unwrap_or_else(|| {
+                                            if let Expression::Variable(var) =
+                                                output_attr.get_expression()
+                                            {
+                                                var.get_attribute_name().to_string()
+                                            } else {
+                                                "output".to_string()
+                                            }
+                                        });
+
+                                    output_stream =
+                                        output_stream.attribute(attr_name, AttributeType::STRING);
+                                }
+
+                                Arc::new(output_stream)
+                            });
                     }
                 }
             }
