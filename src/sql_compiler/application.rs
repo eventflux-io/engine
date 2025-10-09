@@ -11,35 +11,63 @@ use super::error::ApplicationError;
 
 /// Parse a complete SQL application with multiple statements
 pub fn parse_sql_application(sql: &str) -> Result<SqlApplication, ApplicationError> {
+    use sqlparser::dialect::GenericDialect;
+    use sqlparser::parser::Parser;
+    use crate::sql_compiler::type_mapping::sql_type_to_attribute_type;
+
     let mut catalog = SqlCatalog::new();
-    let mut queries = Vec::new();
+    let mut execution_elements = Vec::new();
 
-    // Split SQL into individual statements
-    let statements = split_sql_statements(sql);
+    // Replace CREATE STREAM with CREATE TABLE for sqlparser compatibility
+    let normalized_sql = sql
+        .replace("CREATE STREAM", "CREATE TABLE")
+        .replace("create stream", "CREATE TABLE");
 
-    if statements.is_empty() {
+    // Parse all statements at once using sqlparser
+    let parsed_statements = Parser::parse_sql(&GenericDialect, &normalized_sql)
+        .map_err(|e| ApplicationError::Converter(super::error::ConverterError::ConversionFailed(format!("SQL parse error: {}", e))))?;
+
+    if parsed_statements.is_empty() {
         return Err(ApplicationError::EmptyApplication);
     }
 
-    // Process each statement
-    for stmt_text in statements {
-        let trimmed = stmt_text.trim();
+    // Process each parsed statement
+    for stmt in parsed_statements {
+        match stmt {
+            sqlparser::ast::Statement::CreateTable(create) => {
+                // Handle CREATE STREAM (parsed as CREATE TABLE by sqlparser)
+                let stream_name = create.name.to_string();
+                let mut stream_def = crate::query_api::definition::StreamDefinition::new(stream_name.clone());
 
-        if trimmed.is_empty() {
-            continue;
-        }
+                for col in &create.columns {
+                    let attr_type = sql_type_to_attribute_type(&col.data_type)
+                        .map_err(|e| ApplicationError::Ddl(super::error::DdlError::InvalidCreateStream(e.to_string())))?;
+                    stream_def = stream_def.attribute(col.name.value.clone(), attr_type);
+                }
 
-        // Check if it's a CREATE STREAM statement
-        if DdlParser::is_create_stream(trimmed) {
-            DdlParser::register_create_stream(trimmed, &mut catalog)?;
-        } else {
-            // Parse as query
-            let query = SqlConverter::convert(trimmed, &catalog)?;
-            queries.push(query);
+                catalog.register_stream(stream_name, stream_def)?;
+            }
+            sqlparser::ast::Statement::Query(_) | sqlparser::ast::Statement::Insert(_) => {
+                // Convert to execution element
+                let sql_text = stmt.to_string();
+                let elem = SqlConverter::convert_to_execution_element(&sql_text, &catalog)?;
+                execution_elements.push(elem);
+            }
+            sqlparser::ast::Statement::Partition { partition_keys, body } => {
+                // Handle partition directly without re-parsing
+                let partition = SqlConverter::convert_partition(&partition_keys, &body, &catalog)?;
+                execution_elements.push(crate::query_api::execution::ExecutionElement::Partition(partition));
+            }
+            _ => {
+                return Err(ApplicationError::Converter(super::error::ConverterError::UnsupportedFeature(format!(
+                    "Unsupported statement type: {}",
+                    stmt
+                ))))
+            }
         }
     }
 
-    Ok(SqlApplication::new(catalog, queries))
+    Ok(SqlApplication::new(catalog, execution_elements))
 }
 
 /// Split SQL text into individual statements
@@ -67,7 +95,7 @@ mod tests {
 
         let app = parse_sql_application(sql).unwrap();
         assert!(!app.catalog.is_empty());
-        assert_eq!(app.queries.len(), 1);
+        assert_eq!(app.execution_elements.len(), 1);
     }
 
     #[test]
@@ -82,7 +110,7 @@ mod tests {
 
         let app = parse_sql_application(sql).unwrap();
         assert_eq!(app.catalog.get_stream_names().len(), 2);
-        assert_eq!(app.queries.len(), 2);
+        assert_eq!(app.execution_elements.len(), 2);
     }
 
     #[test]
@@ -96,7 +124,7 @@ mod tests {
         "#;
 
         let app = parse_sql_application(sql).unwrap();
-        assert_eq!(app.queries.len(), 1);
+        assert_eq!(app.execution_elements.len(), 1);
     }
 
     #[test]
@@ -135,6 +163,6 @@ mod tests {
         "#;
 
         let app = parse_sql_application(sql).unwrap();
-        assert_eq!(app.queries.len(), 1);
+        assert_eq!(app.execution_elements.len(), 1);
     }
 }

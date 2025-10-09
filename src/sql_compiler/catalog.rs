@@ -136,17 +136,32 @@ impl Default for SqlCatalog {
     }
 }
 
-/// Represents a complete SQL application with catalog and queries
+/// Represents a complete SQL application with catalog and execution elements
 #[derive(Debug, Clone)]
 pub struct SqlApplication {
     pub catalog: SqlCatalog,
-    pub queries: Vec<Query>,
+    pub execution_elements: Vec<ExecutionElement>,
 }
 
 impl SqlApplication {
     /// Create a new SQL application
-    pub fn new(catalog: SqlCatalog, queries: Vec<Query>) -> Self {
-        SqlApplication { catalog, queries }
+    pub fn new(catalog: SqlCatalog, execution_elements: Vec<ExecutionElement>) -> Self {
+        SqlApplication {
+            catalog,
+            execution_elements,
+        }
+    }
+
+    /// Create from queries (backward compatibility)
+    pub fn from_queries(catalog: SqlCatalog, queries: Vec<Query>) -> Self {
+        let execution_elements = queries
+            .into_iter()
+            .map(ExecutionElement::Query)
+            .collect();
+        SqlApplication {
+            catalog,
+            execution_elements,
+        }
     }
 
     /// Get the catalog
@@ -154,14 +169,25 @@ impl SqlApplication {
         &self.catalog
     }
 
-    /// Get the queries
-    pub fn get_queries(&self) -> &[Query] {
-        &self.queries
+    /// Get the execution elements
+    pub fn get_execution_elements(&self) -> &[ExecutionElement] {
+        &self.execution_elements
+    }
+
+    /// Get only queries (for backward compatibility)
+    pub fn get_queries(&self) -> Vec<&Query> {
+        self.execution_elements
+            .iter()
+            .filter_map(|elem| match elem {
+                ExecutionElement::Query(q) => Some(q),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Check if application is empty
     pub fn is_empty(&self) -> bool {
-        self.queries.is_empty()
+        self.execution_elements.is_empty()
     }
 
     /// Convert to EventFluxApp for runtime creation
@@ -178,42 +204,76 @@ impl SqlApplication {
             app.table_definition_map.insert(table_name, table_def);
         }
 
-        // Auto-create output streams from queries
-        for query in &self.queries {
-            // Extract target stream name from query's output stream
-            let output_stream = query.get_output_stream();
-            let target_stream_name = output_stream
-                .get_target_id()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "OutputStream".to_string());
+        // Auto-create output streams from queries in execution elements
+        for elem in &self.execution_elements {
+            match elem {
+                ExecutionElement::Query(query) => {
+                    // Extract target stream name from query's output stream
+                    let output_stream = query.get_output_stream();
+                    let target_stream_name = output_stream
+                        .get_target_id()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "OutputStream".to_string());
 
-            // Create output stream if it doesn't exist
-            if !app.stream_definition_map.contains_key(&target_stream_name) {
-                let selector = query.get_selector();
-                let mut output_stream = StreamDefinition::new(target_stream_name.clone());
+                    // Create output stream if it doesn't exist
+                    if !app.stream_definition_map.contains_key(&target_stream_name) {
+                        let selector = query.get_selector();
+                        let mut output_stream = StreamDefinition::new(target_stream_name.clone());
 
-                // Add attributes from selector output
-                for output_attr in selector.get_selection_list() {
-                    let attr_name = output_attr.get_rename().clone().unwrap_or_else(|| {
-                        if let Expression::Variable(var) = output_attr.get_expression() {
-                            var.get_attribute_name().to_string()
-                        } else {
-                            "output".to_string()
+                        // Add attributes from selector output
+                        for output_attr in selector.get_selection_list() {
+                            let attr_name = output_attr.get_rename().clone().unwrap_or_else(|| {
+                                if let Expression::Variable(var) = output_attr.get_expression() {
+                                    var.get_attribute_name().to_string()
+                                } else {
+                                    "output".to_string()
+                                }
+                            });
+
+                            // Default to STRING type (type inference would be better)
+                            output_stream = output_stream.attribute(attr_name, AttributeType::STRING);
                         }
-                    });
 
-                    // Default to STRING type (type inference would be better)
-                    output_stream = output_stream.attribute(attr_name, AttributeType::STRING);
+                        app.stream_definition_map
+                            .insert(target_stream_name, Arc::new(output_stream));
+                    }
                 }
+                ExecutionElement::Partition(partition) => {
+                    // Auto-create output streams from queries within partition
+                    for query in &partition.query_list {
+                        let output_stream = query.get_output_stream();
+                        let target_stream_name = output_stream
+                            .get_target_id()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| "OutputStream".to_string());
 
-                app.stream_definition_map
-                    .insert(target_stream_name, Arc::new(output_stream));
+                        if !app.stream_definition_map.contains_key(&target_stream_name) {
+                            let selector = query.get_selector();
+                            let mut output_stream = StreamDefinition::new(target_stream_name.clone());
+
+                            for output_attr in selector.get_selection_list() {
+                                let attr_name = output_attr.get_rename().clone().unwrap_or_else(|| {
+                                    if let Expression::Variable(var) = output_attr.get_expression() {
+                                        var.get_attribute_name().to_string()
+                                    } else {
+                                        "output".to_string()
+                                    }
+                                });
+
+                                output_stream = output_stream.attribute(attr_name, AttributeType::STRING);
+                            }
+
+                            app.stream_definition_map
+                                .insert(target_stream_name, Arc::new(output_stream));
+                        }
+                    }
+                }
             }
         }
 
-        // Add all queries as execution elements
-        for query in self.queries {
-            app.add_execution_element(ExecutionElement::Query(query));
+        // Add all execution elements
+        for elem in self.execution_elements {
+            app.add_execution_element(elem);
         }
 
         app
