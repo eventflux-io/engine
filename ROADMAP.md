@@ -138,9 +138,9 @@ let statements = Parser::parse_sql(&GenericDialect, sql)?;
 
 #### **Disabled Tests Breakdown** (66 tests awaiting grammar features)
 
-**🔴 PRIORITY 1: High Business Value** (10 tests - Target: M2)
+**🔴 PRIORITY 1: High Business Value** (9 tests - Target: M2)
 
-1. **PARTITION Syntax** (6 tests) - `app_runner_partitions.rs`, `app_runner_partition_stress.rs`
+1. **PARTITION Syntax** (5 tests) - `app_runner_partitions.rs`, `app_runner_partition_stress.rs`
    ```sql
    PARTITION WITH (symbol OF StockStream)
    BEGIN

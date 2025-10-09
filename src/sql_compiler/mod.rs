@@ -14,8 +14,6 @@
 //! 4. **SELECT Expansion** - Expand SELECT * using schema
 //! 5. **Conversion** - Convert to query_api::Query structures
 //!
-//! Note: The legacy Preprocessing stage (regex-based) is deprecated as of v0.1.2.
-//!
 //! # Example
 //!
 //! ```rust,ignore
@@ -38,7 +36,6 @@ pub mod converter;
 pub mod ddl;
 pub mod error;
 pub mod expansion;
-pub mod preprocessor;
 pub mod type_mapping;
 
 // Re-export main types for convenient access
@@ -47,17 +44,9 @@ pub use catalog::{SqlApplication, SqlCatalog};
 pub use converter::SqlConverter;
 pub use ddl::{CreateStreamInfo, DdlParser};
 pub use error::{
-    ApplicationError, ConverterError, DdlError, ExpansionError, PreprocessorError,
-    SqlCompilerError, TypeError,
+    ApplicationError, ConverterError, DdlError, ExpansionError, SqlCompilerError, TypeError,
 };
 pub use expansion::SelectExpander;
-
-#[deprecated(
-    since = "0.1.2",
-    note = "Use native parser with StreamingWindowSpec instead. See FORK_MAINTENANCE.md"
-)]
-pub use preprocessor::{PreprocessedSql, SqlPreprocessor, WindowClauseText};
-
 pub use type_mapping::{attribute_type_to_sql_type, sql_type_to_attribute_type};
 
 /// Parse a complete SQL application with multiple statements

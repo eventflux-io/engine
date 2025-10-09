@@ -11,6 +11,10 @@ use sqlparser::ast::{
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
 
+use crate::core::query::processor::stream::window::types::{
+    WINDOW_TYPE_EXTERNAL_TIME, WINDOW_TYPE_EXTERNAL_TIME_BATCH, WINDOW_TYPE_LENGTH,
+    WINDOW_TYPE_LENGTH_BATCH, WINDOW_TYPE_SESSION, WINDOW_TYPE_TIME, WINDOW_TYPE_TIME_BATCH,
+};
 use crate::query_api::execution::partition::value_partition_type::ValuePartitionType;
 use crate::query_api::execution::partition::Partition;
 use crate::query_api::execution::ExecutionElement;
@@ -558,33 +562,38 @@ impl SqlConverter {
 
         match window {
             StreamingWindowSpec::Tumbling { duration } => {
+                // Tumbling windows are non-overlapping time-based batches
                 let duration_expr = Self::convert_expression(duration, catalog)?;
-                Ok(stream.window(None, "tumbling".to_string(), vec![duration_expr]))
+                Ok(stream.window(None, WINDOW_TYPE_TIME_BATCH.to_string(), vec![duration_expr]))
             }
             StreamingWindowSpec::Sliding { size, slide } => {
-                let size_expr = Self::convert_expression(size, catalog)?;
-                let slide_expr = Self::convert_expression(slide, catalog)?;
-                Ok(stream.window(None, "sliding".to_string(), vec![size_expr, slide_expr]))
+                // Sliding/hopping windows not yet implemented
+                // TODO: Implement sliding window processor (requires size + slide parameters)
+                let _size_expr = Self::convert_expression(size, catalog)?;
+                let _slide_expr = Self::convert_expression(slide, catalog)?;
+                Err(ConverterError::UnsupportedFeature(
+                    "Sliding windows not yet implemented. Use 'time' for overlapping windows or 'timeBatch' for non-overlapping.".to_string()
+                ))
             }
             StreamingWindowSpec::Length { size } => {
                 let size_expr = Self::convert_expression(size, catalog)?;
-                Ok(stream.window(None, "length".to_string(), vec![size_expr]))
+                Ok(stream.window(None, WINDOW_TYPE_LENGTH.to_string(), vec![size_expr]))
             }
             StreamingWindowSpec::Session { gap } => {
                 let gap_expr = Self::convert_expression(gap, catalog)?;
-                Ok(stream.window(None, "session".to_string(), vec![gap_expr]))
+                Ok(stream.window(None, WINDOW_TYPE_SESSION.to_string(), vec![gap_expr]))
             }
             StreamingWindowSpec::Time { duration } => {
                 let duration_expr = Self::convert_expression(duration, catalog)?;
-                Ok(stream.window(None, "time".to_string(), vec![duration_expr]))
+                Ok(stream.window(None, WINDOW_TYPE_TIME.to_string(), vec![duration_expr]))
             }
             StreamingWindowSpec::TimeBatch { duration } => {
                 let duration_expr = Self::convert_expression(duration, catalog)?;
-                Ok(stream.window(None, "timeBatch".to_string(), vec![duration_expr]))
+                Ok(stream.window(None, WINDOW_TYPE_TIME_BATCH.to_string(), vec![duration_expr]))
             }
             StreamingWindowSpec::LengthBatch { size } => {
                 let size_expr = Self::convert_expression(size, catalog)?;
-                Ok(stream.window(None, "lengthBatch".to_string(), vec![size_expr]))
+                Ok(stream.window(None, WINDOW_TYPE_LENGTH_BATCH.to_string(), vec![size_expr]))
             }
             StreamingWindowSpec::ExternalTime {
                 timestamp_field,
@@ -592,7 +601,7 @@ impl SqlConverter {
             } => {
                 let ts_expr = Self::convert_expression(timestamp_field, catalog)?;
                 let duration_expr = Self::convert_expression(duration, catalog)?;
-                Ok(stream.window(None, "externalTime".to_string(), vec![ts_expr, duration_expr]))
+                Ok(stream.window(None, WINDOW_TYPE_EXTERNAL_TIME.to_string(), vec![ts_expr, duration_expr]))
             }
             StreamingWindowSpec::ExternalTimeBatch {
                 timestamp_field,
@@ -602,7 +611,7 @@ impl SqlConverter {
                 let duration_expr = Self::convert_expression(duration, catalog)?;
                 Ok(stream.window(
                     None,
-                    "externalTimeBatch".to_string(),
+                    WINDOW_TYPE_EXTERNAL_TIME_BATCH.to_string(),
                     vec![ts_expr, duration_expr],
                 ))
             }
@@ -730,11 +739,65 @@ impl SqlConverter {
                 }
             }
 
+            SqlExpr::Interval(interval) => {
+                // Convert INTERVAL '5' SECOND to milliseconds
+                Self::convert_interval_to_millis(interval)
+            }
+
             _ => Err(ConverterError::UnsupportedFeature(format!(
                 "Expression type {:?}",
                 expr
             ))),
         }
+    }
+
+    /// Convert SQL INTERVAL to milliseconds as a Long expression
+    fn convert_interval_to_millis(
+        interval: &sqlparser::ast::Interval,
+    ) -> Result<Expression, ConverterError> {
+        // Extract the numeric value
+        let value = match interval.value.as_ref() {
+            SqlExpr::Value(value_with_span) => match &value_with_span.value {
+                sqlparser::ast::Value::Number(n, _) => n.parse::<i64>().map_err(|_| {
+                    ConverterError::InvalidExpression(format!("Invalid interval value: {}", n))
+                })?,
+                sqlparser::ast::Value::SingleQuotedString(s) => s.parse::<i64>().map_err(|_| {
+                    ConverterError::InvalidExpression(format!("Invalid interval value: {}", s))
+                })?,
+                _ => {
+                    return Err(ConverterError::UnsupportedFeature(
+                        "Complex interval values not supported".to_string(),
+                    ))
+                }
+            },
+            _ => {
+                return Err(ConverterError::UnsupportedFeature(
+                    "Complex interval expressions not supported".to_string(),
+                ))
+            }
+        };
+
+        // Convert based on time unit
+        let millis = match &interval.leading_field {
+            Some(sqlparser::ast::DateTimeField::Year) => value * 365 * 24 * 60 * 60 * 1000,
+            Some(sqlparser::ast::DateTimeField::Month) => value * 30 * 24 * 60 * 60 * 1000,
+            Some(sqlparser::ast::DateTimeField::Day) => value * 24 * 60 * 60 * 1000,
+            Some(sqlparser::ast::DateTimeField::Hour) => value * 60 * 60 * 1000,
+            Some(sqlparser::ast::DateTimeField::Minute) => value * 60 * 1000,
+            Some(sqlparser::ast::DateTimeField::Second) => value * 1000,
+            None => {
+                // Default to milliseconds if no unit specified
+                value
+            }
+            _ => {
+                return Err(ConverterError::UnsupportedFeature(format!(
+                    "Interval unit {:?} not supported",
+                    interval.leading_field
+                )))
+            }
+        };
+
+        Ok(Expression::value_long(millis))
     }
 
     /// Convert SQL function to EventFlux function call

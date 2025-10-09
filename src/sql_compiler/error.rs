@@ -6,9 +6,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum SqlCompilerError {
-    #[error("Preprocessor error: {0}")]
-    Preprocessor(#[from] PreprocessorError),
-
     #[error("DDL error: {0}")]
     Ddl(#[from] DdlError),
 
@@ -23,18 +20,6 @@ pub enum SqlCompilerError {
 
     #[error("Application error: {0}")]
     Application(#[from] ApplicationError),
-}
-
-#[derive(Debug, Error)]
-pub enum PreprocessorError {
-    #[error("Failed to parse window clause: {0}")]
-    WindowParseFailed(String),
-
-    #[error("Invalid window type: {0}")]
-    InvalidWindowType(String),
-
-    #[error("Invalid window parameters: {0}")]
-    InvalidWindowParams(String),
 }
 
 #[derive(Debug, Error)]
@@ -110,7 +95,4 @@ pub enum ApplicationError {
 
     #[error("Converter error: {0}")]
     Converter(#[from] ConverterError),
-
-    #[error("Preprocessor error: {0}")]
-    Preprocessor(#[from] PreprocessorError),
 }

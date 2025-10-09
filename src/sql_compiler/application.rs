@@ -70,15 +70,6 @@ pub fn parse_sql_application(sql: &str) -> Result<SqlApplication, ApplicationErr
     Ok(SqlApplication::new(catalog, execution_elements))
 }
 
-/// Split SQL text into individual statements
-fn split_sql_statements(sql: &str) -> Vec<String> {
-    // Simple semicolon split (can be enhanced with proper parsing)
-    sql.split(';')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,16 +123,6 @@ mod tests {
         let sql = "";
         let result = parse_sql_application(sql);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_split_statements() {
-        let sql = "CREATE STREAM S1 (x INT); SELECT x FROM S1; SELECT x FROM S1";
-        let stmts = split_sql_statements(sql);
-        assert_eq!(stmts.len(), 3);
-        assert!(stmts[0].contains("CREATE STREAM"));
-        assert!(stmts[1].contains("SELECT"));
-        assert!(stmts[2].contains("SELECT"));
     }
 
     #[test]
