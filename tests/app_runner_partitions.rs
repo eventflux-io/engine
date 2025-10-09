@@ -5,20 +5,15 @@ mod common;
 use common::AppRunner;
 use eventflux_rust::core::event::value::AttributeValue;
 
-// TODO: NOT PART OF M1 - PARTITION feature not in M1
-// This test uses "partition with" syntax which is an advanced feature not included in M1.
-// M1 covers: Basic queries, Windows, Joins, GROUP BY, HAVING, ORDER BY, LIMIT
-// Partition support will be implemented in Phase 2.
-// See feat/grammar/GRAMMAR_STATUS.md for M1 feature list.
 #[tokio::test]
-#[ignore = "Requires PARTITION support - Not part of M1"]
 async fn partition_forward() {
     let app = "\
-        define stream InStream (symbol string, volume int);\n\
-        define stream OutStream (vol int);\n\
-        partition with (symbol of InStream) begin \n\
-            from InStream select volume as vol insert into OutStream; \n\
-        end;\n";
+        CREATE STREAM InStream (symbol VARCHAR, volume INT);
+        CREATE STREAM OutStream (vol INT);
+        PARTITION WITH (symbol OF InStream)
+        BEGIN
+            INSERT INTO OutStream SELECT volume AS vol FROM InStream;
+        END;";
     let runner = AppRunner::new(app, "OutStream").await;
     runner.send(
         "InStream",
@@ -43,20 +38,15 @@ async fn partition_forward() {
     );
 }
 
-// TODO: NOT PART OF M1 - PARTITION feature not in M1
-// This test uses "partition with" syntax which is an advanced feature not included in M1.
-// M1 covers: Basic queries, Windows, Joins, GROUP BY, HAVING, ORDER BY, LIMIT
-// Partition support will be implemented in Phase 2.
-// See feat/grammar/GRAMMAR_STATUS.md for M1 feature list.
 #[tokio::test]
-#[ignore = "Requires PARTITION support - Not part of M1"]
 async fn partition_sum_by_symbol() {
     let app = "\
-        define stream InStream (symbol string, volume int);\n\
-        define stream OutStream (sumvol long);\n\
-        partition with (symbol of InStream) begin \n\
-            from InStream select sum(volume) as sumvol insert into OutStream; \n\
-        end;\n";
+        CREATE STREAM InStream (symbol VARCHAR, volume INT);
+        CREATE STREAM OutStream (sumvol BIGINT);
+        PARTITION WITH (symbol OF InStream)
+        BEGIN
+            INSERT INTO OutStream SELECT SUM(volume) AS sumvol FROM InStream;
+        END;";
     let runner = AppRunner::new(app, "OutStream").await;
     runner.send(
         "InStream",
@@ -81,21 +71,16 @@ async fn partition_sum_by_symbol() {
     );
 }
 
-// TODO: NOT PART OF M1 - PARTITION feature not in M1
-// This test uses "partition with" syntax which is an advanced feature not included in M1.
-// M1 covers: Basic queries, Windows, Joins, GROUP BY, HAVING, ORDER BY, LIMIT
-// Partition support will be implemented in Phase 2.
-// See feat/grammar/GRAMMAR_STATUS.md for M1 feature list.
 #[tokio::test]
-#[ignore = "Requires PARTITION support - Not part of M1"]
 async fn partition_join_streams() {
     let app = "\
-        define stream A (symbol string, v int);\n\
-        define stream B (symbol string, v int);\n\
-        define stream Out (a int, b int);\n\
-        partition with (symbol of A, symbol of B) begin \n\
-            from A join B on A.symbol == B.symbol select A.v as a, B.v as b insert into Out;\n\
-        end;\n";
+        CREATE STREAM A (symbol VARCHAR, v INT);
+        CREATE STREAM B (symbol VARCHAR, v INT);
+        CREATE STREAM Out (a INT, b INT);
+        PARTITION WITH (symbol OF A, symbol OF B)
+        BEGIN
+            INSERT INTO Out SELECT A.v AS a, B.v AS b FROM A JOIN B ON A.symbol = B.symbol;
+        END;";
     let runner = AppRunner::new(app, "Out").await;
     runner.send(
         "A",
@@ -112,20 +97,15 @@ async fn partition_join_streams() {
     );
 }
 
-// TODO: NOT PART OF M1 - PARTITION feature not in M1
-// This test uses "partition with" syntax which is an advanced feature not included in M1.
-// M1 covers: Basic queries, Windows, Joins, GROUP BY, HAVING, ORDER BY, LIMIT
-// Partition support will be implemented in Phase 2.
-// See feat/grammar/GRAMMAR_STATUS.md for M1 feature list.
 #[tokio::test]
-#[ignore = "Requires PARTITION support - Not part of M1"]
 async fn partition_with_window() {
     let app = "\
-        define stream In (symbol string, v int);\n\
-        define stream Out (v int);\n\
-        partition with (symbol of In) begin \n\
-            from In#window:length(1) select v insert into Out;\n\
-        end;\n";
+        CREATE STREAM In (symbol VARCHAR, v INT);
+        CREATE STREAM Out (v INT);
+        PARTITION WITH (symbol OF In)
+        BEGIN
+            INSERT INTO Out SELECT v FROM In WINDOW('length', 1);
+        END;";
     let runner = AppRunner::new(app, "Out").await;
     runner.send(
         "In",

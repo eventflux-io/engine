@@ -6,11 +6,14 @@
 
 use sqlparser::ast::{
     BinaryOperator, Expr as SqlExpr, JoinConstraint, JoinOperator, OrderByExpr,
-    Select as SqlSelect, SetExpr, Statement, TableFactor, UnaryOperator,
+    PartitionKey, Select as SqlSelect, SetExpr, Statement, TableFactor, UnaryOperator,
 };
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
 
+use crate::query_api::execution::partition::value_partition_type::ValuePartitionType;
+use crate::query_api::execution::partition::Partition;
+use crate::query_api::execution::ExecutionElement;
 use crate::query_api::execution::query::input::stream::input_stream::InputStream;
 use crate::query_api::execution::query::input::stream::single_input_stream::SingleInputStream;
 use crate::query_api::execution::query::output::output_stream::{
@@ -76,6 +79,99 @@ impl SqlConverter {
                 "Only SELECT and INSERT INTO queries supported in M1".to_string(),
             )),
         }
+    }
+
+    /// Convert SQL statement to ExecutionElement (Query or Partition)
+    pub fn convert_to_execution_element(
+        sql: &str,
+        catalog: &SqlCatalog,
+    ) -> Result<ExecutionElement, ConverterError> {
+        // Parse SQL
+        let statements = Parser::parse_sql(&GenericDialect, sql)
+            .map_err(|e| ConverterError::ConversionFailed(format!("SQL parse error: {}", e)))?;
+
+        if statements.is_empty() {
+            return Err(ConverterError::ConversionFailed(
+                "No SQL statements found".to_string(),
+            ));
+        }
+
+        // Convert based on statement type
+        match &statements[0] {
+            Statement::Partition {
+                partition_keys,
+                body,
+            } => {
+                let partition = Self::convert_partition(partition_keys, body, catalog)?;
+                Ok(ExecutionElement::Partition(partition))
+            }
+            Statement::Query(_) | Statement::Insert(_) => {
+                let query = Self::convert(sql, catalog)?;
+                Ok(ExecutionElement::Query(query))
+            }
+            _ => Err(ConverterError::UnsupportedFeature(
+                "Unsupported statement type".to_string(),
+            )),
+        }
+    }
+
+    /// Convert PARTITION statement to Partition execution element
+    pub fn convert_partition(
+        partition_keys: &[PartitionKey],
+        body: &[Statement],
+        catalog: &SqlCatalog,
+    ) -> Result<Partition, ConverterError> {
+        let mut partition = Partition::new();
+
+        // Convert partition keys to partition types
+        for key in partition_keys {
+            let stream_name = key.stream_name.to_string();
+            let attribute_name = key.attribute.value.clone();
+
+            // Create an Expression::Variable for the partition key
+            let partition_expr = Expression::Variable(Variable::new(attribute_name.clone()));
+
+            // Add value partition for this stream
+            partition = partition.with_value_partition(stream_name, partition_expr);
+        }
+
+        // Convert body statements to queries
+        for stmt in body {
+            match stmt {
+                Statement::Query(query) => {
+                    let q = Self::convert_query(query, catalog, None)?;
+                    partition = partition.add_query(q);
+                }
+                Statement::Insert(insert) => {
+                    // Extract target stream name
+                    let target_stream = match &insert.table {
+                        sqlparser::ast::TableObject::TableName(name) => name.to_string(),
+                        sqlparser::ast::TableObject::TableFunction(_) => {
+                            return Err(ConverterError::UnsupportedFeature(
+                                "Table functions not supported in INSERT".to_string(),
+                            ))
+                        }
+                    };
+
+                    // Extract source query
+                    let source = insert.source.as_ref().ok_or_else(|| {
+                        ConverterError::UnsupportedFeature(
+                            "INSERT without SELECT source not supported".to_string(),
+                        )
+                    })?;
+
+                    let q = Self::convert_query(source, catalog, Some(target_stream))?;
+                    partition = partition.add_query(q);
+                }
+                _ => {
+                    return Err(ConverterError::UnsupportedFeature(
+                        "Only SELECT and INSERT INTO statements supported inside PARTITION".to_string(),
+                    ))
+                }
+            }
+        }
+
+        Ok(partition)
     }
 
     /// Convert sqlparser Query to EventFlux Query
