@@ -797,6 +797,14 @@ individual features.
 
 **Phase 1: Next Priorities (M2+)**:
 
+- [ ] **Type System Enhancement** 🔴 **HIGH PRIORITY**
+    - [ ] Type inference engine for query outputs
+    - [ ] Expression validation at parse-time
+    - [ ] Type propagation through operators
+    - [ ] Comprehensive type coercion rules
+    - **Documentation**: **[feat/type_system/TYPE_SYSTEM.md](feat/type_system/TYPE_SYSTEM.md)**
+    - **Target**: M2 (Grammar Completion)
+    - **Effort**: 2-3 weeks
 - [ ] **I/O Ecosystem Expansion**
     - [ ] HTTP Source/Sink for REST API integration
     - [ ] Kafka Source/Sink for message broker integration
@@ -845,9 +853,11 @@ individual features.
 - **Architecture**: SQL-only engine with sqlparser-rs
 - **Files**: `src/query_compiler/`, `src/core/sql/`, `feat/grammar/GRAMMAR.md`
 
-#### **6. Comprehensive Monitoring & Metrics Framework**
+#### **6. Comprehensive Monitoring & Metrics Framework** (Observability)
 
 - **Status**: 🟠 **PARTIALLY IMPLEMENTED** - Crossbeam pipeline metrics completed, enterprise monitoring needed
+- **Priority**: 🟠 **HIGH** - Critical for production deployments (Target: M6 Production Hardening)
+- **Documentation**: **[feat/observability/OBSERVABILITY.md](feat/observability/OBSERVABILITY.md)**
 - **Current**: ✅ Complete crossbeam pipeline metrics + Basic global counters
 - **Completed for Pipeline**:
     - ✅ Real-time performance metrics (throughput, latency, utilization)
@@ -855,12 +865,12 @@ individual features.
     - ✅ Queue efficiency and health monitoring
     - ✅ Historical trend analysis and health scoring
 - **Remaining Tasks**:
-    - [ ] Implement Prometheus metrics integration
-    - [ ] Add query-level and stream-level metrics collection
-    - [ ] Create operational dashboards and alerting
-    - [ ] Implement distributed tracing with OpenTelemetry
-    - [ ] Add performance profiling and query analysis tools
-- **Effort**: 1-2 weeks (reduced due to pipeline foundation)
+    - [ ] Implement Prometheus metrics integration (Phase 1: 1-2 weeks)
+    - [ ] Add OpenTelemetry distributed tracing (Phase 2: 1 week)
+    - [ ] Create health check & readiness endpoints (Phase 3: 1 week)
+    - [ ] Build operational dashboards (Grafana) (Phase 4: 1 week)
+    - [ ] Enhance structured logging framework (Phase 5: 1 week)
+- **Effort**: 4-6 weeks total (comprehensive enterprise observability)
 - **Impact**: **Production visibility** and operational excellence
 - **Files**: `src/core/util/pipeline/metrics.rs` ✅, `src/core/metrics/`, `src/core/monitoring/`, `src/core/telemetry/`
 

@@ -316,11 +316,21 @@ GROUP BY sensor_id;
 - **Implementation**: Function mapping in `SqlConverter`
 - **Tests**: Enables 1 test in `app_runner_functions.rs`
 
+#### 5. Type System Enhancement (2-3 weeks) - **HIGH PRIORITY**
+- 🆕 **Type Inference Engine**: Automatic type inference for query outputs
+  - Eliminate hardcoded STRING defaults in catalog.rs
+  - Type propagation through expressions and functions
+  - Comprehensive validation at parse-time
+- **Status**: Basic type mapping exists, inference missing
+- **Documentation**: **[feat/type_system/TYPE_SYSTEM.md](feat/type_system/TYPE_SYSTEM.md)**
+- **Impact**: Prevents runtime type errors, enables type-safe query optimization
+
 **Part A Success Criteria**:
 - [ ] Enable 17 high-priority tests (window types + PARTITION + aggregations + functions)
 - [ ] Window syntax parses correctly for all types
 - [ ] PARTITION queries execute with proper isolation
 - [ ] Incremental aggregations work via SQL syntax
+- [ ] Type inference working for all query outputs
 - [ ] Test count: 692 passing, 57 ignored (down from 74)
 
 ### Part B: Essential Connectivity (6 weeks) - **PARALLEL TRACK**
@@ -713,7 +723,7 @@ Add essential enterprise features for production deployments: comprehensive moni
 
 ### Key Features
 
-#### 1. Comprehensive Monitoring
+#### 1. Comprehensive Monitoring & Observability
 - 🆕 **Prometheus Metrics**: Full Prometheus exporter
   - Query-level metrics (throughput, latency, errors)
   - Stream-level metrics (event rates, backpressure)
@@ -724,6 +734,9 @@ Add essential enterprise features for production deployments: comprehensive moni
   - Performance bottleneck identification
 - 🆕 **Health Checks**: `/health` and `/ready` endpoints
 - 🆕 **Operational Dashboards**: Pre-built Grafana dashboards
+- **Status**: Pipeline metrics complete, enterprise features needed
+- **Documentation**: **[feat/observability/OBSERVABILITY.md](feat/observability/OBSERVABILITY.md)**
+- **Estimated Effort**: 4-6 weeks
 
 #### 2. Security Framework
 - 🆕 **Authentication**:
