@@ -5,7 +5,7 @@
 //! Implements Phase 1 validation to detect circular dependencies in stream definitions.
 //! Uses Depth-First Search (DFS) to detect cycles in the dependency graph.
 
-use crate::core::error::{EventFluxError, EventFluxResult};
+use crate::core::exception::{EventFluxError, EventFluxResult};
 use std::collections::{HashMap, HashSet};
 
 /// Detect circular dependencies in query definitions

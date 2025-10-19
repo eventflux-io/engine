@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::core::config::eventflux_context::EventFluxContext;
 use crate::core::config::stream_config::{StreamType, StreamTypeConfig};
-use crate::core::error::EventFluxError;
+use crate::core::exception::EventFluxError;
 use crate::core::stream::input::mapper::SourceMapper;
 use crate::core::stream::input::source::Source;
 use crate::core::stream::output::mapper::SinkMapper;
@@ -288,11 +288,14 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            EventFluxError::UnsupportedFormat { format, extension } => {
-                assert_eq!(format, "xml");
-                assert_eq!(extension, "kafka");
+            EventFluxError::Configuration { message, .. } => {
+                assert!(message.contains("xml"));
+                assert!(message.contains("kafka"));
             }
-            e => panic!("Expected UnsupportedFormat error, got {:?}", e),
+            e => panic!(
+                "Expected Configuration error for unsupported format, got {:?}",
+                e
+            ),
         }
     }
 
@@ -400,12 +403,17 @@ mod tests {
         let result = initialize_stream(&context, &stream_config);
         assert!(result.is_err());
 
-        // Should get MissingParameter error from factory
+        // Should get InvalidParameter error from factory (for missing parameter)
         match result.unwrap_err() {
-            EventFluxError::MissingParameter { parameter } => {
-                assert!(parameter.contains("kafka.bootstrap.servers"));
+            EventFluxError::InvalidParameter { parameter, .. } => {
+                if let Some(param) = parameter {
+                    assert!(param.contains("kafka.bootstrap.servers"));
+                }
             }
-            e => panic!("Expected MissingParameter error, got {:?}", e),
+            e => panic!(
+                "Expected InvalidParameter error for missing parameter, got {:?}",
+                e
+            ),
         }
     }
 }

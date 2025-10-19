@@ -71,7 +71,7 @@ pub trait SourceFactory: Debug + Send + Sync {
         config: &std::collections::HashMap<String, String>,
     ) -> Result<
         Box<dyn crate::core::stream::input::source::Source>,
-        crate::core::error::EventFluxError,
+        crate::core::exception::EventFluxError,
     >;
 
     /// Legacy create method for backward compatibility
@@ -115,7 +115,10 @@ pub trait SinkFactory: Debug + Send + Sync {
     fn create_initialized(
         &self,
         config: &std::collections::HashMap<String, String>,
-    ) -> Result<Box<dyn crate::core::stream::output::sink::Sink>, crate::core::error::EventFluxError>;
+    ) -> Result<
+        Box<dyn crate::core::stream::output::sink::Sink>,
+        crate::core::exception::EventFluxError,
+    >;
 
     /// Legacy create method for backward compatibility
     /// Deprecated: Use create_initialized instead
@@ -163,7 +166,7 @@ pub trait SourceMapperFactory: Debug + Send + Sync {
     fn create_initialized(
         &self,
         config: &std::collections::HashMap<String, String>,
-    ) -> Result<Box<dyn SourceMapper>, crate::core::error::EventFluxError>;
+    ) -> Result<Box<dyn SourceMapper>, crate::core::exception::EventFluxError>;
 
     /// Legacy create method for backward compatibility
     /// Deprecated: Use create_initialized instead
@@ -200,7 +203,7 @@ pub trait SinkMapperFactory: Debug + Send + Sync {
     fn create_initialized(
         &self,
         config: &std::collections::HashMap<String, String>,
-    ) -> Result<Box<dyn SinkMapper>, crate::core::error::EventFluxError>;
+    ) -> Result<Box<dyn SinkMapper>, crate::core::exception::EventFluxError>;
 
     /// Legacy create method for backward compatibility
     /// Deprecated: Use create_initialized instead
@@ -270,12 +273,12 @@ impl SourceFactory for TimerSourceFactory {
         config: &std::collections::HashMap<String, String>,
     ) -> Result<
         Box<dyn crate::core::stream::input::source::Source>,
-        crate::core::error::EventFluxError,
+        crate::core::exception::EventFluxError,
     > {
         // Parse optional interval parameter
         let interval_ms = if let Some(interval_str) = config.get("timer.interval") {
             interval_str.parse::<u64>().map_err(|_| {
-                crate::core::error::EventFluxError::invalid_parameter_with_details(
+                crate::core::exception::EventFluxError::invalid_parameter_with_details(
                     "timer.interval must be a valid integer",
                     "timer.interval",
                     "positive integer (milliseconds)",
@@ -318,8 +321,10 @@ impl SinkFactory for LogSinkFactory {
     fn create_initialized(
         &self,
         _config: &std::collections::HashMap<String, String>,
-    ) -> Result<Box<dyn crate::core::stream::output::sink::Sink>, crate::core::error::EventFluxError>
-    {
+    ) -> Result<
+        Box<dyn crate::core::stream::output::sink::Sink>,
+        crate::core::exception::EventFluxError,
+    > {
         // LogSink doesn't need configuration validation for now
         // Future: could add log level validation, prefix customization, etc.
         Ok(Box::new(crate::core::stream::output::sink::LogSink::new()))

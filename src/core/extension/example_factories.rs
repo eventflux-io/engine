@@ -5,8 +5,8 @@
 //! This module demonstrates the single-phase construction pattern for factories
 //! as described in M3: Factory System & Registry
 
-use crate::core::error::EventFluxError;
 use crate::core::event::event::Event;
+use crate::core::exception::EventFluxError;
 use crate::core::extension::{SinkFactory, SinkMapperFactory, SourceFactory, SourceMapperFactory};
 use crate::core::stream::input::mapper::SourceMapper;
 use crate::core::stream::input::source::Source;
@@ -445,7 +445,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            EventFluxError::MissingParameter { .. }
+            EventFluxError::InvalidParameter { .. }
         ));
     }
 
