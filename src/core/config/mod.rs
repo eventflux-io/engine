@@ -34,6 +34,7 @@ pub mod resolver;
 pub mod security;
 pub mod service_discovery;
 pub mod stream_config;
+pub mod toml_config;
 pub mod types;
 pub mod validation_api;
 pub mod validator;
@@ -50,6 +51,10 @@ pub use error::{ConfigError, ConfigResult, ValidationError, ValidationResult};
 pub use manager::ConfigManager;
 pub use processor_config_reader::{ConfigValue, ProcessorConfigReader};
 pub use stream_config::{FlatConfig, PropertySource, StreamType, StreamTypeConfig};
+pub use toml_config::{
+    load_toml_config, substitute_env_vars, substitute_toml_env_vars, TomlConfig,
+    TomlStreamConfig, TomlTableConfig,
+};
 pub use types::*;
 
 // Main configuration loading functions for simple usage

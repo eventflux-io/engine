@@ -22,7 +22,7 @@
 use crate::core::config::{
     loader::{
         ConfigLoader, EnvironmentConfigLoader, EnvironmentConfigLoaderWithPriority,
-        YamlConfigLoader,
+        TomlConfigLoader, YamlConfigLoader,
     },
     ConfigError, ConfigResult, EventFluxConfig,
 };
@@ -84,6 +84,9 @@ impl ConfigManager {
     /// Register default configuration loaders
     fn register_default_loaders(&mut self) {
         // Add loaders in reverse priority order (highest priority last)
+
+        // TOML file loader (medium priority, for stream-specific configs)
+        self.add_loader(Box::new(TomlConfigLoader::new()));
 
         // YAML file loader (medium priority)
         self.add_loader(Box::new(YamlConfigLoader::new()));
@@ -322,6 +325,16 @@ impl ConfigManagerBuilder {
     /// Add YAML search path loader
     pub fn with_yaml_search(self) -> Self {
         self.add_loader(Box::new(YamlConfigLoader::new()))
+    }
+
+    /// Add TOML file loader
+    pub fn with_toml_file<P: Into<PathBuf>>(self, path: P) -> Self {
+        self.add_loader(Box::new(TomlConfigLoader::from_file(path)))
+    }
+
+    /// Add TOML search path loader
+    pub fn with_toml_search(self) -> Self {
+        self.add_loader(Box::new(TomlConfigLoader::new()))
     }
 
     /// Add environment variable loader

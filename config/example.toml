@@ -1,0 +1,107 @@
+# EventFlux TOML Configuration Example
+#
+# This file demonstrates the TOML-based configuration system for EventFlux streams.
+#
+# IMPORTANT: The 'type', 'extension', and 'format' fields MUST be defined in SQL WITH clauses,
+# not in this TOML file. This enforces the SQL-first principle.
+
+# ============================================================================
+# Application-Level Configuration
+# ============================================================================
+# These properties apply as defaults to all streams and tables unless overridden.
+
+[application]
+buffer_size = "2048"
+timeout = "30s"
+retry_count = "3"
+
+# Kafka configuration with environment variable substitution
+[application.kafka]
+# Syntax: ${VAR_NAME} - required variable (fails if missing)
+#         ${VAR_NAME:default} - optional variable with default value
+brokers = "${KAFKA_BROKERS:localhost:9092}"
+security_protocol = "${KAFKA_SECURITY:PLAINTEXT}"
+client_id = "eventflux-client"
+
+# Redis configuration for state storage
+[application.redis]
+host = "${REDIS_HOST:localhost}"
+port = "${REDIS_PORT:6379}"
+db = "0"
+pool_size = "10"
+
+# ============================================================================
+# Stream-Specific Configuration
+# ============================================================================
+# Each stream can override application defaults and add stream-specific properties.
+# Remember: type, extension, format MUST be in SQL, not here!
+
+[streams.Orders]
+# Kafka-specific settings for Orders stream
+kafka.topic = "orders"
+kafka.group_id = "order-processor"
+kafka.auto_offset_reset = "earliest"
+kafka.max_poll_records = "500"
+
+# Override application default
+buffer_size = "4096"
+
+[streams.Payments]
+# Kafka settings for Payments stream
+kafka.topic = "payments"
+kafka.group_id = "payment-processor"
+kafka.auto_offset_reset = "latest"
+
+# This stream uses application defaults for buffer_size, timeout, etc.
+
+[streams.InventoryEvents]
+# HTTP stream configuration
+http.url = "${INVENTORY_API_URL:http://localhost:8080/events}"
+http.method = "POST"
+http.headers = "Content-Type:application/json,Authorization:Bearer ${API_TOKEN}"
+polling_interval = "5s"
+
+# ============================================================================
+# Table Configuration
+# ============================================================================
+# Tables are always bidirectional and use relational schema only.
+# They cannot have 'type' or 'format' properties.
+
+[tables.OrdersTable]
+# Extension must be specified in SQL WITH clause
+redis.key_prefix = "orders:"
+redis.ttl = "3600"
+redis.persistence = "true"
+
+[tables.CustomerCache]
+redis.key_prefix = "customers:"
+redis.ttl = "7200"
+redis.max_entries = "10000"
+
+# ============================================================================
+# Example SQL Usage
+# ============================================================================
+#
+# The TOML configuration above is merged with SQL WITH clauses:
+#
+# CREATE STREAM Orders (
+#     orderId STRING,
+#     customerId STRING,
+#     amount DOUBLE,
+#     timestamp LONG
+# ) WITH (
+#     type = 'source',           -- MUST be in SQL
+#     extension = 'kafka',       -- MUST be in SQL
+#     format = 'json'            -- MUST be in SQL
+#     -- All other properties come from TOML
+#     -- Merge priority: Rust defaults < TOML [application] < TOML [streams.Orders] < SQL WITH
+# );
+#
+# CREATE TABLE OrdersTable (
+#     orderId STRING,
+#     status STRING,
+#     updatedAt LONG
+# ) WITH (
+#     extension = 'redis'        -- MUST be in SQL for tables too
+#     -- Table-specific properties come from TOML [tables.OrdersTable]
+# );
