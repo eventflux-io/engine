@@ -79,7 +79,10 @@ impl EventFluxError {
     }
 
     /// Create a configuration error with a specific key
-    pub fn configuration_with_key(message: impl Into<String>, config_key: impl Into<String>) -> Self {
+    pub fn configuration_with_key(
+        message: impl Into<String>,
+        config_key: impl Into<String>,
+    ) -> Self {
         Self::Configuration {
             message: message.into(),
             config_key: Some(config_key.into()),

@@ -189,9 +189,8 @@ pub fn flatten_toml_value(
 // ============================================================================
 
 /// Compiled regex for environment variable substitution (compiled once at startup)
-static ENV_VAR_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\$\{([^}:]+)(?::([^}]*))?\}").unwrap()
-});
+static ENV_VAR_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\$\{([^}:]+)(?::([^}]*))?\}").unwrap());
 
 /// Substitute environment variables in a string value
 ///
@@ -431,7 +430,12 @@ pub fn load_toml_config(toml_path: &str) -> Result<HashMap<String, FlatConfig>, 
     let mut app_defaults = FlatConfig::new();
     if let Some(app) = toml_config.application {
         for (key, value) in &app.properties {
-            flatten_toml_value(key, value, &mut app_defaults, PropertySource::TomlApplication);
+            flatten_toml_value(
+                key,
+                value,
+                &mut app_defaults,
+                PropertySource::TomlApplication,
+            );
         }
     }
 
@@ -492,7 +496,12 @@ mod tests {
 
         let toml_value: toml::Value = toml::from_str(toml_str).unwrap();
         let mut config = FlatConfig::new();
-        flatten_toml_value("", &toml_value, &mut config, PropertySource::TomlApplication);
+        flatten_toml_value(
+            "",
+            &toml_value,
+            &mut config,
+            PropertySource::TomlApplication,
+        );
 
         assert_eq!(
             config.get("kafka.brokers"),
@@ -510,7 +519,12 @@ mod tests {
 
         let toml_value: toml::Value = toml::from_str(toml_str).unwrap();
         let mut config = FlatConfig::new();
-        flatten_toml_value("", &toml_value, &mut config, PropertySource::TomlApplication);
+        flatten_toml_value(
+            "",
+            &toml_value,
+            &mut config,
+            PropertySource::TomlApplication,
+        );
 
         assert_eq!(
             config.get("kafka.brokers"),
@@ -531,7 +545,12 @@ mod tests {
 
         let toml_value: toml::Value = toml::from_str(toml_str).unwrap();
         let mut config = FlatConfig::new();
-        flatten_toml_value("", &toml_value, &mut config, PropertySource::TomlApplication);
+        flatten_toml_value(
+            "",
+            &toml_value,
+            &mut config,
+            PropertySource::TomlApplication,
+        );
 
         assert_eq!(config.get("string_val"), Some(&"test".to_string()));
         assert_eq!(config.get("int_val"), Some(&"42".to_string()));
@@ -549,7 +568,12 @@ mod tests {
 
         let toml_value: toml::Value = toml::from_str(toml_str).unwrap();
         let mut config = FlatConfig::new();
-        flatten_toml_value("", &toml_value, &mut config, PropertySource::TomlApplication);
+        flatten_toml_value(
+            "",
+            &toml_value,
+            &mut config,
+            PropertySource::TomlApplication,
+        );
 
         assert_eq!(
             config.get("level1.level2.level3.deep_key"),
@@ -648,13 +672,18 @@ mod tests {
     #[test]
     fn test_toml_stream_config_validation_forbidden_type() {
         let mut properties = HashMap::new();
-        properties.insert("type".to_string(), toml::Value::String("source".to_string()));
+        properties.insert(
+            "type".to_string(),
+            toml::Value::String("source".to_string()),
+        );
 
         let stream_config = TomlStreamConfig { properties };
         let result = stream_config.validate();
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("'type' MUST be in SQL WITH clause"));
+        assert!(result
+            .unwrap_err()
+            .contains("'type' MUST be in SQL WITH clause"));
     }
 
     #[test]
@@ -677,7 +706,10 @@ mod tests {
     #[test]
     fn test_toml_stream_config_validation_forbidden_format() {
         let mut properties = HashMap::new();
-        properties.insert("format".to_string(), toml::Value::String("json".to_string()));
+        properties.insert(
+            "format".to_string(),
+            toml::Value::String("json".to_string()),
+        );
 
         let stream_config = TomlStreamConfig { properties };
         let result = stream_config.validate();
@@ -720,7 +752,10 @@ mod tests {
     #[test]
     fn test_toml_table_config_validation_forbidden_format() {
         let mut properties = HashMap::new();
-        properties.insert("format".to_string(), toml::Value::String("json".to_string()));
+        properties.insert(
+            "format".to_string(),
+            toml::Value::String("json".to_string()),
+        );
 
         let table_config = TomlTableConfig { properties };
         let result = table_config.validate();
@@ -753,16 +788,16 @@ mod tests {
     fn test_toml_config_merge_application_defaults() {
         // Application defaults
         let mut app_config = FlatConfig::new();
-        app_config.set("kafka.brokers", "app-broker", PropertySource::TomlApplication);
+        app_config.set(
+            "kafka.brokers",
+            "app-broker",
+            PropertySource::TomlApplication,
+        );
         app_config.set("kafka.timeout", "30s", PropertySource::TomlApplication);
 
         // Stream-specific config
         let mut stream_config = FlatConfig::new();
-        stream_config.set(
-            "kafka.brokers",
-            "stream-broker",
-            PropertySource::TomlStream,
-        );
+        stream_config.set("kafka.brokers", "stream-broker", PropertySource::TomlStream);
         stream_config.set("kafka.topic", "orders", PropertySource::TomlStream);
 
         // Merge
@@ -775,15 +810,9 @@ mod tests {
             Some(&"stream-broker".to_string())
         );
         // Stream-specific adds new property
-        assert_eq!(
-            final_config.get("kafka.topic"),
-            Some(&"orders".to_string())
-        );
+        assert_eq!(final_config.get("kafka.topic"), Some(&"orders".to_string()));
         // Application default inherited
-        assert_eq!(
-            final_config.get("kafka.timeout"),
-            Some(&"30s".to_string())
-        );
+        assert_eq!(final_config.get("kafka.timeout"), Some(&"30s".to_string()));
     }
 
     #[test]
@@ -797,7 +826,10 @@ mod tests {
                     "brokers".to_string(),
                     toml::Value::String("localhost:9092".to_string()),
                 );
-                table.insert("topic".to_string(), toml::Value::String("orders".to_string()));
+                table.insert(
+                    "topic".to_string(),
+                    toml::Value::String("orders".to_string()),
+                );
                 table
             }),
         );
@@ -920,10 +952,7 @@ kafka.timeout = "${KAFKA_TIMEOUT:30s}"
             orders.get("kafka.brokers"),
             Some(&"env-kafka:9092".to_string())
         );
-        assert_eq!(
-            orders.get("kafka.topic"),
-            Some(&"env-orders".to_string())
-        );
+        assert_eq!(orders.get("kafka.topic"), Some(&"env-orders".to_string()));
         assert_eq!(orders.get("kafka.timeout"), Some(&"30s".to_string())); // Uses default
 
         std::env::remove_var("KAFKA_BROKER");

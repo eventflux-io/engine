@@ -7,8 +7,8 @@
 
 use sqlparser::ast::{CreateTableOptions, Expr, SqlOption};
 
-use crate::core::config::stream_config::{FlatConfig, PropertySource};
 use super::error::ConverterError;
+use crate::core::config::stream_config::{FlatConfig, PropertySource};
 
 /// Extract WITH clause options into FlatConfig
 ///
@@ -35,7 +35,9 @@ use super::error::ConverterError;
 ///
 /// * `Ok(FlatConfig)` - Successfully extracted configuration
 /// * `Err(ConverterError)` - If WITH clause contains invalid options
-pub fn extract_with_options(table_options: &CreateTableOptions) -> Result<FlatConfig, ConverterError> {
+pub fn extract_with_options(
+    table_options: &CreateTableOptions,
+) -> Result<FlatConfig, ConverterError> {
     let mut config = FlatConfig::new();
 
     match table_options {
@@ -65,7 +67,7 @@ pub fn extract_with_options(table_options: &CreateTableOptions) -> Result<FlatCo
         }
         _ => {
             return Err(ConverterError::UnsupportedFeature(
-                "Only WITH(...) clause supported for stream configuration".to_string()
+                "Only WITH(...) clause supported for stream configuration".to_string(),
             ));
         }
     }
@@ -78,22 +80,22 @@ pub fn extract_with_options(table_options: &CreateTableOptions) -> Result<FlatCo
 /// Converts various SQL expression types to string representation for configuration storage.
 fn extract_value_as_string(expr: &Expr) -> Result<String, ConverterError> {
     match expr {
-        Expr::Value(value_with_span) => {
-            match &value_with_span.value {
-                sqlparser::ast::Value::Number(n, _) => Ok(n.clone()),
-                sqlparser::ast::Value::SingleQuotedString(s)
-                | sqlparser::ast::Value::DoubleQuotedString(s) => Ok(s.clone()),
-                sqlparser::ast::Value::Boolean(b) => Ok(b.to_string()),
-                sqlparser::ast::Value::Null => Ok("null".to_string()),
-                _ => Err(ConverterError::InvalidExpression(
-                    format!("Unsupported value type in WITH clause: {:?}", value_with_span.value)
-                )),
-            }
-        }
+        Expr::Value(value_with_span) => match &value_with_span.value {
+            sqlparser::ast::Value::Number(n, _) => Ok(n.clone()),
+            sqlparser::ast::Value::SingleQuotedString(s)
+            | sqlparser::ast::Value::DoubleQuotedString(s) => Ok(s.clone()),
+            sqlparser::ast::Value::Boolean(b) => Ok(b.to_string()),
+            sqlparser::ast::Value::Null => Ok("null".to_string()),
+            _ => Err(ConverterError::InvalidExpression(format!(
+                "Unsupported value type in WITH clause: {:?}",
+                value_with_span.value
+            ))),
+        },
         Expr::Identifier(ident) => Ok(ident.value.clone()),
-        _ => Err(ConverterError::InvalidExpression(
-            format!("Complex expressions not supported in WITH clause: {}", expr)
-        )),
+        _ => Err(ConverterError::InvalidExpression(format!(
+            "Complex expressions not supported in WITH clause: {}",
+            expr
+        ))),
     }
 }
 
@@ -129,12 +131,12 @@ pub fn validate_with_clause(config: &FlatConfig) -> Result<(), ConverterError> {
                 // Internal streams must NOT have extension or format
                 if config.get("extension").is_some() {
                     return Err(ConverterError::InvalidExpression(
-                        "Stream with type='internal' cannot specify 'extension'".to_string()
+                        "Stream with type='internal' cannot specify 'extension'".to_string(),
                     ));
                 }
                 if config.get("format").is_some() {
                     return Err(ConverterError::InvalidExpression(
-                        "Stream with type='internal' cannot specify 'format'".to_string()
+                        "Stream with type='internal' cannot specify 'format'".to_string(),
                     ));
                 }
             }
@@ -149,12 +151,12 @@ pub fn validate_with_clause(config: &FlatConfig) -> Result<(), ConverterError> {
         // No type = pure internal stream
         if config.get("extension").is_some() {
             return Err(ConverterError::InvalidExpression(
-                "Pure internal streams (no type) cannot specify 'extension'".to_string()
+                "Pure internal streams (no type) cannot specify 'extension'".to_string(),
             ));
         }
         if config.get("format").is_some() {
             return Err(ConverterError::InvalidExpression(
-                "Pure internal streams (no type) cannot specify 'format'".to_string()
+                "Pure internal streams (no type) cannot specify 'format'".to_string(),
             ));
         }
     }
@@ -243,12 +245,10 @@ mod tests {
 
     #[test]
     fn test_extract_with_options_number() {
-        let options = CreateTableOptions::With(vec![
-            SqlOption::KeyValue {
-                key: Ident::new("buffer_size"),
-                value: Expr::Value(Value::Number("1024".to_string(), false).into()),
-            },
-        ]);
+        let options = CreateTableOptions::With(vec![SqlOption::KeyValue {
+            key: Ident::new("buffer_size"),
+            value: Expr::Value(Value::Number("1024".to_string(), false).into()),
+        }]);
 
         let config = extract_with_options(&options).unwrap();
         assert_eq!(config.get("buffer_size"), Some(&"1024".to_string()));
@@ -351,7 +351,10 @@ mod tests {
 
         let result = validate_with_clause(&config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid stream type"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid stream type"));
     }
 
     #[test]
