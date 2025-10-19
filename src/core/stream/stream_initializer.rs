@@ -375,12 +375,15 @@ fn initialize_source_stream_with_handler(
         InitializedStream::Source(source) => {
             // Get or create InputHandler for this stream using InputManager
             // This properly integrates with the junction system
-            let input_handler = input_manager
-                .construct_input_handler(stream_name)
-                .map_err(|e| EventFluxError::app_creation(format!(
-                    "Failed to construct input handler for stream '{}': {}",
-                    stream_name, e
-                )))?;
+            let input_handler =
+                input_manager
+                    .construct_input_handler(stream_name)
+                    .map_err(|e| {
+                        EventFluxError::app_creation(format!(
+                            "Failed to construct input handler for stream '{}': {}",
+                            stream_name, e
+                        ))
+                    })?;
 
             // Create SourceStreamHandler
             let handler = Arc::new(SourceStreamHandler::new(
@@ -558,7 +561,13 @@ pub fn initialize_streams(
                 validate_dlq_schema(stream_name, dlq_stream, &parsed_streams)?;
             }
 
-            match initialize_single_stream(stream_def, &stream_config, context, input_manager, stream_name)? {
+            match initialize_single_stream(
+                stream_def,
+                &stream_config,
+                context,
+                input_manager,
+                stream_name,
+            )? {
                 InitializedStreamHandler::Source(handler) => {
                     source_handlers.insert(stream_name.clone(), handler);
                 }
