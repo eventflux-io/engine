@@ -13,6 +13,7 @@ pub mod config;
 pub mod data_source;
 pub mod debugger;
 pub mod distributed; // Added for distributed processing
+pub mod error; // Core error types for factory system and runtime
 pub mod event;
 pub mod exception; // For custom core-specific error types
 pub mod executor;
@@ -30,6 +31,7 @@ pub mod window;
 
 // Re-export key public-facing structs from core
 pub use self::data_source::{DataSource, DataSourceConfig, SqliteDataSource};
+pub use self::error::{EventFluxError, EventFluxResult};
 pub use self::eventflux_app_runtime::EventFluxAppRuntime;
 pub use self::eventflux_app_runtime_builder::EventFluxAppRuntimeBuilder;
 pub use self::eventflux_manager::EventFluxManager; // Added
