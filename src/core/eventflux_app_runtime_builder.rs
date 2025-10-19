@@ -161,6 +161,8 @@ impl EventFluxAppRuntimeBuilder {
             window_map: self.window_map,
             aggregation_map: self.aggregation_map,
             trigger_runtimes: self.trigger_runtimes,
+            source_handlers: Arc::new(std::sync::RwLock::new(HashMap::new())),
+            sink_handlers: Arc::new(std::sync::RwLock::new(HashMap::new())),
         })
     }
 }
