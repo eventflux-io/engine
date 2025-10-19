@@ -2,6 +2,7 @@
 
 pub mod input;
 pub mod junction_factory;
+pub mod mapper;
 pub mod optimized_stream_junction;
 pub mod output;
 pub mod stream_initializer;
@@ -22,4 +23,18 @@ pub use self::stream_initializer::{
 };
 pub use self::stream_junction::{
     OnErrorAction, Publisher, Receiver as StreamJunctionReceiver, StreamJunction,
+};
+
+// Re-export mapper types for convenience
+pub use self::mapper::{
+    csv_mapper::{CsvSinkMapper, CsvSourceMapper},
+    factory::{
+        CsvSinkMapperFactory, CsvSourceMapperFactory, JsonSinkMapperFactory,
+        JsonSourceMapperFactory, MapperFactoryRegistry, SinkMapperFactory, SourceMapperFactory,
+    },
+    json_mapper::{JsonSinkMapper, JsonSourceMapper},
+    validation::{
+        validate_mapper_config, validate_sink_mapper_config, validate_source_mapper_config,
+    },
+    SinkMapper, SourceMapper,
 };
