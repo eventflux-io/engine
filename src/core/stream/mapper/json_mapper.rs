@@ -59,7 +59,7 @@ impl JsonSourceMapper {
             ignore_parse_errors: false,
             date_format: None,
             max_input_size: 10 * 1024 * 1024, // 10 MB default
-            max_nesting_depth: 32,             // 32 levels default
+            max_nesting_depth: 32,            // 32 levels default
         }
     }
 
@@ -70,7 +70,7 @@ impl JsonSourceMapper {
             ignore_parse_errors: false,
             date_format: None,
             max_input_size: 10 * 1024 * 1024, // 10 MB default
-            max_nesting_depth: 32,             // 32 levels default
+            max_nesting_depth: 32,            // 32 levels default
         }
     }
 
@@ -137,7 +137,10 @@ impl JsonSourceMapper {
 
         for (_field_name, json_path) in sorted_mappings {
             let value = extract_json_path(json, json_path, self.max_nesting_depth)?;
-            event_data.push(json_value_to_attribute(&value, self.date_format.as_deref())?);
+            event_data.push(json_value_to_attribute(
+                &value,
+                self.date_format.as_deref(),
+            )?);
         }
 
         // Use current timestamp in milliseconds
@@ -691,10 +694,7 @@ mod tests {
         let result = mapper.map(json_str.as_bytes());
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("nesting depth"));
+        assert!(result.unwrap_err().to_string().contains("nesting depth"));
     }
 
     #[test]

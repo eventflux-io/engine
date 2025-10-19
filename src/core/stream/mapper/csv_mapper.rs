@@ -70,7 +70,7 @@ impl CsvSourceMapper {
             has_header: false,
             ignore_parse_errors: false,
             max_input_size: 10 * 1024 * 1024, // 10 MB default
-            max_fields: 1000,                  // 1000 fields default
+            max_fields: 1000,                 // 1000 fields default
         }
     }
 
@@ -82,7 +82,7 @@ impl CsvSourceMapper {
             has_header: false,
             ignore_parse_errors: false,
             max_input_size: 10 * 1024 * 1024, // 10 MB default
-            max_fields: 1000,                  // 1000 fields default
+            max_fields: 1000,                 // 1000 fields default
         }
     }
 
@@ -534,10 +534,7 @@ mod tests {
         let result = mapper.map(csv_str.as_bytes());
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Field count"));
+        assert!(result.unwrap_err().to_string().contains("Field count"));
     }
 
     #[test]

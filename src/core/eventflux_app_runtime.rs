@@ -41,6 +41,10 @@ pub struct EventFluxAppRuntime {
     pub table_map: HashMap<String, Arc<Mutex<TableRuntimePlaceholder>>>,
     pub window_map: HashMap<String, Arc<Mutex<WindowRuntime>>>,
     pub aggregation_map: HashMap<String, Arc<Mutex<crate::core::aggregation::AggregationRuntime>>>,
+
+    // Stream handlers for lifecycle management (M7)
+    pub source_handlers: Arc<std::sync::RwLock<HashMap<String, Arc<crate::core::stream::handler::SourceStreamHandler>>>>,
+    pub sink_handlers: Arc<std::sync::RwLock<HashMap<String, Arc<crate::core::stream::handler::SinkStreamHandler>>>>,
 }
 
 impl EventFluxAppRuntime {
@@ -324,6 +328,139 @@ impl EventFluxAppRuntime {
         Ok(())
     }
 
+    // ========================================================================
+    // Stream Handler Management (M7)
+    // ========================================================================
+
+    /// Register a source stream handler
+    pub fn register_source_handler(
+        &self,
+        stream_name: String,
+        handler: Arc<crate::core::stream::handler::SourceStreamHandler>,
+    ) {
+        self.source_handlers
+            .write()
+            .unwrap()
+            .insert(stream_name, handler);
+    }
+
+    /// Get a source stream handler by name
+    pub fn get_source_handler(
+        &self,
+        stream_name: &str,
+    ) -> Option<Arc<crate::core::stream::handler::SourceStreamHandler>> {
+        self.source_handlers
+            .read()
+            .unwrap()
+            .get(stream_name)
+            .cloned()
+    }
+
+    /// Register a sink stream handler
+    pub fn register_sink_handler(
+        &self,
+        stream_name: String,
+        handler: Arc<crate::core::stream::handler::SinkStreamHandler>,
+    ) {
+        self.sink_handlers
+            .write()
+            .unwrap()
+            .insert(stream_name, handler);
+    }
+
+    /// Get a sink stream handler by name
+    pub fn get_sink_handler(
+        &self,
+        stream_name: &str,
+    ) -> Option<Arc<crate::core::stream::handler::SinkStreamHandler>> {
+        self.sink_handlers
+            .read()
+            .unwrap()
+            .get(stream_name)
+            .cloned()
+    }
+
+    /// Attach sink handler to junction for event delivery
+    ///
+    /// This connects a sink handler to the stream junction so it receives events.
+    /// Uses the same pattern as `add_callback` to properly wire the sink to the junction.
+    pub fn attach_sink_to_junction(
+        &self,
+        stream_name: &str,
+        handler: Arc<crate::core::stream::handler::SinkStreamHandler>,
+    ) -> Result<(), String> {
+        let output_junction = self
+            .stream_junction_map
+            .get(stream_name)
+            .ok_or_else(|| format!("StreamJunction '{}' not found to attach sink", stream_name))?
+            .clone();
+
+        // Create a query context for the sink callback processor
+        let query_name_for_sink = format!(
+            "sink_handler_{}_{}",
+            stream_name,
+            Uuid::new_v4().hyphenated()
+        );
+        let query_context_for_sink = Arc::new(EventFluxQueryContext::new(
+            Arc::clone(&self.eventflux_app_context),
+            query_name_for_sink.clone(),
+            None,
+        ));
+
+        // Get the underlying sink from the handler
+        // Since Sink extends StreamCallback, we can convert directly
+        let sink = handler.sink();
+
+        // Lock and clone the inner Box<dyn Sink>
+        let sink_guard = sink
+            .lock()
+            .expect("Sink Mutex poisoned");
+        let sink_clone = sink_guard.clone_box();
+        drop(sink_guard); // Release lock
+
+        // Box<dyn Sink> can be upcast to Box<dyn StreamCallback> because Sink: StreamCallback
+        let sink_as_callback: Box<dyn StreamCallback> = sink_clone;
+
+        // Wrap in Arc<Mutex<>> as expected by CallbackProcessor
+        let sink_callback_arc = Arc::new(Mutex::new(sink_as_callback));
+
+        // Wrap in a CallbackProcessor and subscribe to junction
+        let callback_processor = Arc::new(Mutex::new(CallbackProcessor::new(
+            sink_callback_arc,
+            Arc::clone(&self.eventflux_app_context),
+            query_context_for_sink,
+        )));
+
+        output_junction
+            .lock()
+            .expect("Output StreamJunction Mutex poisoned")
+            .subscribe(callback_processor);
+
+        Ok(())
+    }
+
+    /// Start all registered source handlers
+    pub fn start_all_sources(&self) -> Result<(), String> {
+        for handler in self.source_handlers.read().unwrap().values() {
+            handler.start().map_err(|e| format!("Failed to start source '{}': {}", handler.stream_id(), e))?;
+        }
+        Ok(())
+    }
+
+    /// Stop all registered source handlers
+    pub fn stop_all_sources(&self) {
+        for handler in self.source_handlers.read().unwrap().values() {
+            handler.stop();
+        }
+    }
+
+    /// Stop all registered sink handlers
+    pub fn stop_all_sinks(&self) {
+        for handler in self.sink_handlers.read().unwrap().values() {
+            handler.stop();
+        }
+    }
+
     pub fn start(&self) {
         if self.scheduler.is_some() {
             // placeholder: scheduler is kept alive by self
@@ -342,6 +479,10 @@ impl EventFluxAppRuntime {
     }
 
     pub fn shutdown(&self) {
+        // Stop all source and sink handlers first
+        self.stop_all_sources();
+        self.stop_all_sinks();
+
         if let Some(scheduler) = &self.scheduler {
             scheduler.shutdown();
         }
