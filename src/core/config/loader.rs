@@ -541,6 +541,169 @@ impl ConfigLoader for KubernetesConfigMapLoader {
     }
 }
 
+/// TOML file configuration loader
+///
+/// This loader reads TOML configuration files and does NOT load them into EventFluxConfig.
+/// Instead, it provides stream-level FlatConfig instances that can be merged with SQL WITH clauses.
+///
+/// **Note**: This loader is different from other loaders. It returns None from the ConfigLoader trait
+/// because TOML configs are stream-specific and need to be accessed differently through
+/// the `load_toml_config()` function.
+#[derive(Debug, Clone)]
+pub struct TomlConfigLoader {
+    /// Paths to search for TOML configuration files
+    search_paths: Vec<PathBuf>,
+
+    /// Specific file path (takes precedence over search paths)
+    file_path: Option<PathBuf>,
+
+    /// Whether to fail if no configuration file is found
+    required: bool,
+}
+
+impl TomlConfigLoader {
+    /// Create a new TOML loader with default search paths
+    pub fn new() -> Self {
+        let mut search_paths = vec![
+            PathBuf::from("."),      // Current directory
+            PathBuf::from("config"), // ./config directory
+        ];
+
+        // Add user config directory if available
+        if let Some(config_dir) = dirs::config_dir() {
+            search_paths.push(config_dir.join("eventflux"));
+        }
+
+        // Add system config directories
+        search_paths.push(PathBuf::from("/etc/eventflux"));
+        search_paths.push(PathBuf::from("/usr/local/etc/eventflux"));
+
+        Self {
+            search_paths,
+            file_path: None,
+            required: false,
+        }
+    }
+
+    /// Create a TOML loader for a specific file
+    pub fn from_file<P: Into<PathBuf>>(path: P) -> Self {
+        Self {
+            search_paths: vec![],
+            file_path: Some(path.into()),
+            required: true,
+        }
+    }
+
+    /// Set whether configuration file is required
+    pub fn required(mut self, required: bool) -> Self {
+        self.required = required;
+        self
+    }
+
+    /// Add a search path
+    pub fn add_search_path<P: Into<PathBuf>>(mut self, path: P) -> Self {
+        self.search_paths.push(path.into());
+        self
+    }
+
+    /// Find TOML configuration file in search paths
+    fn find_config_file(&self) -> Option<PathBuf> {
+        if let Some(ref path) = self.file_path {
+            if path.exists() {
+                return Some(path.clone());
+            }
+            return None;
+        }
+
+        let filenames = [
+            "eventflux.toml",
+            "eventflux-config.toml",
+            "config.toml",
+        ];
+
+        for search_path in &self.search_paths {
+            for filename in &filenames {
+                let path = search_path.join(filename);
+                if path.exists() && path.is_file() {
+                    return Some(path);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Load TOML configuration and return stream configs
+    ///
+    /// This returns a HashMap of stream names to their FlatConfig instances.
+    pub fn load_toml_stream_configs(&self) -> ConfigResult<Option<HashMap<String, crate::core::config::FlatConfig>>> {
+        if let Some(path) = self.find_config_file() {
+            let configs = crate::core::config::toml_config::load_toml_config(
+                path.to_str().ok_or_else(|| ConfigError::internal_error("Invalid TOML path"))?
+            ).map_err(|e| ConfigError::internal_error(format!("TOML loading failed: {}", e)))?;
+
+            Ok(Some(configs))
+        } else if self.required {
+            let search_info = if let Some(ref path) = self.file_path {
+                format!("file: {}", path.display())
+            } else {
+                format!(
+                    "search paths: {}",
+                    self.search_paths
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            Err(ConfigError::file_not_found(format!(
+                "No TOML configuration file found in {}",
+                search_info
+            )))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl Default for TomlConfigLoader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl ConfigLoader for TomlConfigLoader {
+    /// TOML configs are stream-specific and don't load into EventFluxConfig
+    ///
+    /// Use `load_toml_stream_configs()` instead to get stream-level configurations.
+    async fn load(&self) -> ConfigResult<Option<EventFluxConfig>> {
+        // TOML configurations are stream-specific and handled separately
+        // from the main EventFluxConfig structure
+        Ok(None)
+    }
+
+    fn is_available(&self) -> bool {
+        self.find_config_file().is_some() || !self.required
+    }
+
+    fn priority(&self) -> u32 {
+        if self.file_path.is_some() {
+            95 // Slightly lower than explicit YAML files but higher than search paths
+        } else {
+            45 // Medium priority for search paths
+        }
+    }
+
+    fn description(&self) -> String {
+        if let Some(ref path) = self.file_path {
+            format!("TOML file: {}", path.display())
+        } else {
+            format!("TOML file search in {} paths", self.search_paths.len())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
