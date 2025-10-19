@@ -104,7 +104,12 @@ impl FlatConfig {
     /// Set a property with source tracking and priority-based override
     ///
     /// Only sets the value if the new source has equal or higher priority than the existing source.
-    pub fn set(&mut self, key: impl Into<String>, value: impl Into<String>, source: PropertySource) {
+    pub fn set(
+        &mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+        source: PropertySource,
+    ) {
         let key = key.into();
         let value = value.into();
 
@@ -130,9 +135,9 @@ impl FlatConfig {
     /// Get a property value with its source
     #[inline]
     pub fn get_with_source(&self, key: &str) -> Option<(&String, PropertySource)> {
-        self.properties.get(key).and_then(|value| {
-            self.sources.get(key).map(|source| (value, *source))
-        })
+        self.properties
+            .get(key)
+            .and_then(|value| self.sources.get(key).map(|source| (value, *source)))
     }
 
     /// Check if a property exists
@@ -167,7 +172,10 @@ impl FlatConfig {
     /// Get all properties with a specific prefix
     ///
     /// Useful for extracting extension-specific properties like "kafka.*"
-    pub fn get_properties_with_prefix<'a>(&'a self, prefix: &'a str) -> impl Iterator<Item = (&'a String, &'a String)> + 'a {
+    pub fn get_properties_with_prefix<'a>(
+        &'a self,
+        prefix: &'a str,
+    ) -> impl Iterator<Item = (&'a String, &'a String)> + 'a {
         self.properties
             .iter()
             .filter(move |(key, _)| key.starts_with(prefix))
@@ -312,13 +320,15 @@ impl StreamTypeConfig {
                 // Internal streams must NOT have extension or format
                 if self.extension.is_some() {
                     return Err(
-                        "Stream has type='internal' but specifies 'extension' (not allowed)".to_string()
+                        "Stream has type='internal' but specifies 'extension' (not allowed)"
+                            .to_string(),
                     );
                 }
 
                 if self.format.is_some() {
                     return Err(
-                        "Stream has type='internal' but specifies 'format' (not allowed)".to_string()
+                        "Stream has type='internal' but specifies 'format' (not allowed)"
+                            .to_string(),
                     );
                 }
             }
@@ -331,7 +341,10 @@ impl StreamTypeConfig {
     #[inline]
     pub fn extension(&self) -> Result<&str, String> {
         self.extension.as_deref().ok_or_else(|| {
-            format!("Stream type '{}' requires extension", self.stream_type.as_str())
+            format!(
+                "Stream type '{}' requires extension",
+                self.stream_type.as_str()
+            )
         })
     }
 
@@ -339,7 +352,10 @@ impl StreamTypeConfig {
     #[inline]
     pub fn format(&self) -> Result<&str, String> {
         self.format.as_deref().ok_or_else(|| {
-            format!("Stream type '{}' requires format", self.stream_type.as_str())
+            format!(
+                "Stream type '{}' requires format",
+                self.stream_type.as_str()
+            )
         })
     }
 
@@ -367,7 +383,9 @@ mod tests {
     fn test_property_source_priority_ordering() {
         assert!(PropertySource::SqlWith.priority() > PropertySource::TomlStream.priority());
         assert!(PropertySource::TomlStream.priority() > PropertySource::TomlApplication.priority());
-        assert!(PropertySource::TomlApplication.priority() > PropertySource::RustDefault.priority());
+        assert!(
+            PropertySource::TomlApplication.priority() > PropertySource::RustDefault.priority()
+        );
     }
 
     #[test]
@@ -381,8 +399,14 @@ mod tests {
     #[test]
     fn test_property_source_descriptions() {
         assert_eq!(PropertySource::RustDefault.description(), "Rust default");
-        assert_eq!(PropertySource::TomlApplication.description(), "TOML [application]");
-        assert_eq!(PropertySource::TomlStream.description(), "TOML [streams.StreamName]");
+        assert_eq!(
+            PropertySource::TomlApplication.description(),
+            "TOML [application]"
+        );
+        assert_eq!(
+            PropertySource::TomlStream.description(),
+            "TOML [streams.StreamName]"
+        );
         assert_eq!(PropertySource::SqlWith.description(), "SQL WITH clause");
     }
 
@@ -473,7 +497,11 @@ mod tests {
     #[test]
     fn test_flat_config_prefix_filtering() {
         let mut config = FlatConfig::new();
-        config.set("kafka_bootstrap_servers", "localhost:9092", PropertySource::SqlWith);
+        config.set(
+            "kafka_bootstrap_servers",
+            "localhost:9092",
+            PropertySource::SqlWith,
+        );
         config.set("kafka_topic", "events", PropertySource::SqlWith);
         config.set("type", "source", PropertySource::SqlWith);
         config.set("format", "json", PropertySource::SqlWith);
@@ -484,7 +512,9 @@ mod tests {
             .collect();
 
         assert_eq!(kafka_props.len(), 2);
-        assert!(kafka_props.iter().any(|(k, _)| k == "kafka_bootstrap_servers"));
+        assert!(kafka_props
+            .iter()
+            .any(|(k, _)| k == "kafka_bootstrap_servers"));
         assert!(kafka_props.iter().any(|(k, _)| k == "kafka_topic"));
     }
 
@@ -512,8 +542,14 @@ mod tests {
         assert_eq!(StreamType::from_str("sink").unwrap(), StreamType::Sink);
         assert_eq!(StreamType::from_str("Sink").unwrap(), StreamType::Sink);
 
-        assert_eq!(StreamType::from_str("internal").unwrap(), StreamType::Internal);
-        assert_eq!(StreamType::from_str("Internal").unwrap(), StreamType::Internal);
+        assert_eq!(
+            StreamType::from_str("internal").unwrap(),
+            StreamType::Internal
+        );
+        assert_eq!(
+            StreamType::from_str("Internal").unwrap(),
+            StreamType::Internal
+        );
     }
 
     #[test]
@@ -593,12 +629,7 @@ mod tests {
         let mut props = HashMap::new();
         props.insert("type".to_string(), "internal".to_string());
 
-        let config = StreamTypeConfig::new(
-            StreamType::Internal,
-            None,
-            None,
-            props,
-        );
+        let config = StreamTypeConfig::new(StreamType::Internal, None, None, props);
 
         assert!(config.is_ok());
     }
@@ -642,7 +673,9 @@ mod tests {
         );
 
         assert!(config.is_err());
-        assert!(config.unwrap_err().contains("type='internal' but specifies 'extension'"));
+        assert!(config
+            .unwrap_err()
+            .contains("type='internal' but specifies 'extension'"));
     }
 
     #[test]
@@ -656,7 +689,9 @@ mod tests {
         );
 
         assert!(config.is_err());
-        assert!(config.unwrap_err().contains("type='internal' but specifies 'format'"));
+        assert!(config
+            .unwrap_err()
+            .contains("type='internal' but specifies 'format'"));
     }
 
     #[test]
@@ -665,7 +700,11 @@ mod tests {
         flat_config.set("type", "source", PropertySource::SqlWith);
         flat_config.set("extension", "kafka", PropertySource::SqlWith);
         flat_config.set("format", "json", PropertySource::SqlWith);
-        flat_config.set("bootstrap_servers", "localhost:9092", PropertySource::SqlWith);
+        flat_config.set(
+            "bootstrap_servers",
+            "localhost:9092",
+            PropertySource::SqlWith,
+        );
 
         let config = StreamTypeConfig::from_flat_config(&flat_config);
         assert!(config.is_ok());
@@ -695,7 +734,10 @@ mod tests {
         props.insert("type".to_string(), "source".to_string());
         props.insert("extension".to_string(), "kafka".to_string());
         props.insert("format".to_string(), "json".to_string());
-        props.insert("kafka_bootstrap_servers".to_string(), "localhost:9092".to_string());
+        props.insert(
+            "kafka_bootstrap_servers".to_string(),
+            "localhost:9092".to_string(),
+        );
         props.insert("kafka_topic".to_string(), "events".to_string());
         props.insert("redis_host".to_string(), "localhost".to_string());
 
@@ -704,11 +746,15 @@ mod tests {
             Some("kafka".to_string()),
             Some("json".to_string()),
             props,
-        ).unwrap();
+        )
+        .unwrap();
 
         let kafka_props = config.get_properties_with_prefix("kafka_");
         assert_eq!(kafka_props.len(), 2);
-        assert_eq!(kafka_props.get("kafka_bootstrap_servers"), Some(&"localhost:9092".to_string()));
+        assert_eq!(
+            kafka_props.get("kafka_bootstrap_servers"),
+            Some(&"localhost:9092".to_string())
+        );
         assert_eq!(kafka_props.get("kafka_topic"), Some(&"events".to_string()));
 
         let redis_props = config.get_properties_with_prefix("redis_");

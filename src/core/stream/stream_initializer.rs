@@ -12,10 +12,10 @@ use std::sync::{Arc, Mutex};
 use crate::core::config::eventflux_context::EventFluxContext;
 use crate::core::config::stream_config::{StreamType, StreamTypeConfig};
 use crate::core::error::EventFluxError;
-use crate::core::stream::input::source::Source;
 use crate::core::stream::input::mapper::SourceMapper;
-use crate::core::stream::output::sink::Sink;
+use crate::core::stream::input::source::Source;
 use crate::core::stream::output::mapper::SinkMapper;
+use crate::core::stream::output::sink::Sink;
 
 /// Fully initialized stream with source and mapper components
 pub struct InitializedSource {
@@ -129,18 +129,18 @@ fn initialize_source_stream(
     stream_config: &StreamTypeConfig,
 ) -> Result<InitializedStream, EventFluxError> {
     // 1. Look up source factory by extension
-    let extension = stream_config.extension().map_err(|e| {
-        EventFluxError::configuration(format!("Stream configuration error: {}", e))
-    })?;
+    let extension = stream_config
+        .extension()
+        .map_err(|e| EventFluxError::configuration(format!("Stream configuration error: {}", e)))?;
 
     let source_factory = context
         .get_source_factory(extension)
         .ok_or_else(|| EventFluxError::extension_not_found("source", extension))?;
 
     // 2. Validate format support
-    let format = stream_config.format().map_err(|e| {
-        EventFluxError::configuration(format!("Stream configuration error: {}", e))
-    })?;
+    let format = stream_config
+        .format()
+        .map_err(|e| EventFluxError::configuration(format!("Stream configuration error: {}", e)))?;
 
     if !source_factory.supported_formats().contains(&format) {
         return Err(EventFluxError::unsupported_format(format, extension));
@@ -170,18 +170,18 @@ fn initialize_sink_stream(
     stream_config: &StreamTypeConfig,
 ) -> Result<InitializedStream, EventFluxError> {
     // 1. Look up sink factory by extension
-    let extension = stream_config.extension().map_err(|e| {
-        EventFluxError::configuration(format!("Stream configuration error: {}", e))
-    })?;
+    let extension = stream_config
+        .extension()
+        .map_err(|e| EventFluxError::configuration(format!("Stream configuration error: {}", e)))?;
 
     let sink_factory = context
         .get_sink_factory(extension)
         .ok_or_else(|| EventFluxError::extension_not_found("sink", extension))?;
 
     // 2. Validate format support
-    let format = stream_config.format().map_err(|e| {
-        EventFluxError::configuration(format!("Stream configuration error: {}", e))
-    })?;
+    let format = stream_config
+        .format()
+        .map_err(|e| EventFluxError::configuration(format!("Stream configuration error: {}", e)))?;
 
     if !sink_factory.supported_formats().contains(&format) {
         return Err(EventFluxError::unsupported_format(format, extension));
@@ -218,7 +218,10 @@ mod tests {
         context.add_source_mapper_factory("json".to_string(), Box::new(JsonSourceMapperFactory));
 
         let mut config = HashMap::new();
-        config.insert("kafka.bootstrap.servers".to_string(), "localhost:9092".to_string());
+        config.insert(
+            "kafka.bootstrap.servers".to_string(),
+            "localhost:9092".to_string(),
+        );
         config.insert("kafka.topic".to_string(), "test-topic".to_string());
 
         let stream_config = StreamTypeConfig::new(
@@ -257,7 +260,10 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            EventFluxError::ExtensionNotFound { extension_type, name } => {
+            EventFluxError::ExtensionNotFound {
+                extension_type,
+                name,
+            } => {
                 assert_eq!(extension_type, "source");
                 assert_eq!(name, "nonexistent");
             }
@@ -297,7 +303,10 @@ mod tests {
         // Don't register json mapper
 
         let mut config = HashMap::new();
-        config.insert("kafka.bootstrap.servers".to_string(), "localhost:9092".to_string());
+        config.insert(
+            "kafka.bootstrap.servers".to_string(),
+            "localhost:9092".to_string(),
+        );
         config.insert("kafka.topic".to_string(), "test".to_string());
 
         let stream_config = StreamTypeConfig::new(
@@ -312,7 +321,10 @@ mod tests {
         assert!(result.is_err());
 
         match result.unwrap_err() {
-            EventFluxError::ExtensionNotFound { extension_type, name } => {
+            EventFluxError::ExtensionNotFound {
+                extension_type,
+                name,
+            } => {
                 assert_eq!(extension_type, "source mapper");
                 assert_eq!(name, "json");
             }
@@ -327,7 +339,10 @@ mod tests {
         context.add_sink_mapper_factory("json".to_string(), Box::new(CsvSinkMapperFactory)); // Using CSV as placeholder
 
         let mut config = HashMap::new();
-        config.insert("http.url".to_string(), "http://localhost:8080/events".to_string());
+        config.insert(
+            "http.url".to_string(),
+            "http://localhost:8080/events".to_string(),
+        );
 
         let stream_config = StreamTypeConfig::new(
             StreamType::Sink,
@@ -353,13 +368,8 @@ mod tests {
     fn test_initialize_internal_stream() {
         let context = EventFluxContext::new();
 
-        let stream_config = StreamTypeConfig::new(
-            StreamType::Internal,
-            None,
-            None,
-            HashMap::new(),
-        )
-        .unwrap();
+        let stream_config =
+            StreamTypeConfig::new(StreamType::Internal, None, None, HashMap::new()).unwrap();
 
         let result = initialize_stream(&context, &stream_config);
         assert!(result.is_ok());

@@ -66,14 +66,20 @@ pub trait SourceFactory: Debug + Send + Sync {
     /// Validates configuration and returns error if invalid
     /// Source is guaranteed to be in valid state upon successful return
     /// NO DEFAULT - Must be explicitly implemented
-    fn create_initialized(&self, config: &std::collections::HashMap<String, String>)
-        -> Result<Box<dyn crate::core::stream::input::source::Source>, crate::core::error::EventFluxError>;
+    fn create_initialized(
+        &self,
+        config: &std::collections::HashMap<String, String>,
+    ) -> Result<
+        Box<dyn crate::core::stream::input::source::Source>,
+        crate::core::error::EventFluxError,
+    >;
 
     /// Legacy create method for backward compatibility
     /// Deprecated: Use create_initialized instead
     /// Returns None if factory requires configuration parameters
     fn create(&self) -> Option<Box<dyn crate::core::stream::input::source::Source>> {
-        self.create_initialized(&std::collections::HashMap::new()).ok()
+        self.create_initialized(&std::collections::HashMap::new())
+            .ok()
     }
 
     fn clone_box(&self) -> Box<dyn SourceFactory>;
@@ -106,14 +112,17 @@ pub trait SinkFactory: Debug + Send + Sync {
     /// Validates configuration and returns error if invalid
     /// Sink is guaranteed to be in valid state upon successful return
     /// NO DEFAULT - Must be explicitly implemented
-    fn create_initialized(&self, config: &std::collections::HashMap<String, String>)
-        -> Result<Box<dyn crate::core::stream::output::sink::Sink>, crate::core::error::EventFluxError>;
+    fn create_initialized(
+        &self,
+        config: &std::collections::HashMap<String, String>,
+    ) -> Result<Box<dyn crate::core::stream::output::sink::Sink>, crate::core::error::EventFluxError>;
 
     /// Legacy create method for backward compatibility
     /// Deprecated: Use create_initialized instead
     /// Returns None if factory requires configuration parameters
     fn create(&self) -> Option<Box<dyn crate::core::stream::output::sink::Sink>> {
-        self.create_initialized(&std::collections::HashMap::new()).ok()
+        self.create_initialized(&std::collections::HashMap::new())
+            .ok()
     }
 
     fn clone_box(&self) -> Box<dyn SinkFactory>;
@@ -151,14 +160,17 @@ pub trait SourceMapperFactory: Debug + Send + Sync {
     /// Create a fully initialized, ready-to-use SourceMapper instance
     /// Validates configuration and returns error if invalid
     /// NO DEFAULT - Must be explicitly implemented
-    fn create_initialized(&self, config: &std::collections::HashMap<String, String>)
-        -> Result<Box<dyn SourceMapper>, crate::core::error::EventFluxError>;
+    fn create_initialized(
+        &self,
+        config: &std::collections::HashMap<String, String>,
+    ) -> Result<Box<dyn SourceMapper>, crate::core::error::EventFluxError>;
 
     /// Legacy create method for backward compatibility
     /// Deprecated: Use create_initialized instead
     /// Returns None if factory requires configuration parameters
     fn create(&self) -> Option<Box<dyn SourceMapper>> {
-        self.create_initialized(&std::collections::HashMap::new()).ok()
+        self.create_initialized(&std::collections::HashMap::new())
+            .ok()
     }
 
     fn clone_box(&self) -> Box<dyn SourceMapperFactory>;
@@ -185,14 +197,17 @@ pub trait SinkMapperFactory: Debug + Send + Sync {
     /// Create a fully initialized, ready-to-use SinkMapper instance
     /// Validates configuration and returns error if invalid
     /// NO DEFAULT - Must be explicitly implemented
-    fn create_initialized(&self, config: &std::collections::HashMap<String, String>)
-        -> Result<Box<dyn SinkMapper>, crate::core::error::EventFluxError>;
+    fn create_initialized(
+        &self,
+        config: &std::collections::HashMap<String, String>,
+    ) -> Result<Box<dyn SinkMapper>, crate::core::error::EventFluxError>;
 
     /// Legacy create method for backward compatibility
     /// Deprecated: Use create_initialized instead
     /// Returns None if factory requires configuration parameters
     fn create(&self) -> Option<Box<dyn SinkMapper>> {
-        self.create_initialized(&std::collections::HashMap::new()).ok()
+        self.create_initialized(&std::collections::HashMap::new())
+            .ok()
     }
 
     fn clone_box(&self) -> Box<dyn SinkMapperFactory>;
@@ -250,21 +265,29 @@ impl SourceFactory for TimerSourceFactory {
         &["timer.interval"] // Interval in milliseconds
     }
 
-    fn create_initialized(&self, config: &std::collections::HashMap<String, String>)
-        -> Result<Box<dyn crate::core::stream::input::source::Source>, crate::core::error::EventFluxError> {
+    fn create_initialized(
+        &self,
+        config: &std::collections::HashMap<String, String>,
+    ) -> Result<
+        Box<dyn crate::core::stream::input::source::Source>,
+        crate::core::error::EventFluxError,
+    > {
         // Parse optional interval parameter
         let interval_ms = if let Some(interval_str) = config.get("timer.interval") {
-            interval_str.parse::<u64>()
-                .map_err(|_| crate::core::error::EventFluxError::invalid_parameter_with_details(
+            interval_str.parse::<u64>().map_err(|_| {
+                crate::core::error::EventFluxError::invalid_parameter_with_details(
                     "timer.interval must be a valid integer",
                     "timer.interval",
-                    "positive integer (milliseconds)"
-                ))?
+                    "positive integer (milliseconds)",
+                )
+            })?
         } else {
             1000 // Default 1 second
         };
 
-        Ok(Box::new(crate::core::stream::input::source::timer_source::TimerSource::new(interval_ms)))
+        Ok(Box::new(
+            crate::core::stream::input::source::timer_source::TimerSource::new(interval_ms),
+        ))
     }
 
     fn clone_box(&self) -> Box<dyn SourceFactory> {
@@ -292,8 +315,11 @@ impl SinkFactory for LogSinkFactory {
         &["log.prefix", "log.level"] // Optional logging parameters
     }
 
-    fn create_initialized(&self, _config: &std::collections::HashMap<String, String>)
-        -> Result<Box<dyn crate::core::stream::output::sink::Sink>, crate::core::error::EventFluxError> {
+    fn create_initialized(
+        &self,
+        _config: &std::collections::HashMap<String, String>,
+    ) -> Result<Box<dyn crate::core::stream::output::sink::Sink>, crate::core::error::EventFluxError>
+    {
         // LogSink doesn't need configuration validation for now
         // Future: could add log level validation, prefix customization, etc.
         Ok(Box::new(crate::core::stream::output::sink::LogSink::new()))
@@ -392,7 +418,10 @@ mod tests {
     fn test_create_initialized_valid_config() {
         let factory = KafkaSourceFactory;
         let mut config = std::collections::HashMap::new();
-        config.insert("kafka.bootstrap.servers".to_string(), "localhost:9092".to_string());
+        config.insert(
+            "kafka.bootstrap.servers".to_string(),
+            "localhost:9092".to_string(),
+        );
         config.insert("kafka.topic".to_string(), "test-topic".to_string());
 
         let result = factory.create_initialized(&config);
@@ -437,7 +466,10 @@ mod tests {
     fn test_http_sink_factory_create() {
         let factory = HttpSinkFactory;
         let mut config = std::collections::HashMap::new();
-        config.insert("http.url".to_string(), "http://localhost:8080/events".to_string());
+        config.insert(
+            "http.url".to_string(),
+            "http://localhost:8080/events".to_string(),
+        );
 
         let result = factory.create_initialized(&config);
         assert!(result.is_ok());
@@ -498,7 +530,10 @@ mod tests {
 
         // 4. Create fully initialized instances
         let mut source_config = std::collections::HashMap::new();
-        source_config.insert("kafka.bootstrap.servers".to_string(), "localhost:9092".to_string());
+        source_config.insert(
+            "kafka.bootstrap.servers".to_string(),
+            "localhost:9092".to_string(),
+        );
         source_config.insert("kafka.topic".to_string(), "test".to_string());
 
         let source = source_factory.create_initialized(&source_config);
@@ -529,9 +564,13 @@ mod tests {
     #[test]
     fn test_source_factory_parameters() {
         let factory = KafkaSourceFactory;
-        assert!(factory.required_parameters().contains(&"kafka.bootstrap.servers"));
+        assert!(factory
+            .required_parameters()
+            .contains(&"kafka.bootstrap.servers"));
         assert!(factory.required_parameters().contains(&"kafka.topic"));
-        assert!(factory.optional_parameters().contains(&"kafka.consumer.group"));
+        assert!(factory
+            .optional_parameters()
+            .contains(&"kafka.consumer.group"));
         assert!(factory.optional_parameters().contains(&"kafka.timeout"));
     }
 

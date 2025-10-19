@@ -5,14 +5,14 @@
 //! This module demonstrates the single-phase construction pattern for factories
 //! as described in M3: Factory System & Registry
 
-use std::collections::HashMap;
 use crate::core::error::EventFluxError;
-use crate::core::extension::{SourceFactory, SinkFactory, SourceMapperFactory, SinkMapperFactory};
-use crate::core::stream::input::source::Source;
-use crate::core::stream::output::sink::Sink;
-use crate::core::stream::input::mapper::SourceMapper;
-use crate::core::stream::output::mapper::SinkMapper;
 use crate::core::event::event::Event;
+use crate::core::extension::{SinkFactory, SinkMapperFactory, SourceFactory, SourceMapperFactory};
+use crate::core::stream::input::mapper::SourceMapper;
+use crate::core::stream::input::source::Source;
+use crate::core::stream::output::mapper::SinkMapper;
+use crate::core::stream::output::sink::Sink;
+use std::collections::HashMap;
 
 // ============================================================================
 // Kafka Source Factory with Typed Config
@@ -31,10 +31,12 @@ impl KafkaSourceConfig {
     /// Parse and validate raw config into typed config (PRIVATE helper)
     fn parse(raw_config: &HashMap<String, String>) -> Result<Self, EventFluxError> {
         // 1. Validate required parameters present
-        let brokers_str = raw_config.get("kafka.bootstrap.servers")
+        let brokers_str = raw_config
+            .get("kafka.bootstrap.servers")
             .ok_or_else(|| EventFluxError::missing_parameter("kafka.bootstrap.servers"))?;
 
-        let topic = raw_config.get("kafka.topic")
+        let topic = raw_config
+            .get("kafka.topic")
             .ok_or_else(|| EventFluxError::missing_parameter("kafka.topic"))?;
 
         // 2. Parse comma-separated brokers list
@@ -47,23 +49,27 @@ impl KafkaSourceConfig {
         if bootstrap_servers.is_empty() {
             return Err(EventFluxError::configuration_with_key(
                 "kafka.bootstrap.servers cannot be empty",
-                "kafka.bootstrap.servers"
+                "kafka.bootstrap.servers",
             ));
         }
 
         // 3. Parse optional integer
-        let timeout_ms = raw_config.get("kafka.timeout")
+        let timeout_ms = raw_config
+            .get("kafka.timeout")
             .map(|s| s.parse::<u64>())
             .transpose()
-            .map_err(|_| EventFluxError::invalid_parameter_with_details(
-                "kafka.timeout must be a valid integer",
-                "kafka.timeout",
-                "positive integer (milliseconds)"
-            ))?
+            .map_err(|_| {
+                EventFluxError::invalid_parameter_with_details(
+                    "kafka.timeout must be a valid integer",
+                    "kafka.timeout",
+                    "positive integer (milliseconds)",
+                )
+            })?
             .unwrap_or(30000);
 
         // 4. Parse consumer group (with default)
-        let consumer_group = raw_config.get("kafka.consumer.group")
+        let consumer_group = raw_config
+            .get("kafka.consumer.group")
             .cloned()
             .unwrap_or_else(|| format!("eventflux-{}", topic));
 
@@ -85,7 +91,12 @@ struct KafkaSource {
 }
 
 impl Source for KafkaSource {
-    fn start(&mut self, _handler: std::sync::Arc<std::sync::Mutex<crate::core::stream::input::input_handler::InputHandler>>) {
+    fn start(
+        &mut self,
+        _handler: std::sync::Arc<
+            std::sync::Mutex<crate::core::stream::input::input_handler::InputHandler>,
+        >,
+    ) {
         // Placeholder: actual implementation would start Kafka consumer
     }
 
@@ -121,9 +132,10 @@ impl SourceFactory for KafkaSourceFactory {
         &["kafka.consumer.group", "kafka.timeout"]
     }
 
-    fn create_initialized(&self, config: &HashMap<String, String>)
-        -> Result<Box<dyn Source>, EventFluxError> {
-
+    fn create_initialized(
+        &self,
+        config: &HashMap<String, String>,
+    ) -> Result<Box<dyn Source>, EventFluxError> {
         // 1. Parse and validate configuration
         let parsed = KafkaSourceConfig::parse(config)?;
 
@@ -160,10 +172,12 @@ struct HttpSinkConfig {
 
 impl HttpSinkConfig {
     fn parse(raw_config: &HashMap<String, String>) -> Result<Self, EventFluxError> {
-        let url = raw_config.get("http.url")
+        let url = raw_config
+            .get("http.url")
             .ok_or_else(|| EventFluxError::missing_parameter("http.url"))?;
 
-        let method = raw_config.get("http.method")
+        let method = raw_config
+            .get("http.method")
             .cloned()
             .unwrap_or_else(|| "POST".to_string());
 
@@ -172,18 +186,21 @@ impl HttpSinkConfig {
             return Err(EventFluxError::invalid_parameter_with_details(
                 format!("Invalid HTTP method: {}", method),
                 "http.method",
-                "one of: GET, POST, PUT, DELETE, PATCH"
+                "one of: GET, POST, PUT, DELETE, PATCH",
             ));
         }
 
-        let timeout_secs = raw_config.get("http.timeout")
+        let timeout_secs = raw_config
+            .get("http.timeout")
             .map(|s| s.parse::<u64>())
             .transpose()
-            .map_err(|_| EventFluxError::invalid_parameter_with_details(
-                "http.timeout must be a valid integer",
-                "http.timeout",
-                "positive integer (seconds)"
-            ))?
+            .map_err(|_| {
+                EventFluxError::invalid_parameter_with_details(
+                    "http.timeout must be a valid integer",
+                    "http.timeout",
+                    "positive integer (seconds)",
+                )
+            })?
             .unwrap_or(30);
 
         // Parse headers (simple implementation)
@@ -240,9 +257,10 @@ impl SinkFactory for HttpSinkFactory {
         &["http.method", "http.headers", "http.timeout"]
     }
 
-    fn create_initialized(&self, config: &HashMap<String, String>)
-        -> Result<Box<dyn Sink>, EventFluxError> {
-
+    fn create_initialized(
+        &self,
+        config: &HashMap<String, String>,
+    ) -> Result<Box<dyn Sink>, EventFluxError> {
         let parsed = HttpSinkConfig::parse(config)?;
 
         Ok(Box::new(HttpSink {
@@ -291,8 +309,10 @@ impl SourceMapperFactory for JsonSourceMapperFactory {
         &["json.fail-on-missing-attribute", "json.enclosing-element"]
     }
 
-    fn create_initialized(&self, _config: &HashMap<String, String>)
-        -> Result<Box<dyn SourceMapper>, EventFluxError> {
+    fn create_initialized(
+        &self,
+        _config: &HashMap<String, String>,
+    ) -> Result<Box<dyn SourceMapper>, EventFluxError> {
         Ok(Box::new(JsonSourceMapper))
     }
 
@@ -314,7 +334,8 @@ struct CsvSinkMapperConfig {
 
 impl CsvSinkMapperConfig {
     fn parse(raw_config: &HashMap<String, String>) -> Result<Self, EventFluxError> {
-        let delimiter = raw_config.get("csv.delimiter")
+        let delimiter = raw_config
+            .get("csv.delimiter")
             .cloned()
             .unwrap_or_else(|| ",".to_string());
 
@@ -322,18 +343,21 @@ impl CsvSinkMapperConfig {
             return Err(EventFluxError::invalid_parameter_with_details(
                 "CSV delimiter must be a single character",
                 "csv.delimiter",
-                "single character"
+                "single character",
             ));
         }
 
-        let header = raw_config.get("csv.header")
+        let header = raw_config
+            .get("csv.header")
             .map(|s| s.parse::<bool>())
             .transpose()
-            .map_err(|_| EventFluxError::invalid_parameter_with_details(
-                "csv.header must be 'true' or 'false'",
-                "csv.header",
-                "boolean"
-            ))?
+            .map_err(|_| {
+                EventFluxError::invalid_parameter_with_details(
+                    "csv.header must be 'true' or 'false'",
+                    "csv.header",
+                    "boolean",
+                )
+            })?
             .unwrap_or(true);
 
         Ok(CsvSinkMapperConfig { delimiter, header })
@@ -377,9 +401,10 @@ impl SinkMapperFactory for CsvSinkMapperFactory {
         &["csv.delimiter", "csv.header"]
     }
 
-    fn create_initialized(&self, config: &HashMap<String, String>)
-        -> Result<Box<dyn SinkMapper>, EventFluxError> {
-
+    fn create_initialized(
+        &self,
+        config: &HashMap<String, String>,
+    ) -> Result<Box<dyn SinkMapper>, EventFluxError> {
         let parsed = CsvSinkMapperConfig::parse(config)?;
 
         Ok(Box::new(CsvSinkMapper {
@@ -400,7 +425,10 @@ mod tests {
     #[test]
     fn test_kafka_source_config_parse() {
         let mut config = HashMap::new();
-        config.insert("kafka.bootstrap.servers".to_string(), "localhost:9092".to_string());
+        config.insert(
+            "kafka.bootstrap.servers".to_string(),
+            "localhost:9092".to_string(),
+        );
         config.insert("kafka.topic".to_string(), "test-topic".to_string());
 
         let parsed = KafkaSourceConfig::parse(&config).unwrap();
@@ -415,7 +443,10 @@ mod tests {
         let config = HashMap::new();
         let result = KafkaSourceConfig::parse(&config);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), EventFluxError::MissingParameter { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            EventFluxError::MissingParameter { .. }
+        ));
     }
 
     #[test]
@@ -439,7 +470,10 @@ mod tests {
     #[test]
     fn test_http_sink_config_parse() {
         let mut config = HashMap::new();
-        config.insert("http.url".to_string(), "http://localhost:8080/api".to_string());
+        config.insert(
+            "http.url".to_string(),
+            "http://localhost:8080/api".to_string(),
+        );
         config.insert("http.method".to_string(), "POST".to_string());
 
         let parsed = HttpSinkConfig::parse(&config).unwrap();
@@ -482,7 +516,10 @@ mod tests {
     fn test_factory_create_initialized() {
         let factory = KafkaSourceFactory;
         let mut config = HashMap::new();
-        config.insert("kafka.bootstrap.servers".to_string(), "localhost:9092".to_string());
+        config.insert(
+            "kafka.bootstrap.servers".to_string(),
+            "localhost:9092".to_string(),
+        );
         config.insert("kafka.topic".to_string(), "test".to_string());
 
         let result = factory.create_initialized(&config);

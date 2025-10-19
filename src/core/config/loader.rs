@@ -615,11 +615,7 @@ impl TomlConfigLoader {
             return None;
         }
 
-        let filenames = [
-            "eventflux.toml",
-            "eventflux-config.toml",
-            "config.toml",
-        ];
+        let filenames = ["eventflux.toml", "eventflux-config.toml", "config.toml"];
 
         for search_path in &self.search_paths {
             for filename in &filenames {
@@ -636,11 +632,15 @@ impl TomlConfigLoader {
     /// Load TOML configuration and return stream configs
     ///
     /// This returns a HashMap of stream names to their FlatConfig instances.
-    pub fn load_toml_stream_configs(&self) -> ConfigResult<Option<HashMap<String, crate::core::config::FlatConfig>>> {
+    pub fn load_toml_stream_configs(
+        &self,
+    ) -> ConfigResult<Option<HashMap<String, crate::core::config::FlatConfig>>> {
         if let Some(path) = self.find_config_file() {
             let configs = crate::core::config::toml_config::load_toml_config(
-                path.to_str().ok_or_else(|| ConfigError::internal_error("Invalid TOML path"))?
-            ).map_err(|e| ConfigError::internal_error(format!("TOML loading failed: {}", e)))?;
+                path.to_str()
+                    .ok_or_else(|| ConfigError::internal_error("Invalid TOML path"))?,
+            )
+            .map_err(|e| ConfigError::internal_error(format!("TOML loading failed: {}", e)))?;
 
             Ok(Some(configs))
         } else if self.required {

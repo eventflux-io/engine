@@ -27,6 +27,7 @@ pub mod stream;
 pub mod table;
 pub mod trigger;
 pub mod util;
+pub mod validation; // M4: 3-Phase Validation System
 pub mod window;
 
 // Re-export key public-facing structs from core
@@ -35,4 +36,8 @@ pub use self::error::{EventFluxError, EventFluxResult};
 pub use self::eventflux_app_runtime::EventFluxAppRuntime;
 pub use self::eventflux_app_runtime_builder::EventFluxAppRuntimeBuilder;
 pub use self::eventflux_manager::EventFluxManager; // Added
-                                                   // Other important re-exports will be added as these modules are built out.
+pub use self::validation::{
+    detect_circular_dependencies, validate_dlq_schema, validate_dlq_stream_name,
+    validate_no_recursive_dlq, QuerySourceExtractor,
+};
+// Other important re-exports will be added as these modules are built out.
