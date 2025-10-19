@@ -65,15 +65,21 @@ impl SourceStreamHandler {
 
     /// Start the source stream
     ///
-    /// Begins processing events from the source. Returns error if already running.
+    /// Begins processing events from the source. This operation is idempotent;
+    /// calling start() on an already-running source is a no-op and returns Ok.
     pub fn start(&self) -> Result<(), EventFluxError> {
-        if self.is_running.swap(true, Ordering::SeqCst) {
-            return Err(EventFluxError::app_runtime(format!(
-                "Source '{}' is already running",
-                self.stream_id
-            )));
+        // Check if already running - if so, this is a no-op
+        if self.is_running.load(Ordering::SeqCst) {
+            return Ok(());
         }
 
+        // Atomically transition to running state
+        if self.is_running.swap(true, Ordering::SeqCst) {
+            // Another thread started it between our check and swap
+            return Ok(());
+        }
+
+        // Start the source
         self.source
             .lock()
             .unwrap()
@@ -284,8 +290,9 @@ mod tests {
         assert!(handler.start().is_ok());
         assert!(handler.is_running());
 
-        // Starting again should fail
-        assert!(handler.start().is_err());
+        // Starting again should be idempotent (no-op, returns Ok)
+        assert!(handler.start().is_ok());
+        assert!(handler.is_running());
 
         handler.stop();
         assert!(!handler.is_running());

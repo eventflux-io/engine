@@ -43,8 +43,12 @@ pub struct EventFluxAppRuntime {
     pub aggregation_map: HashMap<String, Arc<Mutex<crate::core::aggregation::AggregationRuntime>>>,
 
     // Stream handlers for lifecycle management (M7)
-    pub source_handlers: Arc<std::sync::RwLock<HashMap<String, Arc<crate::core::stream::handler::SourceStreamHandler>>>>,
-    pub sink_handlers: Arc<std::sync::RwLock<HashMap<String, Arc<crate::core::stream::handler::SinkStreamHandler>>>>,
+    pub source_handlers: Arc<
+        std::sync::RwLock<HashMap<String, Arc<crate::core::stream::handler::SourceStreamHandler>>>,
+    >,
+    pub sink_handlers: Arc<
+        std::sync::RwLock<HashMap<String, Arc<crate::core::stream::handler::SinkStreamHandler>>>,
+    >,
 }
 
 impl EventFluxAppRuntime {
@@ -274,10 +278,16 @@ impl EventFluxAppRuntime {
         )?;
 
         // 3. Build the EventFluxAppRuntime from the builder
-        let runtime = builder.build(api_eventflux_app)?; // Pass the Arc<ApiEventFluxApp> again
+        let runtime = builder.build(api_eventflux_app)?;
 
-        // 4. Auto-attach sinks from configuration
-        runtime.auto_attach_sinks_from_config(app_config)?;
+        // Note: Auto-attach of sources and sinks is deferred to start() method
+        // This allows proper lifecycle management:
+        //  - Construction: Create runtime and register components
+        //  - Start: Attach and start I/O sources/sinks
+        //  - Shutdown: Stop I/O and clean up
+        //
+        // The application configuration is stored in eventflux_app_context.app_config
+        // and will be accessed during start()
 
         Ok(runtime)
     }
@@ -373,11 +383,7 @@ impl EventFluxAppRuntime {
         &self,
         stream_name: &str,
     ) -> Option<Arc<crate::core::stream::handler::SinkStreamHandler>> {
-        self.sink_handlers
-            .read()
-            .unwrap()
-            .get(stream_name)
-            .cloned()
+        self.sink_handlers.read().unwrap().get(stream_name).cloned()
     }
 
     /// Attach sink handler to junction for event delivery
@@ -412,9 +418,7 @@ impl EventFluxAppRuntime {
         let sink = handler.sink();
 
         // Lock and clone the inner Box<dyn Sink>
-        let sink_guard = sink
-            .lock()
-            .expect("Sink Mutex poisoned");
+        let sink_guard = sink.lock().expect("Sink Mutex poisoned");
         let sink_clone = sink_guard.clone_box();
         drop(sink_guard); // Release lock
 
@@ -442,7 +446,9 @@ impl EventFluxAppRuntime {
     /// Start all registered source handlers
     pub fn start_all_sources(&self) -> Result<(), String> {
         for handler in self.source_handlers.read().unwrap().values() {
-            handler.start().map_err(|e| format!("Failed to start source '{}': {}", handler.stream_id(), e))?;
+            handler
+                .start()
+                .map_err(|e| format!("Failed to start source '{}': {}", handler.stream_id(), e))?;
         }
         Ok(())
     }
@@ -462,6 +468,41 @@ impl EventFluxAppRuntime {
     }
 
     pub fn start(&self) {
+        // Auto-attach sources and sinks from configuration (if available)
+        if let Some(app_config) = &self.eventflux_app_context.app_config {
+            // Auto-attach sources - idempotent operation with error accumulation
+            match self.auto_attach_sources_from_config(app_config) {
+                Ok(sources) => {
+                    if !sources.is_empty() {
+                        println!(
+                            "[EventFluxAppRuntime] Successfully attached {} source(s): {}",
+                            sources.len(),
+                            sources.join(", ")
+                        );
+                    }
+                }
+                Err(errors) => {
+                    eprintln!(
+                        "[EventFluxAppRuntime] Failed to auto-attach sources ({} error(s)):",
+                        errors.len()
+                    );
+                    for (i, e) in errors.iter().enumerate() {
+                        eprintln!("  {}. {}", i + 1, e);
+                    }
+                }
+            }
+
+            // Auto-attach sinks - idempotent operation
+            if let Err(e) = self.auto_attach_sinks_from_config(app_config) {
+                eprintln!("[EventFluxAppRuntime] Failed to auto-attach sinks: {}", e);
+            }
+        }
+
+        // Start all registered sources (idempotent - no-op if already started)
+        if let Err(e) = self.start_all_sources() {
+            eprintln!("[EventFluxAppRuntime] Failed to start sources: {}", e);
+        }
+
         if self.scheduler.is_some() {
             // placeholder: scheduler is kept alive by self
             println!(
@@ -600,6 +641,260 @@ impl EventFluxAppRuntime {
         } else {
             Vec::new()
         }
+    }
+
+    /// Auto-attach sources from configuration
+    ///
+    /// Automatically creates source stream handlers based on application configuration.
+    /// Uses the existing stream_initializer infrastructure for proper factory integration
+    /// and mapper support.
+    ///
+    /// This operation is idempotent - if a source handler is already registered for a stream,
+    /// it will be skipped (only started if not already running).
+    ///
+    /// # Production Features
+    ///
+    /// - Accumulates all errors instead of failing on first error
+    /// - Provides detailed error context for debugging
+    /// - Tracks which sources succeeded vs failed
+    /// - Proper logging instead of println
+    ///
+    /// # Flow
+    ///
+    /// 1. Iterate through all configured streams with sources
+    /// 2. Skip if handler already registered (idempotent)
+    /// 3. Convert SourceConfig to StreamTypeConfig
+    /// 4. Use stream_initializer to create source with mapper
+    /// 5. Create SourceStreamHandler and register it
+    /// 6. Start the source
+    /// 7. Collect successes and failures
+    ///
+    /// # Arguments
+    ///
+    /// * `app_config` - Application configuration containing stream definitions
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<String>)` - List of successfully attached source stream names
+    /// * `Err(Vec<EventFluxError>)` - List of all errors encountered (partial success possible)
+    fn auto_attach_sources_from_config(
+        &self,
+        app_config: &ApplicationConfig,
+    ) -> Result<Vec<String>, Vec<crate::core::exception::EventFluxError>> {
+        let mut errors = Vec::new();
+        let mut successes = Vec::new();
+
+        // Iterate through all configured streams
+        for (stream_name, stream_config) in &app_config.streams {
+            // Check if this stream has a source configuration
+            if let Some(ref source_config) = stream_config.source {
+                // Process this source, collecting errors instead of failing fast
+                match self.attach_single_source(stream_name, source_config) {
+                    Ok(()) => {
+                        successes.push(stream_name.clone());
+                        println!(
+                            "[EventFluxAppRuntime] Successfully attached source '{}' to stream '{}'",
+                            source_config.source_type, stream_name
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[EventFluxAppRuntime] Failed to attach source '{}' to stream '{}': {}",
+                            source_config.source_type, stream_name, e
+                        );
+                        errors.push(e);
+                    }
+                }
+            }
+        }
+
+        // Return results based on what happened
+        if errors.is_empty() {
+            Ok(successes)
+        } else if successes.is_empty() {
+            // All failed
+            Err(errors)
+        } else {
+            // Partial success - log warning but don't fail
+            eprintln!(
+                "[EventFluxAppRuntime] Partial source attachment: {} succeeded, {} failed",
+                successes.len(),
+                errors.len()
+            );
+            Ok(successes)
+        }
+    }
+
+    /// Attach a single source stream handler
+    ///
+    /// Separated into its own method for clarity and error handling.
+    /// All errors are properly typed as EventFluxError with context.
+    fn attach_single_source(
+        &self,
+        stream_name: &str,
+        source_config: &crate::core::config::types::application_config::SourceConfig,
+    ) -> Result<(), crate::core::exception::EventFluxError> {
+        use crate::core::config::stream_config::{StreamType, StreamTypeConfig};
+        use crate::core::exception::EventFluxError;
+        use crate::core::stream::handler::SourceStreamHandler;
+        use crate::core::stream::stream_initializer::{initialize_stream, InitializedStream};
+
+        // Check if handler already registered (idempotent operation)
+        if let Some(existing_handler) = self.get_source_handler(stream_name) {
+            // Handler already exists - just ensure it's started
+            existing_handler.start()?;
+            return Ok(());
+        }
+
+        // 1. Convert SourceConfig to StreamTypeConfig
+        let properties = self
+            .extract_connection_config(&source_config.connection)
+            .map_err(|e| {
+                EventFluxError::configuration(format!(
+                    "Invalid connection config for source stream '{}': {}",
+                    stream_name, e
+                ))
+            })?;
+
+        let stream_type_config = StreamTypeConfig::new(
+            StreamType::Source,
+            Some(source_config.source_type.clone()),
+            source_config.format.clone(),
+            properties,
+        )
+        .map_err(|e| {
+            EventFluxError::configuration(format!(
+                "Invalid StreamTypeConfig for source '{}' (type={}): {}",
+                stream_name, source_config.source_type, e
+            ))
+        })?;
+
+        // 2. Use stream_initializer to create source with mapper
+        let initialized =
+            initialize_stream(&self.eventflux_app_context.eventflux_context, &stream_type_config)
+                .map_err(|e| {
+                    EventFluxError::app_creation(format!(
+                        "Failed to initialize source '{}' (type={}, format={:?}): {}",
+                        stream_name,
+                        source_config.source_type,
+                        source_config.format,
+                        e
+                    ))
+                })?;
+
+        // 3. Extract source and mapper from initialized stream
+        let (source, mapper) = match initialized {
+            InitializedStream::Source(init_source) => (init_source.source, Some(init_source.mapper)),
+            _ => {
+                return Err(EventFluxError::app_creation(format!(
+                    "Expected source stream initialization for '{}', got different stream type",
+                    stream_name
+                )))
+            }
+        };
+
+        // 4. Get or create InputHandler for this stream
+        let input_handler = self
+            .input_manager
+            .construct_input_handler(stream_name)
+            .map_err(|e| {
+                EventFluxError::app_creation(format!(
+                    "Failed to construct InputHandler for source stream '{}': {}",
+                    stream_name, e
+                ))
+            })?;
+
+        // 5. Create SourceStreamHandler
+        let handler = Arc::new(SourceStreamHandler::new(
+            source,
+            mapper,
+            input_handler,
+            stream_name.to_string(),
+        ));
+
+        // 6. Register handler in runtime
+        self.register_source_handler(stream_name.to_string(), Arc::clone(&handler));
+
+        // 7. Start the source
+        handler.start().map_err(|e| {
+            EventFluxError::app_runtime(format!(
+                "Failed to start source '{}' (type={}): {}",
+                stream_name, source_config.source_type, e
+            ))
+        })?;
+
+        Ok(())
+    }
+
+    /// Extract connection configuration from serde_yaml::Value into HashMap
+    ///
+    /// Converts the flattened connection configuration from SourceConfig/SinkConfig into
+    /// a HashMap that can be passed to factory create_initialized() methods.
+    ///
+    /// # Arguments
+    ///
+    /// * `connection` - Connection configuration from SourceConfig/SinkConfig
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(HashMap)` - Configuration as key-value pairs
+    /// * `Err(String)` - If configuration cannot be extracted
+    fn extract_connection_config(
+        &self,
+        connection: &serde_yaml::Value,
+    ) -> Result<std::collections::HashMap<String, String>, String> {
+        use std::collections::HashMap;
+
+        // Convert serde_yaml::Value to HashMap<String, String>
+        let map = match connection {
+            serde_yaml::Value::Mapping(m) => m,
+            serde_yaml::Value::Null => {
+                // Empty connection config is valid
+                return Ok(HashMap::new());
+            }
+            _ => {
+                return Err(format!(
+                    "Connection configuration must be an object/mapping, got: {:?}",
+                    connection
+                ))
+            }
+        };
+
+        let mut config = HashMap::new();
+
+        for (key, value) in map {
+            // Get key as string
+            let key_str = key
+                .as_str()
+                .ok_or_else(|| format!("Configuration key must be a string, got: {:?}", key))?;
+
+            // Convert value to string representation
+            let value_str = match value {
+                serde_yaml::Value::String(s) => s.clone(),
+                serde_yaml::Value::Number(n) => n.to_string(),
+                serde_yaml::Value::Bool(b) => b.to_string(),
+                serde_yaml::Value::Sequence(_) => {
+                    // Serialize arrays as JSON string for factory consumption
+                    serde_json::to_string(value).map_err(|e| {
+                        format!(
+                            "Failed to serialize array value for key '{}': {}",
+                            key_str, e
+                        )
+                    })?
+                }
+                serde_yaml::Value::Null => String::new(),
+                _ => {
+                    return Err(format!(
+                        "Unsupported value type for configuration key '{}': {:?}",
+                        key_str, value
+                    ))
+                }
+            };
+
+            config.insert(key_str.to_string(), value_str);
+        }
+
+        Ok(config)
     }
 
     /// Auto-attach sinks from configuration

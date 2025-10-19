@@ -100,6 +100,10 @@ pub struct SourceConfig {
     #[serde(rename = "type")]
     pub source_type: String,
 
+    /// Data format (json, avro, protobuf, csv, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+
     /// Connection configuration
     #[serde(flatten)]
     pub connection: serde_yaml::Value,
@@ -123,6 +127,10 @@ pub struct SinkConfig {
     /// Sink type (kafka, http, tcp, file, etc.)
     #[serde(rename = "type")]
     pub sink_type: String,
+
+    /// Data format (json, avro, protobuf, csv, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
 
     /// Connection configuration
     #[serde(flatten)]
@@ -1294,6 +1302,7 @@ mod tests {
         let stream_config = StreamConfig {
             source: Some(SourceConfig {
                 source_type: "kafka".to_string(),
+                format: Some("json".to_string()),
                 connection: serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
                 security: None,
                 error_handling: None,
