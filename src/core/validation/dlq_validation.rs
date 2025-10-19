@@ -6,7 +6,7 @@
 //! - Phase 1: DLQ stream name existence validation
 //! - Phase 2: DLQ schema validation and recursive restriction validation
 
-use crate::core::error::{EventFluxError, EventFluxResult};
+use crate::core::exception::{EventFluxError, EventFluxResult};
 use crate::query_api::definition::attribute::Type as AttributeType;
 use crate::query_api::definition::StreamDefinition;
 use std::collections::HashMap;

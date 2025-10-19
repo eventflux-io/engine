@@ -247,6 +247,66 @@ impl EventFluxError {
         }
     }
 
+    /// Create a new InvalidParameter error with expected value
+    pub fn invalid_parameter_with_details(
+        message: impl Into<String>,
+        parameter: impl Into<String>,
+        expected: impl Into<String>,
+    ) -> Self {
+        EventFluxError::InvalidParameter {
+            message: message.into(),
+            parameter: Some(parameter.into()),
+            expected: Some(expected.into()),
+        }
+    }
+
+    /// Create a new Configuration error
+    pub fn configuration(message: impl Into<String>) -> Self {
+        EventFluxError::Configuration {
+            message: message.into(),
+            config_key: None,
+        }
+    }
+
+    /// Create a new Configuration error with config key
+    pub fn configuration_with_key(
+        message: impl Into<String>,
+        config_key: impl Into<String>,
+    ) -> Self {
+        EventFluxError::Configuration {
+            message: message.into(),
+            config_key: Some(config_key.into()),
+        }
+    }
+
+    /// Create a missing parameter error (uses InvalidParameter variant)
+    pub fn missing_parameter(parameter: impl Into<String>) -> Self {
+        let param = parameter.into();
+        EventFluxError::InvalidParameter {
+            message: format!("Missing required parameter: {}", param),
+            parameter: Some(param),
+            expected: None,
+        }
+    }
+
+    /// Create an unsupported format error (uses Configuration variant)
+    pub fn unsupported_format(format: impl Into<String>, extension: impl Into<String>) -> Self {
+        let fmt = format.into();
+        let ext = extension.into();
+        EventFluxError::Configuration {
+            message: format!("Format '{}' is not supported by extension '{}'", fmt, ext),
+            config_key: Some("format".to_string()),
+        }
+    }
+
+    /// Create a validation failed error (uses Configuration variant)
+    pub fn validation_failed(message: impl Into<String>) -> Self {
+        EventFluxError::Configuration {
+            message: format!("Validation failed: {}", message.into()),
+            config_key: None,
+        }
+    }
+
     /// Create a new ExtensionNotFound error
     pub fn extension_not_found(extension_type: impl Into<String>, name: impl Into<String>) -> Self {
         EventFluxError::ExtensionNotFound {
@@ -281,6 +341,108 @@ impl EventFluxError {
         }
         self
     }
+
+    /// Determine if this error is retriable (transient)
+    ///
+    /// Retriable errors are those that may succeed on retry, typically due to
+    /// temporary resource unavailability, network issues, or transient system states.
+    ///
+    /// # Returns
+    /// - `true` - Error is retriable (temporary condition)
+    /// - `false` - Error is permanent (retry will not help)
+    ///
+    /// # Categories
+    ///
+    /// ## Retriable (Transient)
+    /// - Connection issues (network, database)
+    /// - Temporary resource unavailability
+    /// - Transient runtime errors
+    /// - IO errors (many are transient)
+    /// - Send errors (channels may become available)
+    ///
+    /// ## Non-Retriable (Permanent)
+    /// - Configuration errors
+    /// - Validation errors
+    /// - Missing definitions/extensions
+    /// - Type mismatches
+    /// - Malformed input
+    pub fn is_retriable(&self) -> bool {
+        match self {
+            // Transient network/connection errors
+            EventFluxError::ConnectionUnavailable { .. } => true,
+
+            // Transient database errors
+            EventFluxError::DatabaseRuntime { .. } => true,
+            EventFluxError::Sqlite(_) => true, // Many SQLite errors are transient (locks, etc.)
+
+            // Transient query runtime errors
+            EventFluxError::QueryRuntime { .. } => true,
+            EventFluxError::OnDemandQueryRuntime { .. } => true,
+
+            // Transient storage/persistence errors
+            EventFluxError::PersistenceStore { .. } => true,
+
+            // IO errors (many are transient - network, file locks, etc.)
+            EventFluxError::Io(_) => true,
+
+            // Channel send errors (receiver may become available)
+            EventFluxError::SendError { .. } => true,
+
+            // Processor errors (may be transient depending on state)
+            EventFluxError::ProcessorError { .. } => true,
+
+            // Store query errors (may be transient locks)
+            EventFluxError::StoreQuery { .. } => true,
+            EventFluxError::QueryableRecordTable { .. } => true,
+
+            // All other errors are permanent (configuration, validation, etc.)
+            EventFluxError::EventFluxAppCreation { .. } => false,
+            EventFluxError::EventFluxAppRuntime { .. } => false,
+            EventFluxError::QueryCreation { .. } => false,
+            EventFluxError::OnDemandQueryCreation { .. } => false,
+            EventFluxError::DefinitionNotExist { .. } => false,
+            EventFluxError::QueryNotExist { .. } => false,
+            EventFluxError::NoSuchAttribute { .. } => false,
+            EventFluxError::ExtensionNotFound { .. } => false,
+            EventFluxError::OperationNotSupported { .. } => false,
+            EventFluxError::TypeError { .. } => false,
+            EventFluxError::InvalidParameter { .. } => false,
+            EventFluxError::MappingFailed { .. } => false, // Data format issues are permanent
+            EventFluxError::Configuration { .. } => false,
+            EventFluxError::CannotLoadClass { .. } => false,
+            EventFluxError::ParseError { .. } => false,
+            EventFluxError::Serialization(_) => false,
+            EventFluxError::CannotPersistState { .. } => false,
+            EventFluxError::CannotRestoreState { .. } => false,
+            EventFluxError::CannotClearState { .. } => false,
+            EventFluxError::Other(_) => false, // Conservative: unknown errors are not retriable
+        }
+    }
+
+    /// Get error category for logging and metrics
+    pub fn category(&self) -> ErrorCategory {
+        if self.is_retriable() {
+            ErrorCategory::Transient
+        } else {
+            match self {
+                EventFluxError::Configuration { .. }
+                | EventFluxError::InvalidParameter { .. }
+                | EventFluxError::TypeError { .. } => ErrorCategory::Configuration,
+                _ => ErrorCategory::Permanent,
+            }
+        }
+    }
+}
+
+/// Error category for classification
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ErrorCategory {
+    /// Transient error that may succeed on retry
+    Transient,
+    /// Permanent error that will not succeed on retry
+    Permanent,
+    /// Configuration/validation error
+    Configuration,
 }
 
 /// Convert String errors to EventFluxError::Other (for backward compatibility)
