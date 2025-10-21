@@ -52,13 +52,18 @@ pub fn parse_sql_application(sql: &str) -> Result<SqlApplication, ApplicationErr
                 // Extract and validate WITH clause options
                 let with_config = extract_with_options(&create.table_options)?;
                 if !with_config.is_empty() {
-                    // Validate the WITH clause configuration
+                    // Phase 1 Validation: Validate the WITH clause configuration at parse-time
                     validate_with_clause(&with_config)?;
 
-                    // Store configuration with stream definition for later use
-                    // Note: StreamDefinition doesn't currently store FlatConfig,
-                    // but the configuration has been validated at parse-time.
-                    // Future enhancement: Store with_config in StreamDefinition
+                    // Store configuration with stream definition for end-to-end flow:
+                    // SQL parsing → Runtime creation → Factory initialization
+                    //
+                    // The stored FlatConfig will be:
+                    // 1. Retrieved during EventFluxAppRuntime creation
+                    // 2. Merged with TOML configuration (SQL WITH has highest priority)
+                    // 3. Passed to factory.create_initialized() for source/sink/mapper creation
+                    // 4. Used for Phase 2 connectivity validation
+                    stream_def = stream_def.with_config(with_config);
                 }
 
                 catalog.register_stream(stream_name, stream_def)?;
@@ -424,4 +429,178 @@ mod tests {
         // application-level and stream-level TOML configurations before being
         // used to initialize the actual source/sink extensions.
     }
+
+    // ========================================================================
+    // WITH Config Storage Tests - Verify end-to-end flow
+    // ========================================================================
+
+    #[test]
+    fn test_with_config_stored_in_stream_definition() {
+        let sql = r#"
+            CREATE STREAM TimerInput (tick BIGINT)
+            WITH (
+                type = 'source',
+                extension = 'timer',
+                "timer.interval" = '5000',
+                format = 'json'
+            );
+        "#;
+
+        let app = parse_sql_application(sql).expect("Failed to parse SQL with WITH clause");
+
+        // Verify stream was registered
+        let stream_def = app
+            .catalog
+            .get_stream("TimerInput")
+            .expect("Stream not found in catalog");
+
+        // Verify WITH config was stored
+        assert!(
+            stream_def.with_config.is_some(),
+            "WITH config should be stored in StreamDefinition"
+        );
+
+        let config = stream_def.with_config.as_ref().unwrap();
+
+        // Verify all properties were captured
+        assert_eq!(
+            config.get("type"),
+            Some(&"source".to_string()),
+            "type property should be stored"
+        );
+        assert_eq!(
+            config.get("extension"),
+            Some(&"timer".to_string()),
+            "extension property should be stored"
+        );
+        assert_eq!(
+            config.get("timer.interval"),
+            Some(&"5000".to_string()),
+            "timer.interval property should be stored"
+        );
+        assert_eq!(
+            config.get("format"),
+            Some(&"json".to_string()),
+            "format property should be stored"
+        );
+    }
+
+    #[test]
+    fn test_stream_without_with_clause_has_no_config() {
+        let sql = r#"
+            CREATE STREAM SimpleStream (id INT, value DOUBLE);
+        "#;
+
+        let app = parse_sql_application(sql).expect("Failed to parse stream without WITH");
+
+        let stream_def = app
+            .catalog
+            .get_stream("SimpleStream")
+            .expect("Stream not found");
+
+        // Streams without WITH clause should have None for with_config
+        assert!(
+            stream_def.with_config.is_none(),
+            "Stream without WITH clause should have no stored config"
+        );
+    }
+
+    #[test]
+    fn test_with_config_custom_properties_stored() {
+        let sql = r#"
+            CREATE STREAM KafkaInput (message VARCHAR)
+            WITH (
+                type = 'source',
+                extension = 'kafka',
+                format = 'json',
+                "kafka.bootstrap.servers" = 'localhost:9092',
+                "kafka.topic" = 'events',
+                "kafka.consumer.group" = 'my-group',
+                "json.date-format" = 'yyyy-MM-dd HH:mm:ss'
+            );
+        "#;
+
+        let app = parse_sql_application(sql).expect("Failed to parse Kafka source with properties");
+
+        let stream_def = app.catalog.get_stream("KafkaInput").expect("Stream not found");
+
+        assert!(stream_def.with_config.is_some());
+        let config = stream_def.with_config.as_ref().unwrap();
+
+        // Verify all custom properties stored
+        assert_eq!(
+            config.get("kafka.bootstrap.servers"),
+            Some(&"localhost:9092".to_string())
+        );
+        assert_eq!(config.get("kafka.topic"), Some(&"events".to_string()));
+        assert_eq!(
+            config.get("kafka.consumer.group"),
+            Some(&"my-group".to_string())
+        );
+        assert_eq!(
+            config.get("json.date-format"),
+            Some(&"yyyy-MM-dd HH:mm:ss".to_string())
+        );
+    }
+
+    #[test]
+    fn test_with_config_multiple_streams_independent() {
+        let sql = r#"
+            CREATE STREAM TimerSource (tick BIGINT)
+            WITH (
+                type = 'source',
+                extension = 'timer',
+                "timer.interval" = '1000',
+                format = 'json'
+            );
+
+            CREATE STREAM LogSink (tick BIGINT)
+            WITH (
+                type = 'sink',
+                extension = 'log',
+                format = 'text',
+                "log.prefix" = '[EVENT]'
+            );
+        "#;
+
+        let app = parse_sql_application(sql).expect("Failed to parse multiple streams");
+
+        let timer_def = app.catalog.get_stream("TimerSource").unwrap();
+        let log_def = app.catalog.get_stream("LogSink").unwrap();
+
+        // Both should have configs
+        assert!(timer_def.with_config.is_some());
+        assert!(log_def.with_config.is_some());
+
+        let timer_config = timer_def.with_config.as_ref().unwrap();
+        let log_config = log_def.with_config.as_ref().unwrap();
+
+        // Verify independence - timer config shouldn't have log properties
+        assert_eq!(timer_config.get("extension"), Some(&"timer".to_string()));
+        assert_eq!(timer_config.get("timer.interval"), Some(&"1000".to_string()));
+        assert!(timer_config.get("log.prefix").is_none());
+
+        // Log config shouldn't have timer properties
+        assert_eq!(log_config.get("extension"), Some(&"log".to_string()));
+        assert_eq!(log_config.get("log.prefix"), Some(&"[EVENT]".to_string()));
+        assert!(log_config.get("timer.interval").is_none());
+    }
+
+    #[test]
+    fn test_with_config_empty_clause_treated_as_none() {
+        let sql = r#"
+            CREATE STREAM EmptyWith (x INT) WITH ();
+        "#;
+
+        let app = parse_sql_application(sql).expect("Failed to parse stream with empty WITH");
+
+        let stream_def = app.catalog.get_stream("EmptyWith").unwrap();
+
+        // Empty WITH clause should not store config
+        assert!(
+            stream_def.with_config.is_none(),
+            "Empty WITH clause should not store configuration"
+        );
+    }
 }
+

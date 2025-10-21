@@ -76,7 +76,7 @@ impl PropertySource {
 ///
 /// Uses priority-based merging: higher priority sources override lower priority sources.
 /// This is the foundation for multi-layer configuration resolution.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FlatConfig {
     properties: HashMap<String, String>,
     sources: HashMap<String, PropertySource>,
@@ -115,8 +115,8 @@ impl FlatConfig {
 
         // Check if property exists and compare priorities
         if let Some(existing_source) = self.sources.get(&key) {
-            if existing_source.priority() >= source.priority() {
-                // Existing source has higher or equal priority, don't override
+            if existing_source.priority() > source.priority() {
+                // Existing source has strictly higher priority, don't override
                 return;
             }
         }
@@ -284,11 +284,16 @@ impl StreamTypeConfig {
     }
 
     /// Create from flat configuration with type inference
+    ///
+    /// Type is optional - if not specified, defaults to Internal (pure in-memory stream).
+    /// This follows the progressive disclosure principle: start simple, add complexity as needed.
     pub fn from_flat_config(flat_config: &FlatConfig) -> Result<Self, String> {
-        let stream_type_str = flat_config
+        // Type is optional - defaults to Internal if not specified (spec lines 178-197)
+        let stream_type = flat_config
             .get("type")
-            .ok_or("Stream configuration missing required 'type' property")?;
-        let stream_type = StreamType::from_str(stream_type_str)?;
+            .map(|s| StreamType::from_str(s))
+            .transpose()?
+            .unwrap_or(StreamType::Internal); // Default to Internal for pure in-memory streams
 
         let extension = flat_config.get("extension").cloned();
         let format = flat_config.get("format").cloned();
@@ -362,6 +367,141 @@ impl StreamTypeConfig {
     /// Get all properties with a specific prefix
     ///
     /// Useful for extracting extension-specific properties like "kafka.*"
+    pub fn get_properties_with_prefix(&self, prefix: &str) -> HashMap<String, String> {
+        self.properties
+            .iter()
+            .filter(|(key, _)| key.starts_with(prefix))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+}
+
+/// Typed table configuration with validation
+///
+/// Tables are bidirectional data structures for persistent lookups and joins.
+/// Unlike streams, tables:
+/// - Do NOT have a 'type' property (always bidirectional)
+/// - Do NOT have a 'format' property (use relational schema only)
+/// - MUST have an 'extension' property (specifies backing store: mysql, postgres, redis, etc.)
+///
+/// # Validation Rules
+///
+/// - `extension` is **REQUIRED** (specifies backing store)
+/// - `type` is **FORBIDDEN** (tables are always bidirectional)
+/// - `format` is **FORBIDDEN** (tables use relational schema only)
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use eventflux_rust::core::config::stream_config::*;
+///
+/// // Create table configuration from TOML/SQL
+/// let mut config = FlatConfig::new();
+/// config.set("extension", "mysql", PropertySource::SqlWith);
+/// config.set("mysql.host", "localhost", PropertySource::TomlApplication);
+/// config.set("mysql.table", "users", PropertySource::SqlWith);
+///
+/// // Convert to typed configuration
+/// let table_config = TableTypeConfig::from_flat_config(&config)?;
+/// assert_eq!(table_config.extension(), "mysql");
+/// ```
+#[derive(Debug, Clone)]
+pub struct TableTypeConfig {
+    pub extension: String,
+    pub properties: HashMap<String, String>,
+}
+
+impl TableTypeConfig {
+    /// Create a new table configuration with validation
+    pub fn new(extension: String, properties: HashMap<String, String>) -> Result<Self, String> {
+        let config = Self {
+            extension,
+            properties,
+        };
+
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Create from flat configuration with validation
+    ///
+    /// Tables require:
+    /// - `extension` property (REQUIRED)
+    /// - NO `type` property (FORBIDDEN)
+    /// - NO `format` property (FORBIDDEN)
+    pub fn from_flat_config(flat_config: &FlatConfig) -> Result<Self, String> {
+        // Validate that type is NOT present (tables don't have type)
+        if flat_config.contains("type") {
+            return Err(
+                "Table defines 'type' property, but tables cannot have 'type'. \
+                Tables are always bidirectional."
+                    .to_string(),
+            );
+        }
+
+        // Validate that format is NOT present (tables use relational schema only)
+        if flat_config.contains("format") {
+            return Err(
+                "Table defines 'format' property, but tables cannot have 'format'. \
+                Tables use relational schema only."
+                    .to_string(),
+            );
+        }
+
+        // Extension is REQUIRED for tables
+        let extension = flat_config
+            .get("extension")
+            .ok_or_else(|| {
+                "Table configuration missing required 'extension' property. \
+                Tables must specify backing store (e.g., 'mysql', 'postgres', 'redis')."
+                    .to_string()
+            })?
+            .clone();
+
+        let properties = flat_config.properties().clone();
+
+        Self::new(extension, properties)
+    }
+
+    /// Validate table configuration
+    ///
+    /// Ensures:
+    /// - Extension is present (already guaranteed by construction)
+    /// - Properties don't contain forbidden fields
+    pub fn validate(&self) -> Result<(), String> {
+        // Extension must not be empty
+        if self.extension.is_empty() {
+            return Err("Table extension cannot be empty".to_string());
+        }
+
+        // Check that properties don't contain forbidden fields
+        // (this is defensive - should be caught in from_flat_config)
+        if self.properties.contains_key("type") {
+            return Err(
+                "Table properties contain 'type', but tables cannot have 'type' property"
+                    .to_string(),
+            );
+        }
+
+        if self.properties.contains_key("format") {
+            return Err(
+                "Table properties contain 'format', but tables cannot have 'format' property"
+                    .to_string(),
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Get extension name
+    #[inline]
+    pub fn extension(&self) -> &str {
+        &self.extension
+    }
+
+    /// Get all properties with a specific prefix
+    ///
+    /// Useful for extracting extension-specific properties like "mysql.*"
     pub fn get_properties_with_prefix(&self, prefix: &str) -> HashMap<String, String> {
         self.properties
             .iter()
@@ -460,9 +600,9 @@ mod tests {
         config.set("buffer_size", "1024", PropertySource::RustDefault);
         assert_eq!(config.get("buffer_size"), Some(&"4096".to_string()));
 
-        // Try to override with same priority (should also not override due to >= check)
+        // Try to override with same priority (should override - last write wins at same priority)
         config.set("buffer_size", "2048", PropertySource::SqlWith);
-        assert_eq!(config.get("buffer_size"), Some(&"4096".to_string()));
+        assert_eq!(config.get("buffer_size"), Some(&"2048".to_string()));
     }
 
     #[test]
@@ -720,12 +860,47 @@ mod tests {
     }
 
     #[test]
-    fn test_stream_type_config_from_flat_config_missing_type() {
+    fn test_stream_type_config_from_flat_config_no_type_defaults_internal() {
+        // Type is optional - should default to Internal for pure in-memory streams
         let flat_config = FlatConfig::new();
         let config = StreamTypeConfig::from_flat_config(&flat_config);
 
-        assert!(config.is_err());
-        assert!(config.unwrap_err().contains("missing required 'type'"));
+        assert!(config.is_ok(), "Config without type should default to Internal");
+        let config = config.unwrap();
+        assert_eq!(
+            config.stream_type,
+            StreamType::Internal,
+            "Missing type should default to StreamType::Internal"
+        );
+        assert!(
+            config.extension.is_none(),
+            "Internal stream should have no extension"
+        );
+        assert!(
+            config.format.is_none(),
+            "Internal stream should have no format"
+        );
+    }
+
+    #[test]
+    fn test_stream_type_config_pure_internal_stream() {
+        // Pure internal stream: no type, no extension, no format
+        // Just in-memory event processing
+        let mut flat_config = FlatConfig::new();
+        flat_config.set("some.property", "value", PropertySource::SqlWith);
+
+        let config = StreamTypeConfig::from_flat_config(&flat_config).unwrap();
+
+        assert_eq!(config.stream_type, StreamType::Internal);
+        assert!(config.extension.is_none());
+        assert!(config.format.is_none());
+        assert_eq!(
+            config.properties.get("some.property"),
+            Some(&"value".to_string())
+        );
+
+        // Should pass validation
+        assert!(config.validate().is_ok());
     }
 
     #[test]
@@ -800,5 +975,203 @@ mod tests {
         let config = FlatConfig::with_capacity(10);
         assert_eq!(config.len(), 0);
         assert!(config.is_empty());
+    }
+
+    // ========================================================================
+    // TableTypeConfig Tests
+    // ========================================================================
+
+    #[test]
+    fn test_table_config_from_flat_config_success() {
+        let mut config = FlatConfig::new();
+        config.set("extension", "mysql", PropertySource::SqlWith);
+        config.set("mysql.host", "localhost", PropertySource::TomlApplication);
+        config.set("mysql.table", "users", PropertySource::SqlWith);
+
+        let table_config = TableTypeConfig::from_flat_config(&config);
+        assert!(table_config.is_ok());
+
+        let table_config = table_config.unwrap();
+        assert_eq!(table_config.extension(), "mysql");
+        assert_eq!(
+            table_config.properties.get("mysql.host"),
+            Some(&"localhost".to_string())
+        );
+        assert_eq!(
+            table_config.properties.get("mysql.table"),
+            Some(&"users".to_string())
+        );
+    }
+
+    #[test]
+    fn test_table_config_missing_extension() {
+        let mut config = FlatConfig::new();
+        config.set("mysql.host", "localhost", PropertySource::TomlApplication);
+
+        let result = TableTypeConfig::from_flat_config(&config);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("missing required 'extension' property"));
+    }
+
+    #[test]
+    fn test_table_config_forbids_type_property() {
+        let mut config = FlatConfig::new();
+        config.set("extension", "mysql", PropertySource::SqlWith);
+        config.set("type", "source", PropertySource::SqlWith);
+
+        let result = TableTypeConfig::from_flat_config(&config);
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err();
+        assert!(error_msg.contains("cannot have 'type'"));
+        assert!(error_msg.contains("bidirectional"));
+    }
+
+    #[test]
+    fn test_table_config_forbids_format_property() {
+        let mut config = FlatConfig::new();
+        config.set("extension", "mysql", PropertySource::SqlWith);
+        config.set("format", "json", PropertySource::SqlWith);
+
+        let result = TableTypeConfig::from_flat_config(&config);
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err();
+        assert!(error_msg.contains("cannot have 'format'"));
+        assert!(error_msg.contains("relational schema only"));
+    }
+
+    #[test]
+    fn test_table_config_new_with_validation() {
+        let mut properties = HashMap::new();
+        properties.insert("mysql.host".to_string(), "localhost".to_string());
+        properties.insert("mysql.port".to_string(), "3306".to_string());
+        properties.insert("extension".to_string(), "mysql".to_string());
+
+        let result = TableTypeConfig::new("mysql".to_string(), properties);
+        assert!(result.is_ok());
+
+        let config = result.unwrap();
+        assert_eq!(config.extension(), "mysql");
+    }
+
+    #[test]
+    fn test_table_config_empty_extension_fails() {
+        let properties = HashMap::new();
+        let result = TableTypeConfig::new("".to_string(), properties);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("extension cannot be empty"));
+    }
+
+    #[test]
+    fn test_table_config_validate_defensive_check() {
+        // This tests the defensive validation in validate()
+        let mut properties = HashMap::new();
+        properties.insert("type".to_string(), "source".to_string()); // Forbidden
+
+        let result = TableTypeConfig::new("mysql".to_string(), properties);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("cannot have 'type' property"));
+    }
+
+    #[test]
+    fn test_table_config_get_properties_with_prefix() {
+        let mut config = FlatConfig::new();
+        config.set("extension", "mysql", PropertySource::SqlWith);
+        config.set("mysql.host", "localhost", PropertySource::TomlApplication);
+        config.set("mysql.port", "3306", PropertySource::TomlApplication);
+        config.set("mysql.database", "eventflux", PropertySource::TomlStream);
+        config.set("redis.host", "cache", PropertySource::TomlApplication);
+
+        let table_config = TableTypeConfig::from_flat_config(&config).unwrap();
+
+        let mysql_props = table_config.get_properties_with_prefix("mysql");
+        assert_eq!(mysql_props.len(), 3);
+        assert_eq!(
+            mysql_props.get("mysql.host"),
+            Some(&"localhost".to_string())
+        );
+        assert_eq!(mysql_props.get("mysql.port"), Some(&"3306".to_string()));
+        assert_eq!(
+            mysql_props.get("mysql.database"),
+            Some(&"eventflux".to_string())
+        );
+
+        let redis_props = table_config.get_properties_with_prefix("redis");
+        assert_eq!(redis_props.len(), 1);
+    }
+
+    #[test]
+    fn test_table_config_complete_configuration_flow() {
+        // Simulate multi-layer table configuration merge
+        let mut config = FlatConfig::new();
+
+        // Layer 1: Rust defaults
+        config.set("cache.ttl", "3600", PropertySource::RustDefault);
+
+        // Layer 2: TOML application config (common database settings)
+        config.set("mysql.host", "prod-db.company.com", PropertySource::TomlApplication);
+        config.set("mysql.port", "3306", PropertySource::TomlApplication);
+        config.set("mysql.user", "eventflux_app", PropertySource::TomlApplication);
+
+        // Layer 3: TOML table config (table-specific settings)
+        config.set("extension", "mysql", PropertySource::TomlStream);
+        config.set("mysql.table", "users", PropertySource::TomlStream);
+
+        // Layer 4: SQL WITH clause (runtime overrides)
+        config.set("mysql.database", "production", PropertySource::SqlWith);
+        config.set("cache.ttl", "7200", PropertySource::SqlWith); // Override cache TTL
+
+        // Verify final configuration
+        let table_config = TableTypeConfig::from_flat_config(&config).unwrap();
+        assert_eq!(table_config.extension(), "mysql");
+        assert_eq!(
+            table_config.properties.get("mysql.host"),
+            Some(&"prod-db.company.com".to_string())
+        ); // From TOML app
+        assert_eq!(
+            table_config.properties.get("mysql.port"),
+            Some(&"3306".to_string())
+        ); // From TOML app
+        assert_eq!(
+            table_config.properties.get("mysql.table"),
+            Some(&"users".to_string())
+        ); // From TOML table
+        assert_eq!(
+            table_config.properties.get("mysql.database"),
+            Some(&"production".to_string())
+        ); // Overridden by SQL WITH
+        assert_eq!(
+            table_config.properties.get("cache.ttl"),
+            Some(&"7200".to_string())
+        ); // Overridden by SQL WITH
+    }
+
+    #[test]
+    fn test_table_config_redis_backend() {
+        let mut config = FlatConfig::new();
+        config.set("extension", "redis", PropertySource::SqlWith);
+        config.set("redis.host", "localhost", PropertySource::TomlApplication);
+        config.set("redis.port", "6379", PropertySource::TomlApplication);
+        config.set("redis.key_prefix", "users:", PropertySource::TomlStream);
+
+        let table_config = TableTypeConfig::from_flat_config(&config).unwrap();
+        assert_eq!(table_config.extension(), "redis");
+        assert_eq!(
+            table_config.properties.get("redis.host"),
+            Some(&"localhost".to_string())
+        );
+        assert_eq!(
+            table_config.properties.get("redis.port"),
+            Some(&"6379".to_string())
+        );
+        assert_eq!(
+            table_config.properties.get("redis.key_prefix"),
+            Some(&"users:".to_string())
+        );
     }
 }

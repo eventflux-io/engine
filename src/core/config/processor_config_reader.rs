@@ -166,37 +166,12 @@ impl ProcessorConfigReader {
 
     /// Lookup sink configuration from app/global config
     fn lookup_sink_config(&self, sink_type: &str, key: &str) -> Option<ConfigValue> {
-        // First check application-specific sink configuration in streams
+        // Check application-specific sink configuration in streams
         if let Some(ref app_config) = self.app_config {
-            // Check streams configuration (new way)
             if let Some(stream_config) = app_config.streams.get(sink_type) {
                 if let Some(ref sink) = stream_config.sink {
                     if let Some(parameters) = self.extract_parameters_from_sink_config(sink, key) {
                         return Some(parameters);
-                    }
-                }
-            }
-
-            // Check definitions for backward compatibility (old way)
-            if let Some(definition_config) = app_config.definitions.get(sink_type) {
-                // For sinks, we'll use window config structure but interpret it as sink config
-                if let crate::core::config::DefinitionConfig::Window(window_config) =
-                    definition_config
-                {
-                    // Use the window parameter structure to store sink parameters
-                    return self.extract_config_value_from_yaml(&window_config.parameters, key);
-                }
-                if let crate::core::config::DefinitionConfig::Stream(stream_config) =
-                    definition_config
-                {
-                    // Check sink configuration if present
-                    if let Some(ref sink) = stream_config.sink {
-                        // Extract parameters from sink configuration
-                        if let Some(parameters) =
-                            self.extract_parameters_from_sink_config(sink, key)
-                        {
-                            return Some(parameters);
-                        }
                     }
                 }
             }

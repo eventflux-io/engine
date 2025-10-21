@@ -361,6 +361,38 @@ impl TomlTableConfig {
 }
 
 // ============================================================================
+// Configuration Container
+// ============================================================================
+
+/// Configuration container holding separated stream and table configurations
+///
+/// Keeps streams and tables in separate namespaces to prevent naming collisions
+/// and allow proper type-specific validation.
+///
+/// # Why Separate Namespaces?
+///
+/// Streams and tables can have the same name without conflict:
+/// - Stream "Data" can coexist with Table "Data"
+/// - Each has different validation rules (streams have type/format, tables don't)
+/// - Prevents accidental misconfiguration
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let config = load_toml_config("config.toml")?;
+/// let orders_stream = config.streams.get("Orders"); // Stream named "Orders"
+/// let users_table = config.tables.get("Users");     // Table named "Users"
+/// // No collision even if both streams and tables have name "Data"
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct LoadedConfig {
+    /// Stream configurations (from [streams.*] sections)
+    pub streams: HashMap<String, FlatConfig>,
+    /// Table configurations (from [tables.*] sections)
+    pub tables: HashMap<String, FlatConfig>,
+}
+
+// ============================================================================
 // Configuration Loading and Merging
 // ============================================================================
 
@@ -393,7 +425,7 @@ impl TomlTableConfig {
 ///
 /// Results in:
 /// - Orders stream gets both `buffer_size=2048` (from app) and `kafka.topic=orders` (from stream)
-pub fn load_toml_config(toml_path: &str) -> Result<HashMap<String, FlatConfig>, String> {
+pub fn load_toml_config(toml_path: &str) -> Result<LoadedConfig, String> {
     // 1. Read TOML file
     let toml_str = std::fs::read_to_string(toml_path)
         .map_err(|e| format!("Failed to read TOML file '{}': {}", toml_path, e))?;
@@ -423,8 +455,10 @@ pub fn load_toml_config(toml_path: &str) -> Result<HashMap<String, FlatConfig>, 
         }
     }
 
-    // 4. Build FlatConfig for each stream
+    // 4. Build FlatConfig for each stream and table
+    //    CRITICAL: Streams and tables kept in separate HashMaps to prevent namespace collision
     let mut stream_configs = HashMap::new();
+    let mut table_configs = HashMap::new();
 
     // 4a. Extract application-level defaults
     let mut app_defaults = FlatConfig::new();
@@ -456,6 +490,7 @@ pub fn load_toml_config(toml_path: &str) -> Result<HashMap<String, FlatConfig>, 
     }
 
     // 4c. Merge table-specific configs (using same pattern as streams)
+    //     Tables go into separate HashMap to prevent namespace collision with streams
     if let Some(tables) = toml_config.tables {
         for (table_name, table_config) in tables {
             // Validate table config
@@ -467,11 +502,14 @@ pub fn load_toml_config(toml_path: &str) -> Result<HashMap<String, FlatConfig>, 
             // Merge table-specific properties (higher priority)
             flat_config.merge(&table_config.to_flat_config(PropertySource::TomlStream));
 
-            stream_configs.insert(table_name, flat_config);
+            table_configs.insert(table_name, flat_config);
         }
     }
 
-    Ok(stream_configs)
+    Ok(LoadedConfig {
+        streams: stream_configs,
+        tables: table_configs,
+    })
 }
 
 // ============================================================================
@@ -899,7 +937,7 @@ redis.port = "6379"
         let configs = load_toml_config(path).unwrap();
 
         // Check Orders stream
-        let orders = configs.get("Orders").unwrap();
+        let orders = configs.streams.get("Orders").unwrap();
         assert_eq!(orders.get("buffer_size"), Some(&"2048".to_string()));
         assert_eq!(orders.get("timeout"), Some(&"30s".to_string()));
         assert_eq!(
@@ -913,12 +951,12 @@ redis.port = "6379"
         );
 
         // Check Payments stream inherits application defaults
-        let payments = configs.get("Payments").unwrap();
+        let payments = configs.streams.get("Payments").unwrap();
         assert_eq!(payments.get("buffer_size"), Some(&"2048".to_string()));
         assert_eq!(payments.get("kafka.topic"), Some(&"payments".to_string()));
 
-        // Check OrdersTable
-        let orders_table = configs.get("OrdersTable").unwrap();
+        // Check OrdersTable is in separate namespace
+        let orders_table = configs.tables.get("OrdersTable").unwrap();
         assert_eq!(
             orders_table.get("redis.host"),
             Some(&"localhost".to_string())
@@ -946,7 +984,7 @@ kafka.timeout = "${KAFKA_TIMEOUT:30s}"
         let path = temp_file.path().to_str().unwrap();
 
         let configs = load_toml_config(path).unwrap();
-        let orders = configs.get("Orders").unwrap();
+        let orders = configs.streams.get("Orders").unwrap();
 
         assert_eq!(
             orders.get("kafka.brokers"),

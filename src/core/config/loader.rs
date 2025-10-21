@@ -632,17 +632,57 @@ impl TomlConfigLoader {
     /// Load TOML configuration and return stream configs
     ///
     /// This returns a HashMap of stream names to their FlatConfig instances.
+    /// Tables are loaded separately via `load_toml_table_configs()`.
     pub fn load_toml_stream_configs(
         &self,
     ) -> ConfigResult<Option<HashMap<String, crate::core::config::FlatConfig>>> {
         if let Some(path) = self.find_config_file() {
-            let configs = crate::core::config::toml_config::load_toml_config(
+            let loaded_config = crate::core::config::toml_config::load_toml_config(
                 path.to_str()
                     .ok_or_else(|| ConfigError::internal_error("Invalid TOML path"))?,
             )
             .map_err(|e| ConfigError::internal_error(format!("TOML loading failed: {}", e)))?;
 
-            Ok(Some(configs))
+            // Return only stream configurations (tables are separate)
+            Ok(Some(loaded_config.streams))
+        } else if self.required {
+            let search_info = if let Some(ref path) = self.file_path {
+                format!("file: {}", path.display())
+            } else {
+                format!(
+                    "search paths: {}",
+                    self.search_paths
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            Err(ConfigError::file_not_found(format!(
+                "No TOML configuration file found in {}",
+                search_info
+            )))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Load TOML configuration and return table configs
+    ///
+    /// This returns a HashMap of table names to their FlatConfig instances.
+    /// Streams are loaded separately via `load_toml_stream_configs()`.
+    pub fn load_toml_table_configs(
+        &self,
+    ) -> ConfigResult<Option<HashMap<String, crate::core::config::FlatConfig>>> {
+        if let Some(path) = self.find_config_file() {
+            let loaded_config = crate::core::config::toml_config::load_toml_config(
+                path.to_str()
+                    .ok_or_else(|| ConfigError::internal_error("Invalid TOML path"))?,
+            )
+            .map_err(|e| ConfigError::internal_error(format!("TOML loading failed: {}", e)))?;
+
+            // Return only table configurations (streams are separate)
+            Ok(Some(loaded_config.tables))
         } else if self.required {
             let search_info = if let Some(ref path) = self.file_path {
                 format!("file: {}", path.display())

@@ -26,13 +26,14 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::core::config::eventflux_context::EventFluxContext;
-use crate::core::config::stream_config::{FlatConfig, StreamType, StreamTypeConfig};
+use crate::core::config::stream_config::{FlatConfig, StreamType, StreamTypeConfig, TableTypeConfig};
 use crate::core::exception::EventFluxError;
 use crate::core::stream::handler::{SinkStreamHandler, SourceStreamHandler};
 use crate::core::stream::input::mapper::SourceMapper;
 use crate::core::stream::input::source::Source;
 use crate::core::stream::output::mapper::SinkMapper;
 use crate::core::stream::output::sink::Sink;
+use crate::core::table::Table;
 use crate::query_api::definition::stream_definition::StreamDefinition;
 use crate::query_api::execution::query::Query;
 
@@ -52,11 +53,27 @@ pub struct InitializedSink {
     pub format: String,
 }
 
-/// Result of stream initialization
+/// Fully initialized table with backing store
+///
+/// Tables are bidirectional data structures for persistent lookups and joins.
+/// Unlike streams, tables:
+/// - Have no type property (always bidirectional)
+/// - Have no format property (use relational schema only)
+/// - Require an extension property (specifies backing store: mysql, postgres, redis, etc.)
+///
+/// Note: Tables use Arc for shared ownership since they can be accessed concurrently
+/// by multiple queries, unlike sources/sinks which are owned by a single stream.
+pub struct InitializedTable {
+    pub table: Arc<dyn Table>,
+    pub extension: String,
+}
+
+/// Result of stream/table initialization
 pub enum InitializedStream {
     Source(InitializedSource),
     Sink(InitializedSink),
     Internal,
+    Table(InitializedTable),
 }
 
 impl std::fmt::Debug for InitializedSource {
@@ -77,12 +94,21 @@ impl std::fmt::Debug for InitializedSink {
     }
 }
 
+impl std::fmt::Debug for InitializedTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InitializedTable")
+            .field("extension", &self.extension)
+            .finish()
+    }
+}
+
 impl std::fmt::Debug for InitializedStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InitializedStream::Source(s) => f.debug_tuple("Source").field(s).finish(),
             InitializedStream::Sink(s) => f.debug_tuple("Sink").field(s).finish(),
             InitializedStream::Internal => write!(f, "Internal"),
+            InitializedStream::Table(t) => f.debug_tuple("Table").field(t).finish(),
         }
     }
 }
@@ -170,11 +196,38 @@ fn initialize_source_stream(
         .get_source_mapper_factory(format)
         .ok_or_else(|| EventFluxError::extension_not_found("source mapper", format))?;
 
-    // 4. Create fully initialized instances (fail-fast validation)
+    // 4. Phase 1 Validation: Verify mapper configuration (source/sink property restrictions)
+    // This ensures source streams don't use sink-only properties (template, pretty-print, etc.)
+    crate::core::stream::mapper::validation::validate_source_mapper_config(
+        &stream_config.properties,
+        format,
+    )
+    .map_err(|e| {
+        EventFluxError::configuration_with_key(
+            format!(
+                "Source stream mapper configuration validation failed: {}. \
+                Source streams can use 'mapping.*' properties but not 'template' property.",
+                e
+            ),
+            format!("{}.mapping", format),
+        )
+    })?;
+
+    // 5. Create fully initialized instances (fail-fast validation)
     let source = source_factory.create_initialized(&stream_config.properties)?;
     let mapper = mapper_factory.create_initialized(&stream_config.properties)?;
 
-    // 5. Return wired components - instances are guaranteed valid
+    // 6. Phase 2 Validation: Verify external connectivity (FAIL-FAST)
+    // This ensures "What's the point of deploying if transports aren't ready?"
+    source.validate_connectivity().map_err(|e| {
+        EventFluxError::app_creation(format!(
+            "Source '{}' connectivity validation failed: {}. \
+            Application cannot start with unreachable external systems.",
+            extension, e
+        ))
+    })?;
+
+    // 7. Return wired components - instances are guaranteed valid
     Ok(InitializedStream::Source(InitializedSource {
         source,
         mapper,
@@ -211,16 +264,122 @@ fn initialize_sink_stream(
         .get_sink_mapper_factory(format)
         .ok_or_else(|| EventFluxError::extension_not_found("sink mapper", format))?;
 
-    // 4. Create fully initialized instances (fail-fast validation)
+    // 4. Phase 1 Validation: Verify mapper configuration (source/sink property restrictions)
+    // This ensures sink streams don't use source-only properties (mapping.*, ignore-parse-errors, etc.)
+    crate::core::stream::mapper::validation::validate_sink_mapper_config(
+        &stream_config.properties,
+        format,
+    )
+    .map_err(|e| {
+        EventFluxError::configuration_with_key(
+            format!(
+                "Sink stream mapper configuration validation failed: {}. \
+                Sink streams can use 'template' property but not 'mapping.*' properties.",
+                e
+            ),
+            format!("{}.template", format),
+        )
+    })?;
+
+    // 5. Create fully initialized instances (fail-fast validation)
     let sink = sink_factory.create_initialized(&stream_config.properties)?;
     let mapper = mapper_factory.create_initialized(&stream_config.properties)?;
 
-    // 5. Return wired components - instances are guaranteed valid
+    // 6. Phase 2 Validation: Verify external connectivity (FAIL-FAST)
+    // This ensures "What's the point of deploying if transports aren't ready?"
+    sink.validate_connectivity().map_err(|e| {
+        EventFluxError::app_creation(format!(
+            "Sink '{}' connectivity validation failed: {}. \
+            Application cannot start with unreachable external systems.",
+            extension, e
+        ))
+    })?;
+
+    // 7. Return wired components - instances are guaranteed valid
     Ok(InitializedStream::Sink(InitializedSink {
         sink,
         mapper,
         extension: extension.to_string(),
         format: format.to_string(),
+    }))
+}
+
+/// Initialize a table with factory lookup and validation
+///
+/// Tables are bidirectional data structures for persistent lookups and joins.
+/// Unlike streams, tables:
+/// - Do NOT have a 'type' property (always bidirectional)
+/// - Do NOT have a 'format' property (use relational schema only)
+/// - MUST have an 'extension' property (specifies backing store)
+///
+/// # Arguments
+///
+/// * `context` - EventFlux context containing table factory registries
+/// * `table_config` - Typed table configuration with validation
+/// * `table_name` - Name of the table being initialized
+///
+/// # Returns
+///
+/// * `Ok(InitializedStream::Table)` - Fully initialized table instance
+/// * `Err(EventFluxError)` - If factory not found or initialization fails
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use eventflux_rust::core::stream::stream_initializer::initialize_table;
+/// use eventflux_rust::core::config::stream_config::TableTypeConfig;
+///
+/// let context = EventFluxContext::new();
+/// let table_config = TableTypeConfig::new(
+///     "mysql".to_string(),
+///     config_map,
+/// )?;
+///
+/// let initialized = initialize_table(&context, &table_config, "Users")?;
+/// match initialized {
+///     InitializedStream::Table(table) => {
+///         // Table is ready for queries
+///         table.table.insert(&values);
+///     }
+///     _ => {}
+/// }
+/// ```
+pub fn initialize_table(
+    context: &EventFluxContext,
+    table_config: &TableTypeConfig,
+    table_name: &str,
+) -> Result<InitializedStream, EventFluxError> {
+    // 1. Look up table factory by extension
+    let extension = table_config.extension();
+
+    let table_factory = context
+        .get_table_factory(extension)
+        .ok_or_else(|| EventFluxError::extension_not_found("table", extension))?;
+
+    // 2. Create fully initialized table instance (fail-fast validation)
+    // Note: TableFactory::create() returns Arc<dyn Table> for shared ownership
+    let table = table_factory
+        .create(
+            table_name.to_string(),
+            table_config.properties.clone(),
+            Arc::new(context.clone()),
+        )
+        .map_err(|e| EventFluxError::configuration(format!("Failed to create table '{}': {}", table_name, e)))?;
+
+    // 3. Phase 2 Validation: Verify external backing store connectivity (FAIL-FAST)
+    // This ensures "What's the point of deploying if backing stores aren't ready?"
+    table.validate_connectivity().map_err(|e| {
+        EventFluxError::app_creation(format!(
+            "Table '{}' (extension '{}') connectivity validation failed: {}. \
+            Application cannot start with unreachable backing stores.",
+            table_name, extension, e
+        ))
+    })?;
+
+    // 4. Return initialized table - instance is guaranteed valid
+    Ok(InitializedStream::Table(InitializedTable {
+        table,
+        extension: extension.to_string(),
     }))
 }
 
@@ -595,30 +754,103 @@ pub struct StreamHandlers {
 
 /// Validate DLQ schema compatibility
 ///
-/// Ensures the DLQ stream has the required schema for error events.
+/// **Phase 2 Validation** (Application Initialization)
 ///
-/// # Required DLQ Schema
+/// Ensures the DLQ stream has the exact required schema for error events.
+///
+/// # Required DLQ Schema (Exact Match)
 ///
 /// - `originalEvent` STRING
 /// - `errorMessage` STRING
 /// - `errorType` STRING
-/// - `timestamp` BIGINT
+/// - `timestamp` LONG
 /// - `attemptCount` INT
 /// - `streamName` STRING
+///
+/// # Validation Rules
+///
+/// - Exact field count (no more, no less)
+/// - All required fields present with correct types
+/// - No extra fields beyond requirements
 fn validate_dlq_schema(
     stream_name: &str,
     dlq_stream: &str,
     parsed_streams: &HashMap<String, (StreamDefinition, FlatConfig)>,
 ) -> Result<(), EventFluxError> {
-    // For now, just check that DLQ stream exists
-    // Full schema validation would be implemented in Phase 2
-    if !parsed_streams.contains_key(dlq_stream) {
-        return Err(EventFluxError::configuration(format!(
+    use crate::query_api::definition::attribute::Type as AttributeType;
+    use std::collections::HashMap as StdHashMap;
+
+    // Required DLQ fields (same as validation::dlq_validation::REQUIRED_DLQ_FIELDS)
+    const REQUIRED_DLQ_FIELDS: &[(&str, AttributeType)] = &[
+        ("originalEvent", AttributeType::STRING),
+        ("errorMessage", AttributeType::STRING),
+        ("errorType", AttributeType::STRING),
+        ("timestamp", AttributeType::LONG),
+        ("attemptCount", AttributeType::INT),
+        ("streamName", AttributeType::STRING),
+    ];
+
+    // 1. Look up DLQ stream schema from parsed CREATE STREAM definition
+    let (dlq_stream_def, _) = parsed_streams.get(dlq_stream).ok_or_else(|| {
+        EventFluxError::configuration(format!(
             "DLQ stream '{}' for stream '{}' does not exist",
             dlq_stream, stream_name
+        ))
+    })?;
+
+    // 2. Extract actual schema from DLQ stream definition
+    let actual_fields: StdHashMap<String, AttributeType> = dlq_stream_def
+        .abstract_definition
+        .attribute_list
+        .iter()
+        .map(|attr| (attr.name.clone(), attr.attribute_type))
+        .collect();
+
+    // 3. Validate exact field count (no more, no less)
+    if actual_fields.len() != REQUIRED_DLQ_FIELDS.len() {
+        return Err(EventFluxError::configuration(format!(
+            "DLQ stream '{}' has {} fields, but exactly {} required (originalEvent, errorMessage, errorType, timestamp, attemptCount, streamName)",
+            dlq_stream,
+            actual_fields.len(),
+            REQUIRED_DLQ_FIELDS.len()
         )));
     }
 
+    // 4. Validate each required field present with correct type
+    for (required_name, required_type) in REQUIRED_DLQ_FIELDS {
+        match actual_fields.get(*required_name) {
+            Some(actual_type) if actual_type == required_type => {
+                // ✅ Field present with correct type
+            }
+            Some(actual_type) => {
+                return Err(EventFluxError::configuration(format!(
+                    "DLQ stream '{}' field '{}' has type {:?}, expected {:?}",
+                    dlq_stream, required_name, actual_type, required_type
+                )));
+            }
+            None => {
+                return Err(EventFluxError::configuration(format!(
+                    "DLQ stream '{}' missing required field '{} {:?}'",
+                    dlq_stream, required_name, required_type
+                )));
+            }
+        }
+    }
+
+    // 5. Check for extra fields not in required schema
+    for (actual_name, _) in &actual_fields {
+        if !REQUIRED_DLQ_FIELDS
+            .iter()
+            .any(|(req_name, _)| req_name == actual_name)
+        {
+            return Err(EventFluxError::configuration(format!(
+                "DLQ stream '{}' has extra field '{}' not in required schema",
+                dlq_stream, actual_name
+            )));
+        }
+    }
+
+    // ✅ Schema validation passed
     Ok(())
 }
 
@@ -1128,5 +1360,160 @@ mod tests {
         assert_eq!(b_deps.len(), 2);
         assert!(b_deps.contains("A"));
         assert!(b_deps.contains("Errors"));
+    }
+
+    // ========================================================================
+    // Table Initialization Tests
+    // ========================================================================
+
+    #[test]
+    fn test_initialize_table_success() {
+        let context = EventFluxContext::new();
+
+        let mut properties = HashMap::new();
+        properties.insert("extension".to_string(), "inMemory".to_string());
+
+        let table_config = TableTypeConfig::new("inMemory".to_string(), properties).unwrap();
+
+        let result = initialize_table(&context, &table_config, "TestTable");
+        assert!(result.is_ok());
+
+        match result.unwrap() {
+            InitializedStream::Table(table) => {
+                assert_eq!(table.extension, "inMemory");
+                // Table is Arc<dyn Table> for shared ownership
+            }
+            _ => panic!("Expected Table initialization"),
+        }
+    }
+
+    #[test]
+    fn test_initialize_table_extension_not_found() {
+        let context = EventFluxContext::new();
+
+        let mut properties = HashMap::new();
+        properties.insert("extension".to_string(), "nonexistent".to_string());
+
+        let table_config =
+            TableTypeConfig::new("nonexistent".to_string(), properties).unwrap();
+
+        let result = initialize_table(&context, &table_config, "TestTable");
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            EventFluxError::ExtensionNotFound {
+                extension_type,
+                name,
+            } => {
+                assert_eq!(extension_type, "table");
+                assert_eq!(name, "nonexistent");
+            }
+            e => panic!("Expected ExtensionNotFound error, got {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_initialize_table_with_multiple_properties() {
+        // Test table initialization with multiple properties to verify property passing
+        let context = EventFluxContext::new();
+
+        let mut properties = HashMap::new();
+        properties.insert("extension".to_string(), "inMemory".to_string());
+        properties.insert("custom.property1".to_string(), "value1".to_string());
+        properties.insert("custom.property2".to_string(), "value2".to_string());
+
+        let table_config = TableTypeConfig::new("inMemory".to_string(), properties).unwrap();
+
+        let result = initialize_table(&context, &table_config, "PropertiesTable");
+        assert!(result.is_ok(), "Table initialization failed: {:?}", result);
+
+        match result.unwrap() {
+            InitializedStream::Table(table) => {
+                assert_eq!(table.extension, "inMemory");
+            }
+            _ => panic!("Expected Table initialization"),
+        }
+    }
+
+    #[test]
+    fn test_table_config_validation_flow() {
+        // Test that TableTypeConfig properly validates before initialization
+        let context = EventFluxContext::new();
+
+        // Test 1: Valid config with inMemory backend
+        let mut properties1 = HashMap::new();
+        properties1.insert("extension".to_string(), "inMemory".to_string());
+        let config1 = TableTypeConfig::new("inMemory".to_string(), properties1).unwrap();
+        let result1 = initialize_table(&context, &config1, "Table1");
+        assert!(result1.is_ok());
+
+        // Test 2: Try to create table config with forbidden 'type' property
+        let mut flat_config = FlatConfig::new();
+        flat_config.set("extension", "inMemory", PropertySource::SqlWith);
+        flat_config.set("type", "source", PropertySource::SqlWith);
+        let config2 = TableTypeConfig::from_flat_config(&flat_config);
+        assert!(config2.is_err());
+
+        // Test 3: Try to create table config with forbidden 'format' property
+        let mut flat_config2 = FlatConfig::new();
+        flat_config2.set("extension", "inMemory", PropertySource::SqlWith);
+        flat_config2.set("format", "json", PropertySource::SqlWith);
+        let config3 = TableTypeConfig::from_flat_config(&flat_config2);
+        assert!(config3.is_err());
+    }
+
+    #[test]
+    fn test_initialize_table_from_flat_config() {
+        let context = EventFluxContext::new();
+
+        // Simulate multi-layer configuration merge
+        let mut config = FlatConfig::new();
+        config.set("extension", "inMemory", PropertySource::SqlWith);
+        config.set("cache.ttl", "3600", PropertySource::TomlApplication);
+
+        let table_config = TableTypeConfig::from_flat_config(&config).unwrap();
+        let result = initialize_table(&context, &table_config, "ConfigTable");
+        assert!(result.is_ok());
+
+        match result.unwrap() {
+            InitializedStream::Table(table) => {
+                assert_eq!(table.extension, "inMemory");
+            }
+            _ => panic!("Expected Table initialization"),
+        }
+    }
+
+    #[test]
+    fn test_table_forbids_type_property() {
+        let mut config = FlatConfig::new();
+        config.set("extension", "inMemory", PropertySource::SqlWith);
+        config.set("type", "source", PropertySource::SqlWith); // Forbidden for tables
+
+        let result = TableTypeConfig::from_flat_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("cannot have 'type'"));
+    }
+
+    #[test]
+    fn test_table_forbids_format_property() {
+        let mut config = FlatConfig::new();
+        config.set("extension", "inMemory", PropertySource::SqlWith);
+        config.set("format", "json", PropertySource::SqlWith); // Forbidden for tables
+
+        let result = TableTypeConfig::from_flat_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("cannot have 'format'"));
+    }
+
+    #[test]
+    fn test_table_requires_extension() {
+        let mut config = FlatConfig::new();
+        config.set("some.property", "value", PropertySource::SqlWith);
+
+        let result = TableTypeConfig::from_flat_config(&config);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("missing required 'extension' property"));
     }
 }

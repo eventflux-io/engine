@@ -163,6 +163,7 @@ impl EventFluxAppRuntimeBuilder {
             trigger_runtimes: self.trigger_runtimes,
             source_handlers: Arc::new(std::sync::RwLock::new(HashMap::new())),
             sink_handlers: Arc::new(std::sync::RwLock::new(HashMap::new())),
+            table_handlers: Arc::new(std::sync::RwLock::new(HashMap::new())),
         })
     }
 }
