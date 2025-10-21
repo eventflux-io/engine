@@ -80,8 +80,25 @@ impl JsonSourceMapper {
     }
 
     /// Set date format for timestamp parsing
+    ///
+    /// Accepts both Java SimpleDateFormat and chrono format patterns.
+    /// Java patterns are automatically converted to chrono format.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let mut mapper = JsonSourceMapper::new();
+    ///
+    /// // Java format - automatically converted
+    /// mapper.set_date_format(Some("yyyy-MM-dd'T'HH:mm:ss".to_string()));
+    ///
+    /// // Chrono format - passed through unchanged
+    /// mapper.set_date_format(Some("%Y-%m-%dT%H:%M:%S".to_string()));
+    ///
+    /// // Both work identically
+    /// ```
     pub fn set_date_format(&mut self, format: Option<String>) {
-        self.date_format = format;
+        self.date_format = format.map(|f| convert_java_date_format(&f));
     }
 
     /// Set maximum input size in bytes (for DoS protection)
@@ -275,6 +292,180 @@ impl SinkMapper for JsonSinkMapper {
 }
 
 // ============================================================================
+// Date Format Conversion
+// ============================================================================
+
+/// Convert Java SimpleDateFormat pattern to chrono format pattern
+///
+/// EventFlux configuration uses Java SimpleDateFormat patterns for consistency
+/// with Java-based CEP systems, but the Rust implementation uses chrono.
+/// This function performs automatic conversion.
+///
+/// # Common Pattern Conversions
+///
+/// | Java Pattern | Chrono Pattern | Description |
+/// |--------------|----------------|-------------|
+/// | `yyyy` | `%Y` | 4-digit year |
+/// | `yy` | `%y` | 2-digit year |
+/// | `MM` | `%m` | 2-digit month (01-12) |
+/// | `M` | `%-m` | Month without leading zero |
+/// | `dd` | `%d` | 2-digit day (01-31) |
+/// | `d` | `%-d` | Day without leading zero |
+/// | `HH` | `%H` | Hour (00-23) |
+/// | `hh` | `%I` | Hour (01-12) |
+/// | `mm` | `%M` | Minute (00-59) |
+/// | `ss` | `%S` | Second (00-59) |
+/// | `SSS` | `%3f` | Milliseconds |
+/// | `a` | `%p` | AM/PM |
+/// | `'T'` | `T` | Literal character (quotes removed) |
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// assert_eq!(
+///     convert_java_date_format("yyyy-MM-dd'T'HH:mm:ss"),
+///     "%Y-%m-%dT%H:%M:%S"
+/// );
+///
+/// assert_eq!(
+///     convert_java_date_format("MM/dd/yyyy HH:mm:ss.SSS"),
+///     "%m/%d/%Y %H:%M:%S.%3f"
+/// );
+///
+/// assert_eq!(
+///     convert_java_date_format("yyyy-MM-dd"),
+///     "%Y-%m-%d"
+/// );
+/// ```
+///
+/// # Notes
+///
+/// - This conversion is **automatic and transparent** - users can use Java patterns
+/// - Already-converted chrono patterns pass through unchanged
+/// - Quotes (`'`) around literal characters are removed
+pub fn convert_java_date_format(java_format: &str) -> String {
+    // If format already looks like chrono format (contains %), pass through unchanged
+    if java_format.contains('%') {
+        return java_format.to_string();
+    }
+
+    let mut result = String::with_capacity(java_format.len());
+    let mut chars = java_format.chars().peekable();
+    let mut in_quotes = false;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\'' => {
+                // Toggle quote mode - quotes are removed, content is literal
+                in_quotes = !in_quotes;
+            }
+            _ if in_quotes => {
+                // Inside quotes - keep as literal character
+                result.push(ch);
+            }
+            'y' => {
+                // Count consecutive y's
+                let mut count = 1;
+                while chars.peek() == Some(&'y') {
+                    chars.next();
+                    count += 1;
+                }
+                // yyyy → %Y (4-digit year), yy → %y (2-digit year)
+                result.push_str(if count >= 4 { "%Y" } else { "%y" });
+            }
+            'M' => {
+                // Count consecutive M's
+                let mut count = 1;
+                while chars.peek() == Some(&'M') {
+                    chars.next();
+                    count += 1;
+                }
+                // MM → %m (2-digit month), M → %-m (month without leading zero)
+                result.push_str(if count >= 2 { "%m" } else { "%-m" });
+            }
+            'd' => {
+                // Count consecutive d's
+                let mut count = 1;
+                while chars.peek() == Some(&'d') {
+                    chars.next();
+                    count += 1;
+                }
+                // dd → %d (2-digit day), d → %-d (day without leading zero)
+                result.push_str(if count >= 2 { "%d" } else { "%-d" });
+            }
+            'H' => {
+                // Count consecutive H's
+                let mut count = 1;
+                while chars.peek() == Some(&'H') {
+                    chars.next();
+                    count += 1;
+                }
+                // HH → %H (24-hour, 00-23)
+                result.push_str("%H");
+            }
+            'h' => {
+                // Count consecutive h's
+                let mut count = 1;
+                while chars.peek() == Some(&'h') {
+                    chars.next();
+                    count += 1;
+                }
+                // hh → %I (12-hour, 01-12)
+                result.push_str("%I");
+            }
+            'm' => {
+                // Count consecutive m's
+                let mut count = 1;
+                while chars.peek() == Some(&'m') {
+                    chars.next();
+                    count += 1;
+                }
+                // mm → %M (minute, 00-59)
+                result.push_str("%M");
+            }
+            's' => {
+                // Count consecutive s's
+                let mut count = 1;
+                while chars.peek() == Some(&'s') {
+                    chars.next();
+                    count += 1;
+                }
+                // ss → %S (second, 00-59)
+                result.push_str("%S");
+            }
+            'S' => {
+                // Count consecutive S's for milliseconds
+                let mut count = 1;
+                while chars.peek() == Some(&'S') {
+                    chars.next();
+                    count += 1;
+                }
+                // SSS → %3f (milliseconds), SS → %2f, S → %1f
+                result.push_str(&format!("%{}f", count.min(3)));
+            }
+            'a' => {
+                // a → %p (AM/PM)
+                result.push_str("%p");
+            }
+            'z' => {
+                // z → %Z (timezone abbreviation)
+                result.push_str("%Z");
+            }
+            'Z' => {
+                // Z → %z (timezone offset)
+                result.push_str("%z");
+            }
+            _ => {
+                // Keep all other characters as-is (separators, etc.)
+                result.push(ch);
+            }
+        }
+    }
+
+    result
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -371,12 +562,23 @@ pub fn json_value_to_attribute(
         JsonValue::String(s) => {
             // Try to parse as date if date_format is configured
             if let Some(format) = date_format {
-                if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, format) {
-                    // Convert to timestamp in milliseconds
-                    let timestamp = dt.and_utc().timestamp_millis();
-                    return Ok(AttributeValue::Long(timestamp));
+                match chrono::NaiveDateTime::parse_from_str(s, format) {
+                    Ok(dt) => {
+                        // Convert to timestamp in milliseconds
+                        let timestamp = dt.and_utc().timestamp_millis();
+                        return Ok(AttributeValue::Long(timestamp));
+                    }
+                    Err(e) => {
+                        // Log warning when date parsing configured but fails
+                        // This helps debugging - user expects date parsing but gets String instead
+                        eprintln!(
+                            "Warning: Failed to parse date '{}' with format '{}': {}. Falling back to String.",
+                            s, format, e
+                        );
+                        // Fall back to String (keep original value)
+                        return Ok(AttributeValue::String(s.clone()));
+                    }
                 }
-                // If parsing fails, fall through to return as String
             }
             Ok(AttributeValue::String(s.clone()))
         }
@@ -708,5 +910,162 @@ mod tests {
 
         // Should succeed since it's within limit
         assert!(result.is_ok());
+    }
+
+    // ========================================================================
+    // Date Format Conversion Tests
+    // ========================================================================
+
+    #[test]
+    fn test_convert_java_date_format_iso8601() {
+        // Java: yyyy-MM-dd'T'HH:mm:ss
+        // Chrono: %Y-%m-%dT%H:%M:%S
+        assert_eq!(
+            convert_java_date_format("yyyy-MM-dd'T'HH:mm:ss"),
+            "%Y-%m-%dT%H:%M:%S"
+        );
+    }
+
+    #[test]
+    fn test_convert_java_date_format_with_milliseconds() {
+        // Java: yyyy-MM-dd HH:mm:ss.SSS
+        // Chrono: %Y-%m-%d %H:%M:%S.%3f
+        assert_eq!(
+            convert_java_date_format("yyyy-MM-dd HH:mm:ss.SSS"),
+            "%Y-%m-%d %H:%M:%S.%3f"
+        );
+    }
+
+    #[test]
+    fn test_convert_java_date_format_us_style() {
+        // Java: MM/dd/yyyy hh:mm:ss a
+        // Chrono: %m/%d/%Y %I:%M:%S %p
+        assert_eq!(
+            convert_java_date_format("MM/dd/yyyy hh:mm:ss a"),
+            "%m/%d/%Y %I:%M:%S %p"
+        );
+    }
+
+    #[test]
+    fn test_convert_java_date_format_simple_date() {
+        // Java: yyyy-MM-dd
+        // Chrono: %Y-%m-%d
+        assert_eq!(convert_java_date_format("yyyy-MM-dd"), "%Y-%m-%d");
+    }
+
+    #[test]
+    fn test_convert_java_date_format_two_digit_year() {
+        // Java: yy-MM-dd
+        // Chrono: %y-%m-%d
+        assert_eq!(convert_java_date_format("yy-MM-dd"), "%y-%m-%d");
+    }
+
+    #[test]
+    fn test_convert_java_date_format_without_leading_zeros() {
+        // Java: M/d/yyyy
+        // Chrono: %-m/%-d/%Y
+        assert_eq!(convert_java_date_format("M/d/yyyy"), "%-m/%-d/%Y");
+    }
+
+    #[test]
+    fn test_convert_java_date_format_with_timezone() {
+        // Java: yyyy-MM-dd'T'HH:mm:ssZ
+        // Chrono: %Y-%m-%dT%H:%M:%S%z
+        assert_eq!(
+            convert_java_date_format("yyyy-MM-dd'T'HH:mm:ssZ"),
+            "%Y-%m-%dT%H:%M:%S%z"
+        );
+    }
+
+    #[test]
+    fn test_convert_java_date_format_with_timezone_name() {
+        // Java: yyyy-MM-dd HH:mm:ss z
+        // Chrono: %Y-%m-%d %H:%M:%S %Z
+        assert_eq!(
+            convert_java_date_format("yyyy-MM-dd HH:mm:ss z"),
+            "%Y-%m-%d %H:%M:%S %Z"
+        );
+    }
+
+    #[test]
+    fn test_convert_java_date_format_already_chrono() {
+        // Already chrono format - pass through unchanged
+        assert_eq!(convert_java_date_format("%Y-%m-%d"), "%Y-%m-%d");
+        assert_eq!(
+            convert_java_date_format("%Y-%m-%dT%H:%M:%S"),
+            "%Y-%m-%dT%H:%M:%S"
+        );
+    }
+
+    #[test]
+    fn test_convert_java_date_format_quoted_literals() {
+        // Java: yyyy'年'MM'月'dd'日'
+        // Chrono: %Y年%m月%d日 (quotes removed)
+        assert_eq!(
+            convert_java_date_format("yyyy'年'MM'月'dd'日'"),
+            "%Y年%m月%d日"
+        );
+    }
+
+    #[test]
+    fn test_convert_java_date_format_complex_pattern() {
+        // Java: 'Created at' yyyy-MM-dd 'T' HH:mm:ss.SSS
+        // Chrono: Created at %Y-%m-%d T %H:%M:%S.%3f
+        assert_eq!(
+            convert_java_date_format("'Created at' yyyy-MM-dd 'T' HH:mm:ss.SSS"),
+            "Created at %Y-%m-%d T %H:%M:%S.%3f"
+        );
+    }
+
+    #[test]
+    fn test_date_format_integration_with_mapper() {
+        let mut mapper = JsonSourceMapper::new();
+
+        // Set Java format - should be auto-converted
+        mapper.set_date_format(Some("yyyy-MM-dd'T'HH:mm:ss".to_string()));
+
+        // Verify internal format is converted
+        assert_eq!(mapper.date_format, Some("%Y-%m-%dT%H:%M:%S".to_string()));
+    }
+
+    #[test]
+    fn test_date_format_chrono_passthrough() {
+        let mut mapper = JsonSourceMapper::new();
+
+        // Set chrono format - should pass through unchanged
+        mapper.set_date_format(Some("%Y-%m-%d %H:%M:%S".to_string()));
+
+        // Verify internal format is unchanged
+        assert_eq!(
+            mapper.date_format,
+            Some("%Y-%m-%d %H:%M:%S".to_string())
+        );
+    }
+
+    #[test]
+    fn test_date_parsing_with_java_format() {
+        let json_str = r#"{"timestamp": "2025-10-21T15:30:00"}"#;
+        let mut mapper = JsonSourceMapper::new();
+
+        // Use Java format
+        mapper.set_date_format(Some("yyyy-MM-dd'T'HH:mm:ss".to_string()));
+
+        let mut mappings = HashMap::new();
+        mappings.insert("timestamp".to_string(), "$.timestamp".to_string());
+        mapper = JsonSourceMapper::with_mappings(mappings);
+        mapper.set_date_format(Some("yyyy-MM-dd'T'HH:mm:ss".to_string()));
+
+        let events = mapper.map(json_str.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+
+        // First field should be timestamp parsed as Long (milliseconds)
+        match &events[0].data[0] {
+            AttributeValue::Long(ts) => {
+                // Verify it's a reasonable timestamp (around October 2025)
+                assert!(*ts > 1_700_000_000_000); // After 2023
+                assert!(*ts < 1_800_000_000_000); // Before 2027
+            }
+            _ => panic!("Expected Long timestamp, got {:?}", events[0].data[0]),
+        }
     }
 }

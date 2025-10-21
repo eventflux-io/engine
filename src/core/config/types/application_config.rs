@@ -475,36 +475,9 @@ pub struct SchemaEvolutionConfig {
     #[serde(default)]
     pub enabled: bool,
 
-    /// Compatibility mode
-    #[serde(default)]
-    pub compatibility: SchemaCompatibility,
-
     /// Auto-migrate data
     #[serde(default)]
     pub auto_migrate: bool,
-}
-
-/// Schema compatibility modes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SchemaCompatibility {
-    /// No compatibility checks
-    None,
-
-    /// Backward compatibility
-    Backward,
-
-    /// Forward compatibility
-    Forward,
-
-    /// Full compatibility
-    Full,
-}
-
-impl Default for SchemaCompatibility {
-    fn default() -> Self {
-        Self::Backward
-    }
 }
 
 /// Stream processing configuration

@@ -65,7 +65,6 @@ pub struct EventFluxContext {
 
     // --- Placeholders mirroring Java fields ---
     eventflux_extensions: HashMap<String, ExtensionClassPlaceholder>,
-    deprecated_eventflux_extensions: HashMap<String, ExtensionClassPlaceholder>,
     persistence_store: Arc<RwLock<Option<Arc<dyn PersistenceStore>>>>,
     incremental_persistence_store: Arc<RwLock<Option<Arc<dyn IncrementalPersistenceStore>>>>,
     error_store: Option<Arc<dyn ErrorStore>>,
@@ -139,7 +138,6 @@ impl EventFluxContext {
                 crate::core::util::executor_service::ExecutorServiceRegistry::new(),
             ),
             eventflux_extensions: HashMap::new(),
-            deprecated_eventflux_extensions: HashMap::new(),
             persistence_store: Arc::new(RwLock::new(None)),
             incremental_persistence_store: Arc::new(RwLock::new(None)),
             error_store: None,
@@ -634,7 +632,6 @@ impl Clone for EventFluxContext {
             tables: Arc::clone(&self.tables),
             executor_services: Arc::clone(&self.executor_services),
             eventflux_extensions: self.eventflux_extensions.clone(),
-            deprecated_eventflux_extensions: self.deprecated_eventflux_extensions.clone(),
             persistence_store: self.persistence_store.clone(),
             incremental_persistence_store: self.incremental_persistence_store.clone(),
             error_store: self.error_store.clone(),

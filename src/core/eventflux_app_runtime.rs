@@ -49,6 +49,9 @@ pub struct EventFluxAppRuntime {
     pub sink_handlers: Arc<
         std::sync::RwLock<HashMap<String, Arc<crate::core::stream::handler::SinkStreamHandler>>>,
     >,
+
+    // Table handlers (tables are passively queried, no lifecycle needed)
+    pub table_handlers: Arc<std::sync::RwLock<HashMap<String, Arc<dyn crate::core::table::Table>>>>,
 }
 
 impl EventFluxAppRuntime {
@@ -386,6 +389,23 @@ impl EventFluxAppRuntime {
         self.sink_handlers.read().unwrap().get(stream_name).cloned()
     }
 
+    /// Register a table handler
+    pub fn register_table_handler(
+        &self,
+        table_name: String,
+        table: Arc<dyn crate::core::table::Table>,
+    ) {
+        self.table_handlers
+            .write()
+            .unwrap()
+            .insert(table_name, table);
+    }
+
+    /// Get a table handler by name
+    pub fn get_table_handler(&self, table_name: &str) -> Option<Arc<dyn crate::core::table::Table>> {
+        self.table_handlers.read().unwrap().get(table_name).cloned()
+    }
+
     /// Attach sink handler to junction for event delivery
     ///
     /// This connects a sink handler to the stream junction so it receives events.
@@ -495,6 +515,50 @@ impl EventFluxAppRuntime {
             // Auto-attach sinks - idempotent operation
             if let Err(e) = self.auto_attach_sinks_from_config(app_config) {
                 eprintln!("[EventFluxAppRuntime] Failed to auto-attach sinks: {}", e);
+            }
+
+            // Auto-attach tables - idempotent operation with error accumulation
+            match self.auto_attach_tables_from_config(app_config) {
+                Ok(tables) => {
+                    if !tables.is_empty() {
+                        println!(
+                            "[EventFluxAppRuntime] Successfully attached {} table(s): {}",
+                            tables.len(),
+                            tables.join(", ")
+                        );
+                    }
+                }
+                Err(errors) => {
+                    eprintln!(
+                        "[EventFluxAppRuntime] Failed to auto-attach tables ({} error(s)):",
+                        errors.len()
+                    );
+                    for (idx, err) in errors.iter().enumerate() {
+                        eprintln!("  {}. {}", idx + 1, err);
+                    }
+                }
+            }
+        }
+
+        // Auto-attach from SQL WITH definitions (higher priority than YAML)
+        match self.auto_attach_from_sql_definitions() {
+            Ok((sources, sinks)) => {
+                if !sources.is_empty() || !sinks.is_empty() {
+                    println!(
+                        "[EventFluxAppRuntime] Auto-attached from SQL: {} source(s), {} sink(s)",
+                        sources.len(),
+                        sinks.len()
+                    );
+                }
+            }
+            Err(errors) => {
+                eprintln!(
+                    "[EventFluxAppRuntime] Failed to auto-attach from SQL ({} error(s)):",
+                    errors.len()
+                );
+                for (i, e) in errors.iter().enumerate() {
+                    eprintln!("  {}. {}", i + 1, e);
+                }
             }
         }
 
@@ -641,6 +705,344 @@ impl EventFluxAppRuntime {
         } else {
             Vec::new()
         }
+    }
+
+    /// Auto-attach sources and sinks from SQL WITH definitions
+    ///
+    /// Processes StreamDefinitions that have SQL WITH clauses and automatically
+    /// creates source/sink handlers based on the WITH configuration.
+    ///
+    /// This completes the end-to-end flow:
+    /// SQL parsing → StreamDefinition.with_config → StreamTypeConfig → Factory initialization
+    ///
+    /// # Priority
+    ///
+    /// This is called AFTER YAML config processing in start(), so SQL WITH has higher
+    /// priority. If a stream is defined in both YAML and SQL WITH, SQL configuration wins
+    /// due to idempotent handler registration (first registration stays).
+    ///
+    /// # Idempotent Operation
+    ///
+    /// Safe to call multiple times - existing handlers are not recreated.
+    ///
+    /// # Error Handling
+    ///
+    /// Uses error accumulation pattern - continues processing all streams even if some fail.
+    /// Returns all errors encountered for debugging.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok((sources, sinks))` - Lists of successfully attached stream names
+    /// * `Err(errors)` - All errors encountered (partial success possible)
+    fn auto_attach_from_sql_definitions(
+        &self,
+    ) -> Result<(Vec<String>, Vec<String>), Vec<crate::core::exception::EventFluxError>> {
+        let mut errors = Vec::new();
+        let mut attached_sources = Vec::new();
+        let mut attached_sinks = Vec::new();
+
+        // Iterate through all stream definitions from the parsed SQL application
+        for (stream_id, stream_def) in &self.eventflux_app.stream_definition_map {
+            // Skip streams without SQL WITH configuration
+            let with_config = match &stream_def.with_config {
+                Some(config) => config,
+                None => continue, // Internal stream or no WITH clause
+            };
+
+            // Determine stream type from configuration
+            let stream_type = match with_config.get("type") {
+                Some(t) => t.as_str(),
+                None => {
+                    // No type specified - this is an internal stream, skip
+                    continue;
+                }
+            };
+
+            // Process based on stream type
+            match stream_type {
+                "source" => {
+                    match self.attach_single_stream_from_sql_source(stream_id, with_config) {
+                        Ok(()) => {
+                            attached_sources.push(stream_id.clone());
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "[EventFluxAppRuntime] Failed to attach SQL source '{}': {}",
+                                stream_id, e
+                            );
+                            errors.push(e);
+                        }
+                    }
+                }
+                "sink" => {
+                    match self.attach_single_stream_from_sql_sink(stream_id, with_config) {
+                        Ok(()) => {
+                            attached_sinks.push(stream_id.clone());
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "[EventFluxAppRuntime] Failed to attach SQL sink '{}': {}",
+                                stream_id, e
+                            );
+                            errors.push(e);
+                        }
+                    }
+                }
+                "internal" => {
+                    // Internal streams don't need source/sink attachment
+                    continue;
+                }
+                other => {
+                    errors.push(crate::core::exception::EventFluxError::configuration(format!(
+                        "Invalid stream type '{}' for stream '{}'. Expected: 'source', 'sink', or 'internal'",
+                        other, stream_id
+                    )));
+                }
+            }
+        }
+
+        // Return results based on what happened
+        if errors.is_empty() {
+            Ok((attached_sources, attached_sinks))
+        } else if attached_sources.is_empty() && attached_sinks.is_empty() {
+            // All failed
+            Err(errors)
+        } else {
+            // Partial success - log warning but don't fail
+            eprintln!(
+                "[EventFluxAppRuntime] Partial SQL attachment: {} source(s) + {} sink(s) succeeded, {} failed",
+                attached_sources.len(),
+                attached_sinks.len(),
+                errors.len()
+            );
+            Ok((attached_sources, attached_sinks))
+        }
+    }
+
+    /// Attach a single source stream from SQL WITH configuration
+    ///
+    /// Similar to attach_single_source() but uses SQL WITH config directly instead
+    /// of converting from YAML SourceConfig.
+    ///
+    /// # Key Differences from YAML Version
+    ///
+    /// - No extract_connection_config() needed (FlatConfig.properties is already HashMap)
+    /// - Direct access to all WITH properties
+    /// - Simpler error context (from SQL, not YAML)
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_name` - Name of the stream to attach
+    /// * `with_config` - SQL WITH configuration from StreamDefinition
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Source successfully attached and started
+    /// * `Err(EventFluxError)` - Detailed error with context
+    fn attach_single_stream_from_sql_source(
+        &self,
+        stream_name: &str,
+        with_config: &crate::core::config::stream_config::FlatConfig,
+    ) -> Result<(), crate::core::exception::EventFluxError> {
+        use crate::core::config::stream_config::{StreamType, StreamTypeConfig};
+        use crate::core::exception::EventFluxError;
+        use crate::core::stream::handler::SourceStreamHandler;
+        use crate::core::stream::stream_initializer::{initialize_stream, InitializedStream};
+
+        // Check if handler already registered (idempotent operation)
+        if let Some(existing_handler) = self.get_source_handler(stream_name) {
+            // Handler already exists - just ensure it's started
+            existing_handler.start()?;
+            return Ok(());
+        }
+
+        // Extract required properties from SQL WITH configuration
+        let extension = with_config
+            .get("extension")
+            .ok_or_else(|| {
+                EventFluxError::configuration(format!(
+                    "Missing 'extension' property in SQL WITH clause for source stream '{}'. \
+                     Source streams require: type='source', extension='<name>', format='<type>'",
+                    stream_name
+                ))
+            })?
+            .clone();
+
+        let format = with_config.get("format").cloned();
+
+        // Create StreamTypeConfig from SQL WITH properties
+        // Key advantage: FlatConfig.properties is already HashMap<String, String>!
+        // No conversion needed unlike YAML which requires extract_connection_config()
+        let stream_type_config = StreamTypeConfig::new(
+            StreamType::Source,
+            Some(extension.clone()),
+            format.clone(),
+            with_config.properties().clone(), // Direct use of properties HashMap via getter
+        )
+        .map_err(|e| {
+            EventFluxError::configuration(format!(
+                "Invalid StreamTypeConfig for SQL source '{}' (extension={}, format={:?}): {}",
+                stream_name, extension, format, e
+            ))
+        })?;
+
+        // Use stream_initializer to create source with mapper (existing infrastructure)
+        let initialized =
+            initialize_stream(&self.eventflux_app_context.eventflux_context, &stream_type_config)
+                .map_err(|e| {
+                    EventFluxError::app_creation(format!(
+                        "Failed to initialize SQL source '{}' (extension={}, format={:?}): {}",
+                        stream_name, extension, format, e
+                    ))
+                })?;
+
+        // Extract source and mapper from initialized stream
+        let (source, mapper) = match initialized {
+            InitializedStream::Source(init_source) => (init_source.source, Some(init_source.mapper)),
+            _ => {
+                return Err(EventFluxError::app_creation(format!(
+                    "Expected source stream initialization for SQL stream '{}', got different stream type",
+                    stream_name
+                )))
+            }
+        };
+
+        // Get or create InputHandler for this stream
+        let input_handler = self
+            .input_manager
+            .construct_input_handler(stream_name)
+            .map_err(|e| {
+                EventFluxError::app_creation(format!(
+                    "Failed to construct InputHandler for SQL source stream '{}': {}",
+                    stream_name, e
+                ))
+            })?;
+
+        // Create SourceStreamHandler
+        let handler = Arc::new(SourceStreamHandler::new(
+            source,
+            mapper,
+            input_handler,
+            stream_name.to_string(),
+        ));
+
+        // Register handler in runtime
+        self.register_source_handler(stream_name.to_string(), Arc::clone(&handler));
+
+        // Start the source
+        handler.start().map_err(|e| {
+            EventFluxError::app_runtime(format!(
+                "Failed to start SQL source '{}' (extension={}): {}",
+                stream_name, extension, e
+            ))
+        })?;
+
+        println!(
+            "[EventFluxAppRuntime] Auto-attached SQL source '{}' (extension={}, format={:?})",
+            stream_name, extension, format
+        );
+
+        Ok(())
+    }
+
+    /// Attach a single sink stream from SQL WITH configuration
+    ///
+    /// Similar to attach_single_stream_from_sql_source() but for sinks.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_name` - Name of the stream to attach
+    /// * `with_config` - SQL WITH configuration from StreamDefinition
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Sink successfully attached
+    /// * `Err(EventFluxError)` - Detailed error with context
+    fn attach_single_stream_from_sql_sink(
+        &self,
+        stream_name: &str,
+        with_config: &crate::core::config::stream_config::FlatConfig,
+    ) -> Result<(), crate::core::exception::EventFluxError> {
+        use crate::core::config::stream_config::{StreamType, StreamTypeConfig};
+        use crate::core::exception::EventFluxError;
+        use crate::core::stream::handler::SinkStreamHandler;
+        use crate::core::stream::stream_initializer::{initialize_stream, InitializedStream};
+
+        // Check if handler already registered (idempotent operation)
+        if self.get_sink_handler(stream_name).is_some() {
+            // Handler already exists - sinks don't need explicit start
+            return Ok(());
+        }
+
+        // Extract required properties from SQL WITH configuration
+        let extension = with_config
+            .get("extension")
+            .ok_or_else(|| {
+                EventFluxError::configuration(format!(
+                    "Missing 'extension' property in SQL WITH clause for sink stream '{}'. \
+                     Sink streams require: type='sink', extension='<name>', format='<type>'",
+                    stream_name
+                ))
+            })?
+            .clone();
+
+        let format = with_config.get("format").cloned();
+
+        // Create StreamTypeConfig from SQL WITH properties
+        let stream_type_config = StreamTypeConfig::new(
+            StreamType::Sink,
+            Some(extension.clone()),
+            format.clone(),
+            with_config.properties().clone(), // Direct use of properties HashMap via getter
+        )
+        .map_err(|e| {
+            EventFluxError::configuration(format!(
+                "Invalid StreamTypeConfig for SQL sink '{}' (extension={}, format={:?}): {}",
+                stream_name, extension, format, e
+            ))
+        })?;
+
+        // Use stream_initializer to create sink with mapper
+        let initialized =
+            initialize_stream(&self.eventflux_app_context.eventflux_context, &stream_type_config)
+                .map_err(|e| {
+                    EventFluxError::app_creation(format!(
+                        "Failed to initialize SQL sink '{}' (extension={}, format={:?}): {}",
+                        stream_name, extension, format, e
+                    ))
+                })?;
+
+        // Extract sink and mapper from initialized stream
+        let (sink, mapper) = match initialized {
+            InitializedStream::Sink(init_sink) => (init_sink.sink, Some(init_sink.mapper)),
+            _ => {
+                return Err(EventFluxError::app_creation(format!(
+                    "Expected sink stream initialization for SQL stream '{}', got different stream type",
+                    stream_name
+                )))
+            }
+        };
+
+        // Create SinkStreamHandler
+        let handler = Arc::new(SinkStreamHandler::new(
+            sink,
+            mapper,
+            stream_name.to_string(),
+        ));
+
+        // Register handler in runtime
+        self.register_sink_handler(stream_name.to_string(), Arc::clone(&handler));
+
+        // Attach sink to junction for event delivery
+        // Uses existing attach_sink_to_junction which properly converts Sink to StreamCallback
+        self.attach_sink_to_junction(stream_name, Arc::clone(&handler))?;
+
+        println!(
+            "[EventFluxAppRuntime] Auto-attached SQL sink '{}' (extension={}, format={:?})",
+            stream_name, extension, format
+        );
+
+        Ok(())
     }
 
     /// Auto-attach sources from configuration
@@ -933,5 +1335,412 @@ impl EventFluxAppRuntime {
         }
 
         Ok(())
+    }
+
+    /// Auto-attach tables from configuration
+    ///
+    /// Initializes tables from TOML/YAML configuration and registers them in the runtime.
+    /// Tables are passively queried and don't require lifecycle management like sources/sinks.
+    ///
+    /// # Arguments
+    ///
+    /// * `app_config` - Application configuration containing table definitions
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<String>)` - List of successfully attached table names
+    /// * `Err(Vec<EventFluxError>)` - List of all errors encountered
+    fn auto_attach_tables_from_config(
+        &self,
+        app_config: &ApplicationConfig,
+    ) -> Result<Vec<String>, Vec<crate::core::exception::EventFluxError>> {
+        use crate::core::config::types::application_config::DefinitionConfig;
+        use crate::core::exception::EventFluxError;
+
+        let mut errors = Vec::new();
+        let mut successes = Vec::new();
+
+        // Iterate through all definitions, filtering for tables
+        for (table_name, def_config) in &app_config.definitions {
+            if let DefinitionConfig::Table(table_config) = def_config {
+                // Check if handler already registered (idempotent operation)
+                if self.get_table_handler(table_name).is_some() {
+                    successes.push(table_name.clone());
+                    continue;
+                }
+
+                // Process this table, collecting errors instead of failing fast
+                match self.attach_single_table(table_name, table_config) {
+                    Ok(()) => {
+                        successes.push(table_name.clone());
+                        println!(
+                            "[EventFluxAppRuntime] Successfully attached table '{}' (extension={})",
+                            table_name, table_config.store.store_type
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[EventFluxAppRuntime] Failed to attach table '{}': {}",
+                            table_name, e
+                        );
+                        errors.push(e);
+                    }
+                }
+            }
+        }
+
+        // Return results based on what happened
+        if errors.is_empty() {
+            Ok(successes)
+        } else if successes.is_empty() {
+            // All failed
+            Err(errors)
+        } else {
+            // Partial success - log warning but don't fail
+            eprintln!(
+                "[EventFluxAppRuntime] Partial table attachment: {} succeeded, {} failed",
+                successes.len(),
+                errors.len()
+            );
+            Ok(successes)
+        }
+    }
+
+    /// Attach a single table handler from TableConfig
+    ///
+    /// Converts TableConfig (YAML config) to TableTypeConfig (initializer format)
+    /// and registers the initialized table in the runtime.
+    fn attach_single_table(
+        &self,
+        table_name: &str,
+        table_config: &crate::core::config::types::application_config::TableConfig,
+    ) -> Result<(), crate::core::exception::EventFluxError> {
+        use crate::core::config::stream_config::TableTypeConfig;
+        use crate::core::exception::EventFluxError;
+        use crate::core::stream::stream_initializer::{initialize_table, InitializedStream};
+
+        // Convert TableConfig to TableTypeConfig
+        let table_type_config = Self::convert_table_config(table_config).map_err(|e| {
+            EventFluxError::configuration(format!(
+                "Failed to convert TableConfig for '{}': {}",
+                table_name, e
+            ))
+        })?;
+
+        // Initialize table using factory
+        let initialized = initialize_table(
+            &self.eventflux_app_context.eventflux_context,
+            &table_type_config,
+            table_name,
+        )
+        .map_err(|e| {
+            EventFluxError::app_creation(format!(
+                "Failed to initialize table '{}' (extension={}): {}",
+                table_name, table_config.store.store_type, e
+            ))
+        })?;
+
+        // Extract table from initialized result
+        let table = match initialized {
+            InitializedStream::Table(init_table) => init_table.table,
+            _ => {
+                return Err(EventFluxError::app_creation(format!(
+                    "Expected table initialization for '{}', got different type",
+                    table_name
+                )))
+            }
+        };
+
+        // Register table in runtime
+        self.register_table_handler(table_name.to_string(), table);
+
+        Ok(())
+    }
+
+    /// Convert TableConfig (YAML) to TableTypeConfig (initializer format)
+    ///
+    /// Maps the structured TableConfig with store/schema/caching/indexing
+    /// to the flattened TableTypeConfig with extension and properties HashMap.
+    fn convert_table_config(
+        table_config: &crate::core::config::types::application_config::TableConfig,
+    ) -> Result<crate::core::config::stream_config::TableTypeConfig, String> {
+        use crate::core::config::stream_config::TableTypeConfig;
+
+        // Extension comes from store type
+        let extension = table_config.store.store_type.clone();
+
+        // Flatten all configuration into properties HashMap
+        let mut properties = HashMap::new();
+
+        // Add extension property
+        properties.insert("extension".to_string(), extension.clone());
+
+        // Flatten store connection configuration
+        Self::flatten_yaml_value(&table_config.store.connection, "", &mut properties)?;
+
+        // Add pool configuration if present
+        if let Some(ref pool) = table_config.store.pool {
+            properties.insert(
+                format!("{}.pool.max_size", extension),
+                pool.max_size.to_string(),
+            );
+            properties.insert(
+                format!("{}.pool.min_size", extension),
+                pool.min_size.to_string(),
+            );
+            properties.insert(
+                format!("{}.pool.connection_timeout_ms", extension),
+                pool.connection_timeout.as_millis().to_string(),
+            );
+        }
+
+        // Create TableTypeConfig with validation
+        TableTypeConfig::new(extension, properties)
+    }
+
+    /// Flatten serde_yaml::Value into HashMap<String, String>
+    ///
+    /// Recursively flattens nested YAML structures using dot notation.
+    /// For example: {mysql: {host: "localhost"}} becomes {"mysql.host": "localhost"}
+    fn flatten_yaml_value(
+        value: &serde_yaml::Value,
+        prefix: &str,
+        result: &mut HashMap<String, String>,
+    ) -> Result<(), String> {
+        match value {
+            serde_yaml::Value::Mapping(map) => {
+                for (key, val) in map {
+                    let key_str = key
+                        .as_str()
+                        .ok_or_else(|| format!("Non-string key in YAML: {:?}", key))?;
+
+                    let new_prefix = if prefix.is_empty() {
+                        key_str.to_string()
+                    } else {
+                        format!("{}.{}", prefix, key_str)
+                    };
+
+                    Self::flatten_yaml_value(val, &new_prefix, result)?;
+                }
+            }
+            serde_yaml::Value::String(s) => {
+                result.insert(prefix.to_string(), s.clone());
+            }
+            serde_yaml::Value::Number(n) => {
+                result.insert(prefix.to_string(), n.to_string());
+            }
+            serde_yaml::Value::Bool(b) => {
+                result.insert(prefix.to_string(), b.to_string());
+            }
+            serde_yaml::Value::Null => {
+                result.insert(prefix.to_string(), "null".to_string());
+            }
+            serde_yaml::Value::Sequence(seq) => {
+                // For arrays, join with commas or create indexed keys
+                let values: Vec<String> = seq
+                    .iter()
+                    .filter_map(|v| match v {
+                        serde_yaml::Value::String(s) => Some(s.clone()),
+                        serde_yaml::Value::Number(n) => Some(n.to_string()),
+                        serde_yaml::Value::Bool(b) => Some(b.to_string()),
+                        _ => None,
+                    })
+                    .collect();
+                result.insert(prefix.to_string(), values.join(","));
+            }
+            serde_yaml::Value::Tagged(_) => {
+                return Err(format!("Tagged YAML values not supported: {:?}", value));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::types::application_config::{StoreConfig, TableConfig};
+
+    #[test]
+    fn test_flatten_yaml_simple_mapping() {
+        let mut connection = serde_yaml::Mapping::new();
+        connection.insert(
+            serde_yaml::Value::String("host".to_string()),
+            serde_yaml::Value::String("localhost".to_string()),
+        );
+        connection.insert(
+            serde_yaml::Value::String("port".to_string()),
+            serde_yaml::Value::Number(3306.into()),
+        );
+
+        let mut result = HashMap::new();
+        EventFluxAppRuntime::flatten_yaml_value(
+            &serde_yaml::Value::Mapping(connection),
+            "",
+            &mut result,
+        )
+        .unwrap();
+
+        assert_eq!(result.get("host"), Some(&"localhost".to_string()));
+        assert_eq!(result.get("port"), Some(&"3306".to_string()));
+    }
+
+    #[test]
+    fn test_flatten_yaml_nested_mapping() {
+        let mut inner = serde_yaml::Mapping::new();
+        inner.insert(
+            serde_yaml::Value::String("host".to_string()),
+            serde_yaml::Value::String("localhost".to_string()),
+        );
+
+        let mut outer = serde_yaml::Mapping::new();
+        outer.insert(
+            serde_yaml::Value::String("mysql".to_string()),
+            serde_yaml::Value::Mapping(inner),
+        );
+
+        let mut result = HashMap::new();
+        EventFluxAppRuntime::flatten_yaml_value(
+            &serde_yaml::Value::Mapping(outer),
+            "",
+            &mut result,
+        )
+        .unwrap();
+
+        assert_eq!(result.get("mysql.host"), Some(&"localhost".to_string()));
+    }
+
+    #[test]
+    fn test_flatten_yaml_sequence() {
+        let seq = vec![
+            serde_yaml::Value::String("val1".to_string()),
+            serde_yaml::Value::String("val2".to_string()),
+            serde_yaml::Value::String("val3".to_string()),
+        ];
+
+        let mut result = HashMap::new();
+        EventFluxAppRuntime::flatten_yaml_value(
+            &serde_yaml::Value::Sequence(seq),
+            "list",
+            &mut result,
+        )
+        .unwrap();
+
+        assert_eq!(result.get("list"), Some(&"val1,val2,val3".to_string()));
+    }
+
+    #[test]
+    fn test_convert_table_config_inmemory() {
+        let table_config = TableConfig {
+            store: StoreConfig {
+                store_type: "inMemory".to_string(),
+                connection: serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
+                pool: None,
+                security: None,
+            },
+            schema: None,
+            caching: None,
+            indexing: None,
+        };
+
+        let result = EventFluxAppRuntime::convert_table_config(&table_config);
+        assert!(result.is_ok());
+
+        let table_type_config = result.unwrap();
+        assert_eq!(table_type_config.extension(), "inMemory");
+        assert!(table_type_config.properties.contains_key("extension"));
+    }
+
+    #[test]
+    fn test_convert_table_config_with_connection() {
+        let mut connection = serde_yaml::Mapping::new();
+        connection.insert(
+            serde_yaml::Value::String("host".to_string()),
+            serde_yaml::Value::String("localhost".to_string()),
+        );
+        connection.insert(
+            serde_yaml::Value::String("port".to_string()),
+            serde_yaml::Value::Number(3306.into()),
+        );
+        connection.insert(
+            serde_yaml::Value::String("database".to_string()),
+            serde_yaml::Value::String("testdb".to_string()),
+        );
+
+        let table_config = TableConfig {
+            store: StoreConfig {
+                store_type: "mysql".to_string(),
+                connection: serde_yaml::Value::Mapping(connection),
+                pool: None,
+                security: None,
+            },
+            schema: None,
+            caching: None,
+            indexing: None,
+        };
+
+        let result = EventFluxAppRuntime::convert_table_config(&table_config);
+        assert!(result.is_ok());
+
+        let table_type_config = result.unwrap();
+        assert_eq!(table_type_config.extension(), "mysql");
+        assert_eq!(
+            table_type_config.properties.get("host"),
+            Some(&"localhost".to_string())
+        );
+        assert_eq!(
+            table_type_config.properties.get("port"),
+            Some(&"3306".to_string())
+        );
+        assert_eq!(
+            table_type_config.properties.get("database"),
+            Some(&"testdb".to_string())
+        );
+    }
+
+    #[test]
+    fn test_convert_table_config_with_pool() {
+        use crate::core::config::types::application_config::ConnectionPoolConfig;
+        use std::time::Duration;
+
+        let pool_config = ConnectionPoolConfig {
+            max_size: 20,
+            min_size: 5,
+            connection_timeout: Duration::from_secs(60),
+            idle_timeout: None,
+            max_lifetime: None,
+        };
+
+        let table_config = TableConfig {
+            store: StoreConfig {
+                store_type: "postgres".to_string(),
+                connection: serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
+                pool: Some(pool_config),
+                security: None,
+            },
+            schema: None,
+            caching: None,
+            indexing: None,
+        };
+
+        let result = EventFluxAppRuntime::convert_table_config(&table_config);
+        assert!(result.is_ok());
+
+        let table_type_config = result.unwrap();
+        assert_eq!(table_type_config.extension(), "postgres");
+        assert_eq!(
+            table_type_config.properties.get("postgres.pool.max_size"),
+            Some(&"20".to_string())
+        );
+        assert_eq!(
+            table_type_config.properties.get("postgres.pool.min_size"),
+            Some(&"5".to_string())
+        );
+        assert_eq!(
+            table_type_config
+                .properties
+                .get("postgres.pool.connection_timeout_ms"),
+            Some(&"60000".to_string())
+        );
     }
 }

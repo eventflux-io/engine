@@ -172,6 +172,49 @@ pub trait Table: Debug + Send + Sync {
 
     /// Clone helper for boxed trait objects.
     fn clone_table(&self) -> Box<dyn Table>;
+
+    /// Phase 2 validation: Verify connectivity and external resource availability
+    ///
+    /// This method is called during application initialization (Phase 2) to validate
+    /// that external backing stores (databases, caches) are reachable and properly configured.
+    ///
+    /// **Fail-Fast Principle**: Application should NOT start if table backing stores are not ready.
+    ///
+    /// # Default Implementation
+    ///
+    /// Returns Ok by default - in-memory tables don't need external validation.
+    /// Tables with external backing stores (MySQL, PostgreSQL, Redis) MUST override this method.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - External backing store is reachable and properly configured
+    /// * `Err(EventFluxError)` - Validation failed, application should not start
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // MySQL table validates database connectivity
+    /// fn validate_connectivity(&self) -> Result<(), EventFluxError> {
+    ///     // 1. Validate database connection
+    ///     let conn = self.pool.get_conn()?;
+    ///
+    ///     // 2. Validate table exists
+    ///     let exists: bool = conn.query_first(
+    ///         format!("SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='{}')", self.table_name)
+    ///     )?.unwrap_or(false);
+    ///
+    ///     if !exists {
+    ///         return Err(EventFluxError::configuration(
+    ///             format!("Table '{}' does not exist in database", self.table_name)
+    ///         ));
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    fn validate_connectivity(&self) -> Result<(), crate::core::exception::EventFluxError> {
+        Ok(()) // Default: no validation needed (in-memory tables)
+    }
 }
 
 impl Clone for Box<dyn Table> {

@@ -17,14 +17,14 @@
 //!
 //! This approach maintains data consistency and reliable state recovery.
 
-// Legacy context modules
+// Context modules
 pub mod eventflux_app_context;
 pub mod eventflux_context;
 pub mod eventflux_on_demand_query_context;
 pub mod eventflux_query_context;
 pub mod statistics_configuration;
 
-// New configuration management modules
+// Configuration management modules
 pub mod error;
 pub mod loader;
 pub mod manager;
@@ -39,7 +39,7 @@ pub mod types;
 pub mod validation_api;
 pub mod validator;
 
-// Re-export legacy context types for backward compatibility
+// Re-export context types
 pub use self::eventflux_app_context::EventFluxAppContext;
 pub use self::eventflux_context::EventFluxContext;
 pub use self::eventflux_on_demand_query_context::EventFluxOnDemandQueryContext;
@@ -52,8 +52,8 @@ pub use manager::ConfigManager;
 pub use processor_config_reader::{ConfigValue, ProcessorConfigReader};
 pub use stream_config::{FlatConfig, PropertySource, StreamType, StreamTypeConfig};
 pub use toml_config::{
-    load_toml_config, substitute_env_vars, substitute_toml_env_vars, TomlConfig, TomlStreamConfig,
-    TomlTableConfig,
+    load_toml_config, substitute_env_vars, substitute_toml_env_vars, LoadedConfig, TomlConfig,
+    TomlStreamConfig, TomlTableConfig,
 };
 pub use types::*;
 

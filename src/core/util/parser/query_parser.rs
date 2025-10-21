@@ -187,6 +187,7 @@ impl QueryParser {
                     let table_stream_def = Arc::new(
                         crate::query_api::definition::stream_definition::StreamDefinition {
                             abstract_definition: table_def.abstract_definition.clone(),
+                            with_config: None, // Tables don't use SQL WITH config
                         },
                     );
                     let mut table_meta = MetaStreamEvent::new_for_single_input(table_stream_def);
