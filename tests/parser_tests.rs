@@ -68,16 +68,14 @@ async fn test_sum_aggregation() {
 }
 
 #[tokio::test]
-#[ignore = "JOIN syntax needs conversion to SQL - Join is M1 feature but syntax conversion pending"]
 async fn test_join_query() {
-    // TODO: Convert to SQL JOIN syntax once we verify the correct SQL format for stream joins
-    // M1 supports JOINs but we need to determine the exact SQL syntax for: from Left join Right on a == a
+    // Converted to SQL JOIN syntax - JOINs are M1 feature and now working
     let app = "\
         CREATE STREAM Left (a INT);\n\
-        CREATE STREAM Right (b INT);\n\
+        CREATE STREAM Right (a INT);\n\
         CREATE STREAM Out (a INT, b INT);\n\
         INSERT INTO Out\n\
-        SELECT Left.a, Right.b FROM Left JOIN Right ON Left.a = Right.a;\n";
+        SELECT Left.a as a, Right.a as b FROM Left JOIN Right ON Left.a = Right.a;\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send("Left", vec![AttributeValue::Int(5)]);
     runner.send("Right", vec![AttributeValue::Int(5)]);

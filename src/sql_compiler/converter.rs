@@ -491,24 +491,34 @@ impl SqlConverter {
             }
         };
 
-        // Extract join type
-        let join_type = match &join.join_operator {
-            JoinOperator::Inner(_) => JoinType::InnerJoin,
-            JoinOperator::LeftOuter(_) => JoinType::LeftOuterJoin,
-            JoinOperator::RightOuter(_) => JoinType::RightOuterJoin,
-            JoinOperator::FullOuter(_) => JoinType::FullOuterJoin,
-            _ => JoinType::Join, // Default JOIN
-        };
-
-        // Extract ON condition
-        let on_condition = match &join.join_operator {
-            JoinOperator::Inner(JoinConstraint::On(expr))
-            | JoinOperator::LeftOuter(JoinConstraint::On(expr))
-            | JoinOperator::RightOuter(JoinConstraint::On(expr))
-            | JoinOperator::FullOuter(JoinConstraint::On(expr)) => {
-                Some(Self::convert_expression(expr, catalog)?)
+        // Extract join type and ON condition together
+        // Note: In SQL, plain JOIN and INNER JOIN are identical (ANSI standard),
+        // so we normalize them to InnerJoin for consistency
+        let (join_type, on_condition) = match &join.join_operator {
+            // INNER JOIN variants (normalize plain JOIN to INNER JOIN)
+            JoinOperator::Join(constraint) | JoinOperator::Inner(constraint) => {
+                let cond = Self::extract_on_condition(constraint, catalog)?;
+                (JoinType::InnerJoin, cond)
             }
-            _ => None,
+            // OUTER JOIN variants
+            JoinOperator::LeftOuter(constraint) => {
+                let cond = Self::extract_on_condition(constraint, catalog)?;
+                (JoinType::LeftOuterJoin, cond)
+            }
+            JoinOperator::RightOuter(constraint) => {
+                let cond = Self::extract_on_condition(constraint, catalog)?;
+                (JoinType::RightOuterJoin, cond)
+            }
+            JoinOperator::FullOuter(constraint) => {
+                let cond = Self::extract_on_condition(constraint, catalog)?;
+                (JoinType::FullOuterJoin, cond)
+            }
+            _ => {
+                return Err(ConverterError::UnsupportedFeature(format!(
+                    "Unsupported join operator: {:?}",
+                    join.join_operator
+                )))
+            }
         };
 
         // Create JoinInputStream
@@ -523,6 +533,24 @@ impl SqlConverter {
         );
 
         Ok(InputStream::Join(Box::new(join_stream)))
+    }
+
+    /// Extract ON condition from JoinConstraint
+    /// Currently only supports ON clause; USING and NATURAL joins are not yet implemented
+    fn extract_on_condition(
+        constraint: &JoinConstraint,
+        catalog: &SqlCatalog,
+    ) -> Result<Option<Expression>, ConverterError> {
+        match constraint {
+            JoinConstraint::On(expr) => Ok(Some(Self::convert_expression(expr, catalog)?)),
+            JoinConstraint::Using(_) => Err(ConverterError::UnsupportedFeature(
+                "JOIN USING clause not yet supported. Use ON clause instead.".to_string(),
+            )),
+            JoinConstraint::Natural => Err(ConverterError::UnsupportedFeature(
+                "NATURAL JOIN not yet supported. Use explicit ON clause.".to_string(),
+            )),
+            JoinConstraint::None => Ok(None),
+        }
     }
 
     /// Add window to SingleInputStream
