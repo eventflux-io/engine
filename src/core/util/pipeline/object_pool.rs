@@ -115,26 +115,41 @@ impl EventPool {
             return Some(pooled_event);
         }
 
-        // Pool is empty - create new if under capacity
-        let current = self.current_size.load(Ordering::Relaxed);
-        if current < self.capacity as u64
-            && self
-                .current_size
-                .compare_exchange_weak(current, current + 1, Ordering::AcqRel, Ordering::Relaxed)
-                .is_ok()
-        {
-            self.total_allocated.fetch_add(1, Ordering::Relaxed);
-            // Create a new pooled event without pool reference for now
-            let pooled_event = PooledEvent {
-                event: None,
-                sequence: 0,
-                pool: None, // We'll manage pool lifecycle differently
-            };
-            return Some(pooled_event);
-        }
+        // Pool is empty - try to create new if under capacity
+        // Use a loop with compare_exchange_weak to handle spurious failures
+        loop {
+            let current = self.current_size.load(Ordering::Relaxed);
 
-        // Pool exhausted
-        None
+            // Check capacity limit
+            if current >= self.capacity as u64 {
+                // Pool exhausted
+                return None;
+            }
+
+            // Try to increment size atomically
+            match self.current_size.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => {
+                    // Successfully reserved a slot - create new event
+                    self.total_allocated.fetch_add(1, Ordering::Relaxed);
+                    let pooled_event = PooledEvent {
+                        event: None,
+                        sequence: 0,
+                        pool: None, // We'll manage pool lifecycle differently
+                    };
+                    return Some(pooled_event);
+                }
+                Err(_) => {
+                    // CAS failed (spurious or actual) - retry
+                    // On next iteration, we'll recheck capacity with updated value
+                    continue;
+                }
+            }
+        }
     }
 
     /// Release a pooled event back to the pool
