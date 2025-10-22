@@ -22,7 +22,7 @@ pub struct SnapshotService {
 #[derive(Serialize, Deserialize, Default)]
 struct SnapshotData {
     main: Vec<u8>,
-    holders: HashMap<String, Vec<u8>>,
+    holders: HashMap<String, crate::core::persistence::StateSnapshot>,
 }
 
 impl std::fmt::Debug for SnapshotService {
@@ -66,7 +66,7 @@ impl SnapshotService {
             println!("Persisting state for component: {}", id);
             match holder.lock().unwrap().serialize_state(&hints) {
                 Ok(snapshot) => {
-                    holders.insert(id.clone(), snapshot.data);
+                    holders.insert(id.clone(), snapshot);
                     println!("Successfully persisted state for: {}", id);
                 }
                 Err(e) => {
@@ -98,24 +98,11 @@ impl SnapshotService {
         if let Some(data) = store.load(&self.eventflux_app_id, revision) {
             let snap: SnapshotData = from_bytes(&data).map_err(|e| e.to_string())?;
             self.set_state(snap.main);
-            for (id, bytes) in snap.holders {
+            for (id, snapshot) in snap.holders {
                 println!("Restoring state for component: {}", id);
                 if let Some(holder) = self.state_holders.lock().unwrap().get(&id) {
-                    // Create a temporary snapshot for deserialization
-                    let checksum =
-                        crate::core::persistence::StateSnapshot::calculate_checksum(&bytes);
-                    let temp_snapshot = crate::core::persistence::StateSnapshot {
-                        version: crate::core::persistence::SchemaVersion::new(1, 0, 0),
-                        checkpoint_id: 0,
-                        data: bytes,
-                        compression: crate::core::persistence::CompressionType::None,
-                        checksum,
-                        metadata: crate::core::persistence::StateMetadata::new(
-                            id.clone(),
-                            "LegacyComponent".to_string(),
-                        ),
-                    };
-                    match holder.lock().unwrap().deserialize_state(&temp_snapshot) {
+                    // Use the full snapshot with all metadata (compression, checksum, version, etc.)
+                    match holder.lock().unwrap().deserialize_state(&snapshot) {
                         Ok(_) => println!("Successfully restored state for: {}", id),
                         Err(e) => {
                             eprintln!("Failed to restore state for {id}: {e:?}");
