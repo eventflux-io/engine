@@ -402,7 +402,10 @@ impl EventFluxAppRuntime {
     }
 
     /// Get a table handler by name
-    pub fn get_table_handler(&self, table_name: &str) -> Option<Arc<dyn crate::core::table::Table>> {
+    pub fn get_table_handler(
+        &self,
+        table_name: &str,
+    ) -> Option<Arc<dyn crate::core::table::Table>> {
         self.table_handlers.read().unwrap().get(table_name).cloned()
     }
 
@@ -774,20 +777,18 @@ impl EventFluxAppRuntime {
                         }
                     }
                 }
-                "sink" => {
-                    match self.attach_single_stream_from_sql_sink(stream_id, with_config) {
-                        Ok(()) => {
-                            attached_sinks.push(stream_id.clone());
-                        }
-                        Err(e) => {
-                            eprintln!(
-                                "[EventFluxAppRuntime] Failed to attach SQL sink '{}': {}",
-                                stream_id, e
-                            );
-                            errors.push(e);
-                        }
+                "sink" => match self.attach_single_stream_from_sql_sink(stream_id, with_config) {
+                    Ok(()) => {
+                        attached_sinks.push(stream_id.clone());
                     }
-                }
+                    Err(e) => {
+                        eprintln!(
+                            "[EventFluxAppRuntime] Failed to attach SQL sink '{}': {}",
+                            stream_id, e
+                        );
+                        errors.push(e);
+                    }
+                },
                 "internal" => {
                     // Internal streams don't need source/sink attachment
                     continue;
@@ -887,14 +888,16 @@ impl EventFluxAppRuntime {
         })?;
 
         // Use stream_initializer to create source with mapper (existing infrastructure)
-        let initialized =
-            initialize_stream(&self.eventflux_app_context.eventflux_context, &stream_type_config)
-                .map_err(|e| {
-                    EventFluxError::app_creation(format!(
-                        "Failed to initialize SQL source '{}' (extension={}, format={:?}): {}",
-                        stream_name, extension, format, e
-                    ))
-                })?;
+        let initialized = initialize_stream(
+            &self.eventflux_app_context.eventflux_context,
+            &stream_type_config,
+        )
+        .map_err(|e| {
+            EventFluxError::app_creation(format!(
+                "Failed to initialize SQL source '{}' (extension={}, format={:?}): {}",
+                stream_name, extension, format, e
+            ))
+        })?;
 
         // Extract source and mapper from initialized stream
         let (source, mapper) = match initialized {
@@ -1003,14 +1006,16 @@ impl EventFluxAppRuntime {
         })?;
 
         // Use stream_initializer to create sink with mapper
-        let initialized =
-            initialize_stream(&self.eventflux_app_context.eventflux_context, &stream_type_config)
-                .map_err(|e| {
-                    EventFluxError::app_creation(format!(
-                        "Failed to initialize SQL sink '{}' (extension={}, format={:?}): {}",
-                        stream_name, extension, format, e
-                    ))
-                })?;
+        let initialized = initialize_stream(
+            &self.eventflux_app_context.eventflux_context,
+            &stream_type_config,
+        )
+        .map_err(|e| {
+            EventFluxError::app_creation(format!(
+                "Failed to initialize SQL sink '{}' (extension={}, format={:?}): {}",
+                stream_name, extension, format, e
+            ))
+        })?;
 
         // Extract sink and mapper from initialized stream
         let (sink, mapper) = match initialized {
@@ -1172,21 +1177,22 @@ impl EventFluxAppRuntime {
         })?;
 
         // 2. Use stream_initializer to create source with mapper
-        let initialized =
-            initialize_stream(&self.eventflux_app_context.eventflux_context, &stream_type_config)
-                .map_err(|e| {
-                    EventFluxError::app_creation(format!(
-                        "Failed to initialize source '{}' (type={}, format={:?}): {}",
-                        stream_name,
-                        source_config.source_type,
-                        source_config.format,
-                        e
-                    ))
-                })?;
+        let initialized = initialize_stream(
+            &self.eventflux_app_context.eventflux_context,
+            &stream_type_config,
+        )
+        .map_err(|e| {
+            EventFluxError::app_creation(format!(
+                "Failed to initialize source '{}' (type={}, format={:?}): {}",
+                stream_name, source_config.source_type, source_config.format, e
+            ))
+        })?;
 
         // 3. Extract source and mapper from initialized stream
         let (source, mapper) = match initialized {
-            InitializedStream::Source(init_source) => (init_source.source, Some(init_source.mapper)),
+            InitializedStream::Source(init_source) => {
+                (init_source.source, Some(init_source.mapper))
+            }
             _ => {
                 return Err(EventFluxError::app_creation(format!(
                     "Expected source stream initialization for '{}', got different stream type",

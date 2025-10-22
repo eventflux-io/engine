@@ -865,7 +865,10 @@ mod tests {
         let flat_config = FlatConfig::new();
         let config = StreamTypeConfig::from_flat_config(&flat_config);
 
-        assert!(config.is_ok(), "Config without type should default to Internal");
+        assert!(
+            config.is_ok(),
+            "Config without type should default to Internal"
+        );
         let config = config.unwrap();
         assert_eq!(
             config.stream_type,
@@ -1060,9 +1063,7 @@ mod tests {
         let properties = HashMap::new();
         let result = TableTypeConfig::new("".to_string(), properties);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("extension cannot be empty"));
+        assert!(result.unwrap_err().contains("extension cannot be empty"));
     }
 
     #[test]
@@ -1073,9 +1074,7 @@ mod tests {
 
         let result = TableTypeConfig::new("mysql".to_string(), properties);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("cannot have 'type' property"));
+        assert!(result.unwrap_err().contains("cannot have 'type' property"));
     }
 
     #[test]
@@ -1114,9 +1113,17 @@ mod tests {
         config.set("cache.ttl", "3600", PropertySource::RustDefault);
 
         // Layer 2: TOML application config (common database settings)
-        config.set("mysql.host", "prod-db.company.com", PropertySource::TomlApplication);
+        config.set(
+            "mysql.host",
+            "prod-db.company.com",
+            PropertySource::TomlApplication,
+        );
         config.set("mysql.port", "3306", PropertySource::TomlApplication);
-        config.set("mysql.user", "eventflux_app", PropertySource::TomlApplication);
+        config.set(
+            "mysql.user",
+            "eventflux_app",
+            PropertySource::TomlApplication,
+        );
 
         // Layer 3: TOML table config (table-specific settings)
         config.set("extension", "mysql", PropertySource::TomlStream);

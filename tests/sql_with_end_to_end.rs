@@ -9,8 +9,10 @@
 
 use eventflux_rust::core::event::value::AttributeValue;
 use eventflux_rust::core::eventflux_manager::EventFluxManager;
+use eventflux_rust::core::extension::example_factories::{
+    CsvSinkMapperFactory, JsonSourceMapperFactory,
+};
 use eventflux_rust::core::extension::{LogSinkFactory, TimerSourceFactory};
-use eventflux_rust::core::extension::example_factories::{JsonSourceMapperFactory, CsvSinkMapperFactory};
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -264,8 +266,10 @@ async fn test_sql_with_missing_extension_error() {
         Ok(runtime) => {
             // Runtime created, but stream should not be attached
             runtime.start();
-            assert!(runtime.get_source_handler("BadStream").is_none(),
-                "Source should not be attached when extension is missing");
+            assert!(
+                runtime.get_source_handler("BadStream").is_none(),
+                "Source should not be attached when extension is missing"
+            );
             runtime.shutdown();
         }
     }
@@ -355,7 +359,11 @@ async fn test_sql_internal_stream_no_with() {
     let out = runner.shutdown();
 
     // Should receive events through internal stream
-    assert!(out.len() >= 1, "Expected at least 1 event, got {}", out.len());
+    assert!(
+        out.len() >= 1,
+        "Expected at least 1 event, got {}",
+        out.len()
+    );
 }
 
 /// Test 8: Empty WITH Clause

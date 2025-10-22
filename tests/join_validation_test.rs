@@ -67,8 +67,16 @@ fn test_join_and_inner_join_are_equivalent() {
     let result1 = parse(sql_plain);
     let result2 = parse(sql_inner);
 
-    assert!(result1.is_ok(), "Plain JOIN should work: {:?}", result1.err());
-    assert!(result2.is_ok(), "INNER JOIN should work: {:?}", result2.err());
+    assert!(
+        result1.is_ok(),
+        "Plain JOIN should work: {:?}",
+        result1.err()
+    );
+    assert!(
+        result2.is_ok(),
+        "INNER JOIN should work: {:?}",
+        result2.err()
+    );
 
     // Both compile successfully - normalization happens internally
     // The fix ensures both JOIN and INNER JOIN are treated identically

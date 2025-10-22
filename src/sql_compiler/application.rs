@@ -522,7 +522,10 @@ mod tests {
 
         let app = parse_sql_application(sql).expect("Failed to parse Kafka source with properties");
 
-        let stream_def = app.catalog.get_stream("KafkaInput").expect("Stream not found");
+        let stream_def = app
+            .catalog
+            .get_stream("KafkaInput")
+            .expect("Stream not found");
 
         assert!(stream_def.with_config.is_some());
         let config = stream_def.with_config.as_ref().unwrap();
@@ -577,7 +580,10 @@ mod tests {
 
         // Verify independence - timer config shouldn't have log properties
         assert_eq!(timer_config.get("extension"), Some(&"timer".to_string()));
-        assert_eq!(timer_config.get("timer.interval"), Some(&"1000".to_string()));
+        assert_eq!(
+            timer_config.get("timer.interval"),
+            Some(&"1000".to_string())
+        );
         assert!(timer_config.get("log.prefix").is_none());
 
         // Log config shouldn't have timer properties
@@ -603,4 +609,3 @@ mod tests {
         );
     }
 }
-

@@ -327,10 +327,7 @@ mod tests {
             .with_config(config.clone())
             .attribute("name".to_string(), AttributeType::STRING);
 
-        assert_eq!(
-            stream_def.abstract_definition.get_id(),
-            "TestStream"
-        );
+        assert_eq!(stream_def.abstract_definition.get_id(), "TestStream");
         assert_eq!(stream_def.abstract_definition.attribute_list.len(), 2);
         assert!(stream_def.with_config.is_some());
         assert_eq!(

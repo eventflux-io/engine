@@ -1036,10 +1036,7 @@ mod tests {
         mapper.set_date_format(Some("%Y-%m-%d %H:%M:%S".to_string()));
 
         // Verify internal format is unchanged
-        assert_eq!(
-            mapper.date_format,
-            Some("%Y-%m-%d %H:%M:%S".to_string())
-        );
+        assert_eq!(mapper.date_format, Some("%Y-%m-%d %H:%M:%S".to_string()));
     }
 
     #[test]

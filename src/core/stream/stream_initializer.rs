@@ -26,7 +26,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::core::config::eventflux_context::EventFluxContext;
-use crate::core::config::stream_config::{FlatConfig, StreamType, StreamTypeConfig, TableTypeConfig};
+use crate::core::config::stream_config::{
+    FlatConfig, StreamType, StreamTypeConfig, TableTypeConfig,
+};
 use crate::core::exception::EventFluxError;
 use crate::core::stream::handler::{SinkStreamHandler, SourceStreamHandler};
 use crate::core::stream::input::mapper::SourceMapper;
@@ -364,7 +366,9 @@ pub fn initialize_table(
             table_config.properties.clone(),
             Arc::new(context.clone()),
         )
-        .map_err(|e| EventFluxError::configuration(format!("Failed to create table '{}': {}", table_name, e)))?;
+        .map_err(|e| {
+            EventFluxError::configuration(format!("Failed to create table '{}': {}", table_name, e))
+        })?;
 
     // 3. Phase 2 Validation: Verify external backing store connectivity (FAIL-FAST)
     // This ensures "What's the point of deploying if backing stores aren't ready?"
@@ -1394,8 +1398,7 @@ mod tests {
         let mut properties = HashMap::new();
         properties.insert("extension".to_string(), "nonexistent".to_string());
 
-        let table_config =
-            TableTypeConfig::new("nonexistent".to_string(), properties).unwrap();
+        let table_config = TableTypeConfig::new("nonexistent".to_string(), properties).unwrap();
 
         let result = initialize_table(&context, &table_config, "TestTable");
         assert!(result.is_err());
