@@ -99,6 +99,7 @@ impl LengthWindowProcessor {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        _parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Self, String> {
         let expr = handler
             .get_parameters()
@@ -227,6 +228,7 @@ impl TimeWindowProcessor {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        _parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Self, String> {
         let expr = handler
             .get_parameters()
@@ -520,37 +522,38 @@ pub fn create_window_processor(
     handler: &WindowHandler,
     app_ctx: Arc<EventFluxAppContext>,
     query_ctx: Arc<EventFluxQueryContext>,
+    parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
 ) -> Result<Arc<Mutex<dyn Processor>>, String> {
     if let Some(factory) = app_ctx
         .get_eventflux_context()
         .get_window_factory(&handler.name)
     {
-        factory.create(handler, app_ctx, query_ctx)
+        factory.create(handler, app_ctx, query_ctx, parse_ctx)
     } else {
         match handler.name.as_str() {
             "length" => Ok(Arc::new(Mutex::new(LengthWindowProcessor::from_handler(
-                handler, app_ctx, query_ctx,
+                handler, app_ctx, query_ctx, parse_ctx,
             )?))),
             "time" => Ok(Arc::new(Mutex::new(TimeWindowProcessor::from_handler(
-                handler, app_ctx, query_ctx,
+                handler, app_ctx, query_ctx, parse_ctx,
             )?))),
             "lengthBatch" => Ok(Arc::new(Mutex::new(
-                LengthBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx)?,
+                LengthBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
             ))),
             "timeBatch" => Ok(Arc::new(Mutex::new(
-                TimeBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx)?,
+                TimeBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
             ))),
             "externalTime" => Ok(Arc::new(Mutex::new(
-                ExternalTimeWindowProcessor::from_handler(handler, app_ctx, query_ctx)?,
+                ExternalTimeWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
             ))),
             "externalTimeBatch" => Ok(Arc::new(Mutex::new(
-                ExternalTimeBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx)?,
+                ExternalTimeBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
             ))),
             "session" => Ok(Arc::new(Mutex::new(SessionWindowProcessor::from_handler(
-                handler, app_ctx, query_ctx,
+                handler, app_ctx, query_ctx, parse_ctx,
             )?))),
             "sort" => Ok(Arc::new(Mutex::new(SortWindowProcessor::from_handler(
-                handler, app_ctx, query_ctx,
+                handler, app_ctx, query_ctx, parse_ctx,
             )?))),
             other => Err(format!("Unsupported window type '{other}'")),
         }
@@ -569,9 +572,10 @@ impl WindowProcessorFactory for LengthWindowFactory {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Arc<Mutex<dyn Processor>>, String> {
         Ok(Arc::new(Mutex::new(LengthWindowProcessor::from_handler(
-            handler, app_ctx, query_ctx,
+            handler, app_ctx, query_ctx, parse_ctx,
         )?)))
     }
 
@@ -592,9 +596,10 @@ impl WindowProcessorFactory for TimeWindowFactory {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Arc<Mutex<dyn Processor>>, String> {
         Ok(Arc::new(Mutex::new(TimeWindowProcessor::from_handler(
-            handler, app_ctx, query_ctx,
+            handler, app_ctx, query_ctx, parse_ctx,
         )?)))
     }
 
@@ -653,6 +658,7 @@ impl LengthBatchWindowProcessor {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        _parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Self, String> {
         let expr = handler
             .get_parameters()
@@ -868,9 +874,10 @@ impl WindowProcessorFactory for LengthBatchWindowFactory {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Arc<Mutex<dyn Processor>>, String> {
         Ok(Arc::new(Mutex::new(
-            LengthBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx)?,
+            LengthBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
         )))
     }
 
@@ -928,6 +935,7 @@ impl TimeBatchWindowProcessor {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        _parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Self, String> {
         let expr = handler
             .get_parameters()
@@ -1180,9 +1188,10 @@ impl WindowProcessorFactory for TimeBatchWindowFactory {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Arc<Mutex<dyn Processor>>, String> {
         Ok(Arc::new(Mutex::new(
-            TimeBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx)?,
+            TimeBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
         )))
     }
 
@@ -1217,6 +1226,7 @@ impl ExternalTimeWindowProcessor {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        _parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Self, String> {
         let expr = handler
             .get_parameters()
@@ -1318,9 +1328,10 @@ impl WindowProcessorFactory for ExternalTimeWindowFactory {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Arc<Mutex<dyn Processor>>, String> {
         Ok(Arc::new(Mutex::new(
-            ExternalTimeWindowProcessor::from_handler(handler, app_ctx, query_ctx)?,
+            ExternalTimeWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
         )))
     }
 
@@ -1359,6 +1370,7 @@ impl ExternalTimeBatchWindowProcessor {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        _parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Self, String> {
         let expr = handler
             .get_parameters()
@@ -1499,6 +1511,7 @@ impl LossyCountingWindowProcessor {
         _handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        _parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Self, String> {
         Ok(Self::new(app_ctx, query_ctx))
     }
@@ -1556,9 +1569,10 @@ impl WindowProcessorFactory for LossyCountingWindowFactory {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Arc<Mutex<dyn Processor>>, String> {
         Ok(Arc::new(Mutex::new(
-            LossyCountingWindowProcessor::from_handler(handler, app_ctx, query_ctx)?,
+            LossyCountingWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
         )))
     }
 
@@ -1600,6 +1614,7 @@ impl CronWindowProcessor {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        _parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Self, String> {
         let expr = handler
             .get_parameters()
@@ -1741,9 +1756,10 @@ impl WindowProcessorFactory for CronWindowFactory {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Arc<Mutex<dyn Processor>>, String> {
         Ok(Arc::new(Mutex::new(CronWindowProcessor::from_handler(
-            handler, app_ctx, query_ctx,
+            handler, app_ctx, query_ctx, parse_ctx,
         )?)))
     }
 
@@ -1764,9 +1780,10 @@ impl WindowProcessorFactory for ExternalTimeBatchWindowFactory {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Arc<Mutex<dyn Processor>>, String> {
         Ok(Arc::new(Mutex::new(
-            ExternalTimeBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx)?,
+            ExternalTimeBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
         )))
     }
 
@@ -1787,9 +1804,10 @@ impl WindowProcessorFactory for SessionWindowFactory {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Arc<Mutex<dyn Processor>>, String> {
         Ok(Arc::new(Mutex::new(SessionWindowProcessor::from_handler(
-            handler, app_ctx, query_ctx,
+            handler, app_ctx, query_ctx, parse_ctx,
         )?)))
     }
 
@@ -1811,9 +1829,10 @@ impl WindowProcessorFactory for SortWindowFactory {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Arc<Mutex<dyn Processor>>, String> {
         Ok(Arc::new(Mutex::new(SortWindowProcessor::from_handler(
-            handler, app_ctx, query_ctx,
+            handler, app_ctx, query_ctx, parse_ctx,
         )?)))
     }
 

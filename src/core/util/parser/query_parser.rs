@@ -128,6 +128,7 @@ impl QueryParser {
                                 w.as_ref(),
                                 Arc::clone(eventflux_app_context),
                                 Arc::clone(&eventflux_query_context),
+                                &ctx,
                             )?;
                             link_processor(win_proc);
                         }

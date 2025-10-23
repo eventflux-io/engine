@@ -1,0 +1,23 @@
+apiVersion: eventflux.io/v1
+kind: EventFluxConfig
+metadata:
+  name: timer-test-config
+  description: Test configuration for SQL WITH clause with YAML config loaded
+
+# This YAML config provides runtime configuration
+# SQL WITH clause in the test will define stream-specific settings
+# This test verifies that AppRunner works correctly with YAML config loaded
+
+eventflux:
+  runtime:
+    mode: single-node
+    performance:
+      thread_pool_size: 4
+      event_buffer_size: 1024
+      batch_processing: true
+
+  observability:
+    metrics:
+      enabled: false
+    logging:
+      level: info

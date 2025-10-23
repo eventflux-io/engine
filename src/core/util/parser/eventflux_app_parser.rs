@@ -237,11 +237,25 @@ impl EventFluxAppParser {
                     format!("__window_{window_id}"),
                     None,
                 ));
+                // Create minimal parse context for legacy WindowDefinition path
+                let empty_parse_ctx = crate::core::util::parser::expression_parser::ExpressionParserContext {
+                    eventflux_app_context: Arc::clone(&eventflux_app_context),
+                    eventflux_query_context: Arc::clone(&qctx),
+                    stream_meta_map: std::collections::HashMap::new(),
+                    table_meta_map: std::collections::HashMap::new(),
+                    window_meta_map: std::collections::HashMap::new(),
+                    aggregation_meta_map: std::collections::HashMap::new(),
+                    state_meta_map: std::collections::HashMap::new(),
+                    stream_positions: std::collections::HashMap::new(),
+                    default_source: String::new(),
+                    query_name: &format!("__window_{window_id}"),
+                };
                 if let Ok(proc) =
                     crate::core::query::processor::stream::window::create_window_processor(
                         handler,
                         Arc::clone(&eventflux_app_context),
                         Arc::clone(&qctx),
+                        &empty_parse_ctx,
                     )
                 {
                     runtime.set_processor(proc);

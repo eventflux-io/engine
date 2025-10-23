@@ -84,6 +84,7 @@ impl WindowProcessorFactory for DummyWindowFactory {
         _h: &WindowHandler,
         app: Arc<EventFluxAppContext>,
         q: Arc<EventFluxQueryContext>,
+        _parse_ctx: &eventflux_rust::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Arc<Mutex<dyn Processor>>, String> {
         Ok(Arc::new(Mutex::new(DummyWindowProcessor {
             meta: CommonProcessorMeta::new(app, q),
@@ -257,8 +258,23 @@ fn test_register_window_factory() {
         "q".to_string(),
         None,
     ));
+
+    // Create minimal ExpressionParserContext for the test
+    let parse_ctx = eventflux_rust::core::util::parser::expression_parser::ExpressionParserContext {
+        eventflux_app_context: Arc::clone(&app_ctx),
+        eventflux_query_context: Arc::clone(&q_ctx),
+        stream_meta_map: std::collections::HashMap::new(),
+        table_meta_map: std::collections::HashMap::new(),
+        window_meta_map: std::collections::HashMap::new(),
+        aggregation_meta_map: std::collections::HashMap::new(),
+        state_meta_map: std::collections::HashMap::new(),
+        stream_positions: std::collections::HashMap::new(),
+        default_source: String::new(),
+        query_name: "test_query",
+    };
+
     let res = eventflux_rust::core::query::processor::stream::window::create_window_processor(
-        &handler, app_ctx, q_ctx,
+        &handler, app_ctx, q_ctx, &parse_ctx,
     );
     assert!(res.is_ok());
 }

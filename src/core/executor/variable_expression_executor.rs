@@ -128,6 +128,11 @@ impl ExpressionExecutor for VariableExpressionExecutor {
         // eventflux_app_context: self.eventflux_app_context.as_ref().map(Arc::clone),
         Box::new(self.clone())
     }
+
+    /// Returns true for VariableExpressionExecutor - used for validation
+    fn is_variable_executor(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]
