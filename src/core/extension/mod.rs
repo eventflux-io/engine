@@ -24,6 +24,7 @@ pub trait WindowProcessorFactory: Debug + Send + Sync {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Arc<Mutex<dyn Processor>>, String>;
     fn clone_box(&self) -> Box<dyn WindowProcessorFactory>;
 }

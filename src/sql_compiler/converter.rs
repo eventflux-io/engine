@@ -13,7 +13,8 @@ use sqlparser::parser::Parser;
 
 use crate::core::query::processor::stream::window::types::{
     WINDOW_TYPE_EXTERNAL_TIME, WINDOW_TYPE_EXTERNAL_TIME_BATCH, WINDOW_TYPE_LENGTH,
-    WINDOW_TYPE_LENGTH_BATCH, WINDOW_TYPE_SESSION, WINDOW_TYPE_TIME, WINDOW_TYPE_TIME_BATCH,
+    WINDOW_TYPE_LENGTH_BATCH, WINDOW_TYPE_SESSION, WINDOW_TYPE_SORT, WINDOW_TYPE_TIME,
+    WINDOW_TYPE_TIME_BATCH,
 };
 use crate::query_api::execution::partition::Partition;
 use crate::query_api::execution::query::input::stream::input_stream::InputStream;
@@ -627,6 +628,18 @@ impl SqlConverter {
                     None,
                     WINDOW_TYPE_EXTERNAL_TIME_BATCH.to_string(),
                     vec![ts_expr, duration_expr],
+                ))
+            }
+            StreamingWindowSpec::Sort { parameters } => {
+                // Convert all parameters (size, attr1, 'asc', attr2, 'desc', ...)
+                let mut converted_params = Vec::new();
+                for param in parameters {
+                    converted_params.push(Self::convert_expression(param, catalog)?);
+                }
+                Ok(stream.window(
+                    None,
+                    WINDOW_TYPE_SORT.to_string(),
+                    converted_params,
                 ))
             }
         }

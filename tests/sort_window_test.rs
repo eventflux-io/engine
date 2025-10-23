@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// TODO: Sort window tests converted to SQL syntax
-// Sort window is implemented, ready for testing with SQL syntax
-// See feat/grammar/GRAMMAR_STATUS.md for M1 feature list.
+// Sort window tests using SQL WINDOW() syntax
+// Sort window is implemented and ready for testing
 
 #[path = "common/mod.rs"]
 mod common;
@@ -10,15 +9,14 @@ use common::AppRunner;
 use eventflux_rust::core::event::value::AttributeValue;
 
 #[tokio::test]
-#[ignore = "WINDOW sort() SQL syntax not yet supported - needs syntax definition"]
 async fn test_basic_sort_window() {
-    // TODO: Sort window implemented but SQL parser doesn't recognize "WINDOW sort()" syntax
-    // Need to determine correct SQL syntax: WINDOW_SORT()? or different approach?
     let app = "\
         CREATE STREAM In (price DOUBLE, volume INT);\n\
         CREATE STREAM Out (price DOUBLE, volume INT);\n\
-        INSERT INTO Out\n\
-        SELECT price, volume FROM In WINDOW sort(3);\n";
+        INSERT INTO Out \n\
+        SELECT price, volume \n\
+        FROM In \n\
+        WINDOW('sort', 3, price);\n";
 
     let runner = AppRunner::new(app, "Out").await;
 
@@ -41,19 +39,20 @@ async fn test_basic_sort_window() {
     let output = runner.shutdown();
     println!("Sort window output: {:?}", output);
 
-    // For now, just verify we get some output (since sorting logic is not implemented yet)
+    // Should have output for all events sent (3 current)
     assert!(!output.is_empty(), "Should have sort window output");
+    assert!(output.len() >= 3, "Should have at least 3 events");
 }
 
 #[tokio::test]
-#[ignore = "WINDOW sort() SQL syntax not yet supported - needs syntax definition"]
 async fn test_sort_window_with_parameters() {
-    // TODO: Sort window implemented but SQL syntax not yet defined
     let app = "\
         CREATE STREAM In (value INT);\n\
         CREATE STREAM Out (value INT);\n\
-        INSERT INTO Out\n\
-        SELECT value FROM In WINDOW sort(2);\n";
+        INSERT INTO Out \n\
+        SELECT value \n\
+        FROM In \n\
+        WINDOW('sort', 2, value);\n";
 
     let runner = AppRunner::new(app, "Out").await;
 
@@ -64,19 +63,20 @@ async fn test_sort_window_with_parameters() {
     let output = runner.shutdown();
     println!("Sort window with parameters output: {:?}", output);
 
-    // Should have output for all sent events
+    // Should have output for all sent events (2 current + 1 expired)
     assert!(!output.is_empty(), "Should have output events");
+    assert!(output.len() >= 3, "Should have at least 3 events");
 }
 
 #[tokio::test]
-#[ignore = "WINDOW sort() SQL syntax not yet supported - needs syntax definition"]
 async fn test_sort_window_length_validation() {
-    // TODO: Sort window implemented but SQL syntax not yet defined
     let app = "\
         CREATE STREAM In (id INT);\n\
         CREATE STREAM Out (id INT);\n\
-        INSERT INTO Out\n\
-        SELECT id FROM In WINDOW sort(1);\n";
+        INSERT INTO Out \n\
+        SELECT id \n\
+        FROM In \n\
+        WINDOW('sort', 1, id);\n";
 
     let runner = AppRunner::new(app, "Out").await;
 
@@ -87,17 +87,18 @@ async fn test_sort_window_length_validation() {
 
     // Should work with length 1
     assert!(!output.is_empty(), "Should work with length 1");
+    assert_eq!(output.len(), 1, "Should have exactly 1 event");
 }
 
 #[tokio::test]
-#[ignore = "WINDOW sort() SQL syntax not yet supported - needs syntax definition"]
 async fn test_sort_window_expiry() {
-    // TODO: Sort window implemented but SQL syntax not yet defined
     let app = "\
         CREATE STREAM In (value INT);\n\
         CREATE STREAM Out (value INT);\n\
-        INSERT INTO Out\n\
-        SELECT value FROM In WINDOW sort(2);\n";
+        INSERT INTO Out \n\
+        SELECT value \n\
+        FROM In \n\
+        WINDOW('sort', 2, value);\n";
 
     let runner = AppRunner::new(app, "Out").await;
 
@@ -110,6 +111,7 @@ async fn test_sort_window_expiry() {
     println!("Sort window expiry output: {:?}", output);
 
     // Should have output for all events (both current and expired)
+    // First event: 10 (current), Second event: 20 (current), Third event: 30 (current) + expired event
     assert!(
         output.len() >= 3,
         "Should have at least 3 events (current + expired)"
@@ -117,14 +119,14 @@ async fn test_sort_window_expiry() {
 }
 
 #[tokio::test]
-#[ignore = "WINDOW sort() SQL syntax not yet supported - needs syntax definition"]
 async fn test_sort_window_ordering() {
-    // TODO: Sort window implemented but SQL syntax not yet defined
     let app = "\
         CREATE STREAM In (id INT);\n\
         CREATE STREAM Out (id INT);\n\
-        INSERT INTO Out\n\
-        SELECT id FROM In WINDOW sort(3);\n";
+        INSERT INTO Out \n\
+        SELECT id \n\
+        FROM In \n\
+        WINDOW('sort', 3, id);\n";
 
     let runner = AppRunner::new(app, "Out").await;
 

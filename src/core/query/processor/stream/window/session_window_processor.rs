@@ -89,6 +89,7 @@ impl SessionWindowProcessor {
         handler: &WindowHandler,
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
+        _parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
     ) -> Result<Self, String> {
         let params = handler.get_parameters();
 

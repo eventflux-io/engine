@@ -59,7 +59,7 @@ impl WindowProcessor for DynWindowProcessor {}
 struct DynWindowFactory;
 impl WindowProcessorFactory for DynWindowFactory {
     fn name(&self) -> &'static str { "dynWindow" }
-    fn create(&self, _h: &WindowHandler, app: Arc<EventFluxAppContext>, q: Arc<EventFluxQueryContext>) -> Result<Arc<Mutex<dyn Processor>>, String> {
+    fn create(&self, _h: &WindowHandler, app: Arc<EventFluxAppContext>, q: Arc<EventFluxQueryContext>, _parse_ctx: &eventflux_rust::core::util::parser::expression_parser::ExpressionParserContext) -> Result<Arc<Mutex<dyn Processor>>, String> {
         Ok(Arc::new(Mutex::new(DynWindowProcessor { meta: CommonProcessorMeta::new(app, q) })))
     }
     fn clone_box(&self) -> Box<dyn WindowProcessorFactory> { Box::new(self.clone()) }

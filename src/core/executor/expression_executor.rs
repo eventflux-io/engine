@@ -46,6 +46,12 @@ pub trait ExpressionExecutor: Debug + Send + Sync + 'static {
     fn is_attribute_aggregator(&self) -> bool {
         false
     }
+
+    /// Returns true if this executor is a VariableExpressionExecutor (accesses event attributes)
+    /// This is used for validation in contexts where only variable expressions are allowed
+    fn is_variable_executor(&self) -> bool {
+        false
+    }
 }
 
 // To allow `Box<dyn ExpressionExecutor>` to be `Clone`.
