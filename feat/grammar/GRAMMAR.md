@@ -82,6 +82,109 @@ CREATE STREAM StockStream (
 - `DOUBLE` → Double
 - `BOOLEAN` / `BOOL` → Bool
 
+#### 1.5 Stream Configuration (WITH Clause)
+
+**Source/Sink Configuration** - Streams can be configured as inputs or outputs using the WITH clause:
+
+```sql
+-- Source stream (reads data from Kafka)
+CREATE STREAM Orders (
+    orderId VARCHAR,
+    amount DOUBLE,
+    timestamp BIGINT
+) WITH (
+    'type' = 'source',
+    'extension' = 'kafka',
+    'kafka.brokers' = 'localhost:9092',
+    'kafka.topic' = 'orders',
+    'format' = 'json'
+);
+
+-- Sink stream (writes data to HTTP endpoint)
+CREATE STREAM Alerts (
+    alertId VARCHAR,
+    severity VARCHAR,
+    message VARCHAR
+) WITH (
+    'type' = 'sink',
+    'extension' = 'http',
+    'http.url' = 'https://api.example.com/alerts',
+    'format' = 'json'
+);
+
+-- Table (bidirectional, no type or format)
+CREATE TABLE Users (
+    userId VARCHAR,
+    name VARCHAR,
+    email VARCHAR,
+    PRIMARY KEY (userId)
+) WITH (
+    'extension' = 'mysql',
+    'mysql.host' = 'localhost',
+    'mysql.database' = 'mydb',
+    'mysql.table' = 'users'
+);
+```
+
+**Core Properties**:
+- `'type'` - Required for streams: `'source'` or `'sink'`
+- `'extension'` - Required: connector type (`'kafka'`, `'http'`, `'mysql'`, `'file'`, etc.)
+- `'format'` - Data serialization format (`'json'`, `'avro'`, `'csv'`, `'protobuf'`)
+
+**Property Namespacing**:
+- Extension properties: `'<extension>.<property>'` (e.g., `'kafka.brokers'`, `'http.url'`)
+- Format properties: `'<format>.<property>'` (e.g., `'json.fail-on-missing-field'`, `'csv.delimiter'`)
+- Security properties: `'<extension>.security.<property>'` (e.g., `'kafka.security.protocol'`)
+
+**Complete Examples**:
+
+```sql
+-- Kafka source with security
+CREATE STREAM KafkaIn (...) WITH (
+    'type' = 'source',
+    'extension' = 'kafka',
+    'kafka.brokers' = 'prod1:9092,prod2:9092',
+    'kafka.topic' = 'orders',
+    'kafka.group' = 'order-processor',
+    'kafka.security.protocol' = 'SASL_SSL',
+    'kafka.security.username' = '${KAFKA_USER}',
+    'kafka.security.password' = '${KAFKA_PASSWORD}',
+    'format' = 'json',
+    'json.fail-on-missing-field' = 'true'
+);
+
+-- HTTP sink with custom headers
+CREATE STREAM HttpOut (...) WITH (
+    'type' = 'sink',
+    'extension' = 'http',
+    'http.url' = 'https://api.example.com/events',
+    'http.method' = 'POST',
+    'http.headers.Authorization' = 'Bearer ${API_TOKEN}',
+    'http.timeout' = '30s',
+    'http.retry.max' = '3',
+    'format' = 'json'
+);
+
+-- File source with CSV format
+CREATE STREAM FileIn (...) WITH (
+    'type' = 'source',
+    'extension' = 'file',
+    'file.path' = '/data/orders.csv',
+    'format' = 'csv',
+    'csv.header' = 'true',
+    'csv.delimiter' = ','
+);
+```
+
+**Environment Variables**:
+- Syntax: `'${VAR_NAME}'` or `'${VAR_NAME:default}'`
+- Use for credentials: `'kafka.security.password' = '${KAFKA_PASSWORD}'`
+- Recommended for production deployments
+
+**TOML Configuration**:
+- WITH clause properties can also be defined in TOML files
+- See [CONFIGURATION.md](../configuration/CONFIGURATION.md) for complete details
+
 #### 2. Basic Queries
 
 ```sql
