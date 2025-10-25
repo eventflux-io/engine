@@ -30,6 +30,9 @@ pub enum CatalogError {
     #[error("Unknown stream: {0}")]
     UnknownStream(String),
 
+    #[error("Unknown relation (stream or table): {0}")]
+    UnknownRelation(String),
+
     #[error("Unknown column: {0}.{1}")]
     UnknownColumn(String, String),
 }
@@ -72,7 +75,7 @@ pub enum ConverterError {
     #[error("Invalid expression: {0}")]
     InvalidExpression(String),
 
-    #[error("Schema not found for stream: {0}")]
+    #[error("Schema not found for relation (stream or table): {0}")]
     SchemaNotFound(String),
 
     #[error("Conversion failed: {0}")]

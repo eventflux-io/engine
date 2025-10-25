@@ -9,7 +9,20 @@ use crate::query_api::definition::attribute::{Attribute, Type as AttributeType};
 pub struct TableDefinition {
     // Composition for inheritance from AbstractDefinition
     pub abstract_definition: AbstractDefinition,
-    // TableDefinition, like StreamDefinition, doesn't add new fields in the Java version.
+
+    /// Configuration properties from SQL WITH clause
+    ///
+    /// Stores the FlatConfig extracted during SQL parsing. These properties have
+    /// the highest priority in the 4-layer configuration merge:
+    ///
+    /// Priority (highest to lowest):
+    /// 1. SQL WITH (this field)
+    /// 2. TOML table-specific
+    /// 3. TOML application-wide
+    /// 4. Rust defaults
+    ///
+    /// None if no WITH clause was specified in SQL.
+    pub with_config: Option<crate::core::config::stream_config::FlatConfig>,
 }
 
 impl TableDefinition {
@@ -17,6 +30,7 @@ impl TableDefinition {
     pub fn new(id: String) -> Self {
         TableDefinition {
             abstract_definition: AbstractDefinition::new(id),
+            with_config: None,
         }
     }
 
@@ -48,6 +62,12 @@ impl TableDefinition {
 
     pub fn annotation(mut self, annotation: Annotation) -> Self {
         self.abstract_definition.annotations.push(annotation);
+        self
+    }
+
+    /// Set SQL WITH configuration
+    pub fn with_config(mut self, config: crate::core::config::stream_config::FlatConfig) -> Self {
+        self.with_config = Some(config);
         self
     }
 }

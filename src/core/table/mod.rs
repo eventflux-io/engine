@@ -223,17 +223,39 @@ impl Clone for Box<dyn Table> {
     }
 }
 
-/// Simple in-memory table storing rows in a vector.
+/// Simple in-memory table storing rows in a vector with HashMap index for O(1) lookups.
 #[derive(Debug, Default)]
 pub struct InMemoryTable {
     rows: RwLock<Vec<Vec<AttributeValue>>>,
+    // Index: maps serialized row key → Vec of indices in rows Vec (supports duplicates)
+    index: RwLock<HashMap<String, Vec<usize>>>,
 }
 
 impl InMemoryTable {
     pub fn new() -> Self {
         Self {
             rows: RwLock::new(Vec::new()),
+            index: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Helper function to create a hash key from row values
+    /// This enables O(1) lookups instead of O(n) linear scans
+    fn row_to_key(row: &[AttributeValue]) -> String {
+        // Simple serialization: join string representations with separator
+        row.iter()
+            .map(|v| match v {
+                AttributeValue::String(s) => format!("S:{}", s),
+                AttributeValue::Int(i) => format!("I:{}", i),
+                AttributeValue::Long(l) => format!("L:{}", l),
+                AttributeValue::Float(f) => format!("F:{}", f),
+                AttributeValue::Double(d) => format!("D:{}", d),
+                AttributeValue::Bool(b) => format!("B:{}", b),
+                AttributeValue::Null => "N".to_string(),
+                AttributeValue::Object(_) => "O".to_string(), // Object not fully supported for indexing
+            })
+            .collect::<Vec<_>>()
+            .join("|")
     }
 
     pub fn all_rows(&self) -> Vec<Vec<AttributeValue>> {
@@ -243,7 +265,14 @@ impl InMemoryTable {
 
 impl Table for InMemoryTable {
     fn insert(&self, values: &[AttributeValue]) {
-        self.rows.write().unwrap().push(values.to_vec());
+        let key = Self::row_to_key(values);
+        let mut rows = self.rows.write().unwrap();
+        let new_index = rows.len();
+        rows.push(values.to_vec());
+
+        // Update index: add this row's index to the key's index list
+        let mut index = self.index.write().unwrap();
+        index.entry(key).or_insert_with(Vec::new).push(new_index);
     }
 
     fn all_rows(&self) -> Vec<Vec<AttributeValue>> {
@@ -270,15 +299,35 @@ impl Table for InMemoryTable {
             None => return false,
         };
 
+        let old_key = Self::row_to_key(&cond.values);
+        let new_key = Self::row_to_key(&us.values);
+
+        // Use index to find matching rows (O(1) instead of O(n))
+        let mut index = self.index.write().unwrap();
         let mut rows = self.rows.write().unwrap();
-        let mut updated = false;
-        for row in rows.iter_mut() {
-            if row.as_slice() == cond.values.as_slice() {
+
+        let indices_to_update = if let Some(indices) = index.get(&old_key) {
+            indices.clone()
+        } else {
+            return false;
+        };
+
+        if indices_to_update.is_empty() {
+            return false;
+        }
+
+        // Update rows and maintain index
+        for &idx in &indices_to_update {
+            if let Some(row) = rows.get_mut(idx) {
                 *row = us.values.clone();
-                updated = true;
             }
         }
-        updated
+
+        // Update index: remove old key entries, add new key entries
+        index.remove(&old_key);
+        index.entry(new_key).or_insert_with(Vec::new).extend(indices_to_update);
+
+        true
     }
 
     fn delete(&self, condition: &dyn CompiledCondition) -> bool {
@@ -289,22 +338,50 @@ impl Table for InMemoryTable {
             Some(c) => c,
             None => return false,
         };
+
+        let key = Self::row_to_key(&cond.values);
+        let mut index = self.index.write().unwrap();
         let mut rows = self.rows.write().unwrap();
+
+        // Check if any rows match (O(1) index lookup)
+        if !index.contains_key(&key) {
+            return false;
+        }
+
         let orig_len = rows.len();
         rows.retain(|row| row.as_slice() != cond.values.as_slice());
-        orig_len != rows.len()
+
+        if orig_len == rows.len() {
+            return false;
+        }
+
+        // Rebuild index since row indices have shifted after deletion
+        // This is O(n) but delete is less frequent than reads/finds
+        index.clear();
+        for (idx, row) in rows.iter().enumerate() {
+            let row_key = Self::row_to_key(row);
+            index.entry(row_key).or_insert_with(Vec::new).push(idx);
+        }
+
+        true
     }
 
     fn find(&self, condition: &dyn CompiledCondition) -> Option<Vec<AttributeValue>> {
         let cond = condition
             .as_any()
             .downcast_ref::<InMemoryCompiledCondition>()?;
-        self.rows
-            .read()
-            .unwrap()
-            .iter()
-            .find(|row| row.as_slice() == cond.values.as_slice())
-            .cloned()
+
+        // O(1) index lookup instead of O(n) linear scan
+        let key = Self::row_to_key(&cond.values);
+        let index = self.index.read().unwrap();
+
+        if let Some(indices) = index.get(&key) {
+            if let Some(&first_idx) = indices.first() {
+                let rows = self.rows.read().unwrap();
+                return rows.get(first_idx).cloned();
+            }
+        }
+        None
     }
 
     fn contains(&self, condition: &dyn CompiledCondition) -> bool {
@@ -315,11 +392,11 @@ impl Table for InMemoryTable {
             Some(c) => c,
             None => return false,
         };
-        self.rows
-            .read()
-            .unwrap()
-            .iter()
-            .any(|row| row.as_slice() == cond.values.as_slice())
+
+        // O(1) index lookup instead of O(n) linear scan
+        let key = Self::row_to_key(&cond.values);
+        let index = self.index.read().unwrap();
+        index.contains_key(&key)
     }
 
     fn find_rows_for_join(
@@ -373,8 +450,17 @@ impl Table for InMemoryTable {
 
     fn clone_table(&self) -> Box<dyn Table> {
         let rows = self.rows.read().unwrap().clone();
+
+        // Rebuild index for cloned table
+        let mut index = HashMap::new();
+        for (idx, row) in rows.iter().enumerate() {
+            let key = Self::row_to_key(row);
+            index.entry(key).or_insert_with(Vec::new).push(idx);
+        }
+
         Box::new(InMemoryTable {
             rows: RwLock::new(rows),
+            index: RwLock::new(index),
         })
     }
 }

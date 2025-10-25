@@ -4,6 +4,7 @@
 //!
 //! Provides schema management for SQL queries, tracking stream and table definitions.
 
+use crate::query_api::definition::abstract_definition::AbstractDefinition;
 use crate::query_api::definition::attribute::{Attribute, Type as AttributeType};
 use crate::query_api::definition::{StreamDefinition, TableDefinition};
 use crate::query_api::eventflux_app::EventFluxApp;
@@ -14,6 +15,74 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::error::CatalogError;
+
+/// A relation that can appear in SQL queries (either a stream or a table)
+///
+/// In EventFlux SQL, both streams and tables can appear in FROM and JOIN clauses.
+/// This enum provides a unified type for schema lookups and validation.
+///
+/// # Semantics
+///
+/// - **Stream**: Temporal data source with time-ordered events
+/// - **Table**: Stateful lookup table (cache or database-backed)
+///
+/// # Query API vs Runtime
+///
+/// The Query API layer uses `SingleInputStream` to reference both streams and tables
+/// by name (late binding). The runtime layer determines the actual type by checking
+/// `EventFluxApp.table_definition_map` and creates the appropriate processor:
+///
+/// - Stream-Stream JOIN → `JoinProcessor` (temporal windowed join)
+/// - Stream-Table JOIN → `TableJoinProcessor` (enrichment lookup)
+///
+/// This separation allows:
+/// - Schema-independent query serialization
+/// - Runtime optimization based on data statistics
+/// - Flexible execution strategies
+///
+/// # Examples
+///
+/// ```sql
+/// -- Stream-Stream JOIN (temporal)
+/// SELECT * FROM stream1 JOIN stream2 ON stream1.id = stream2.id;
+///
+/// -- Stream-Table JOIN (enrichment)
+/// SELECT * FROM events JOIN user_profiles ON events.userId = user_profiles.id;
+///
+/// -- FROM clause with table
+/// SELECT * FROM customer_cache WHERE region = 'US';
+/// ```
+#[derive(Debug, Clone)]
+pub enum Relation {
+    /// A stream definition (temporal event source)
+    Stream(Arc<StreamDefinition>),
+
+    /// A table definition (stateful lookup table)
+    Table(Arc<TableDefinition>),
+}
+
+impl Relation {
+    /// Get the abstract definition (schema) from this relation
+    ///
+    /// Returns the schema information (attributes, types) regardless of whether
+    /// this is a stream or table. Both share the `AbstractDefinition` base type.
+    pub fn abstract_definition(&self) -> &AbstractDefinition {
+        match self {
+            Relation::Stream(stream) => &stream.abstract_definition,
+            Relation::Table(table) => &table.abstract_definition,
+        }
+    }
+
+    /// Check if this relation is a stream
+    pub fn is_stream(&self) -> bool {
+        matches!(self, Relation::Stream(_))
+    }
+
+    /// Check if this relation is a table
+    pub fn is_table(&self) -> bool {
+        matches!(self, Relation::Table(_))
+    }
+}
 
 /// Information extracted from CREATE STREAM statement
 #[derive(Debug, Clone)]
@@ -85,17 +154,82 @@ impl SqlCatalog {
         self.tables.get(name).map(Arc::clone)
     }
 
-    /// Check if a column exists in a stream
-    pub fn has_column(&self, stream_name: &str, column_name: &str) -> bool {
-        if let Ok(stream) = self.get_stream(stream_name) {
-            stream
-                .abstract_definition
+    /// Get a relation (stream or table) by name for use in FROM/JOIN clauses
+    ///
+    /// This is the unified lookup method for any relation that can appear in SQL queries.
+    /// Use this instead of `get_stream()` or `get_table()` when you need to handle both.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the stream or table to look up
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Relation)` - The relation (either Stream or Table variant)
+    /// * `Err(CatalogError::UnknownRelation)` - If neither a stream nor table exists with that name
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Validate a relation exists in a FROM clause
+    /// let relation = catalog.get_relation("user_events")?;
+    ///
+    /// // Check if it's a stream or table
+    /// match relation {
+    ///     Relation::Stream(s) => println!("Found stream: {}", s.abstract_definition.id),
+    ///     Relation::Table(t) => println!("Found table: {}", t.abstract_definition.id),
+    /// }
+    ///
+    /// // Access schema regardless of type
+    /// let schema = relation.abstract_definition();
+    /// ```
+    pub fn get_relation(&self, name: &str) -> Result<Relation, CatalogError> {
+        // Try stream first (more common case)
+        if let Ok(stream) = self.get_stream(name) {
+            return Ok(Relation::Stream(stream));
+        }
+
+        // Try table
+        if let Some(table) = self.get_table(name) {
+            return Ok(Relation::Table(table));
+        }
+
+        Err(CatalogError::UnknownRelation(name.to_string()))
+    }
+
+    /// Check if a relation (stream or table) exists
+    ///
+    /// Fast existence check without retrieving the full definition.
+    /// Useful for validation without needing the schema information.
+    pub fn has_relation(&self, name: &str) -> bool {
+        self.get_stream(name).is_ok() || self.get_table(name).is_some()
+    }
+
+    /// Check if a column exists in a relation (stream or table)
+    ///
+    /// Uses unified relation lookup to check both streams and tables.
+    /// Commonly used for validating column references in WHERE/ON clauses.
+    ///
+    /// # Arguments
+    ///
+    /// * `relation_name` - The name of the stream or table
+    /// * `column_name` - The name of the column/attribute to check
+    ///
+    /// # Returns
+    ///
+    /// * `true` if the column exists in the relation
+    /// * `false` if the relation doesn't exist or doesn't have that column
+    pub fn has_column(&self, relation_name: &str, column_name: &str) -> bool {
+        // Use unified relation lookup
+        if let Ok(relation) = self.get_relation(relation_name) {
+            return relation
+                .abstract_definition()
                 .get_attribute_list()
                 .iter()
-                .any(|attr| attr.get_name() == column_name)
-        } else {
-            false
+                .any(|attr| attr.get_name() == column_name);
         }
+
+        false
     }
 
     /// Get column type from a stream
@@ -196,44 +330,9 @@ impl SqlApplication {
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| "OutputStream".to_string());
 
-                    // Create output stream if it doesn't exist (using entry API)
-                    app.stream_definition_map
-                        .entry(target_stream_name.clone())
-                        .or_insert_with(|| {
-                            let selector = query.get_selector();
-                            let mut output_stream =
-                                StreamDefinition::new(target_stream_name.clone());
-
-                            // Add attributes from selector output
-                            for output_attr in selector.get_selection_list() {
-                                let attr_name =
-                                    output_attr.get_rename().clone().unwrap_or_else(|| {
-                                        if let Expression::Variable(var) =
-                                            output_attr.get_expression()
-                                        {
-                                            var.get_attribute_name().to_string()
-                                        } else {
-                                            "output".to_string()
-                                        }
-                                    });
-
-                                // Default to STRING type (type inference would be better)
-                                output_stream =
-                                    output_stream.attribute(attr_name, AttributeType::STRING);
-                            }
-
-                            Arc::new(output_stream)
-                        });
-                }
-                ExecutionElement::Partition(partition) => {
-                    // Auto-create output streams from queries within partition
-                    for query in &partition.query_list {
-                        let output_stream = query.get_output_stream();
-                        let target_stream_name = output_stream
-                            .get_target_id()
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| "OutputStream".to_string());
-
+                    // Create output stream if it doesn't exist AND it's not a table
+                    // CRITICAL FIX: Don't create StreamDefinition for tables!
+                    if !app.table_definition_map.contains_key(&target_stream_name) {
                         app.stream_definition_map
                             .entry(target_stream_name.clone())
                             .or_insert_with(|| {
@@ -241,6 +340,7 @@ impl SqlApplication {
                                 let mut output_stream =
                                     StreamDefinition::new(target_stream_name.clone());
 
+                                // Add attributes from selector output
                                 for output_attr in selector.get_selection_list() {
                                     let attr_name =
                                         output_attr.get_rename().clone().unwrap_or_else(|| {
@@ -253,12 +353,52 @@ impl SqlApplication {
                                             }
                                         });
 
+                                    // Default to STRING type (type inference would be better)
                                     output_stream =
                                         output_stream.attribute(attr_name, AttributeType::STRING);
                                 }
 
                                 Arc::new(output_stream)
                             });
+                    }
+                }
+                ExecutionElement::Partition(partition) => {
+                    // Auto-create output streams from queries within partition
+                    for query in &partition.query_list {
+                        let output_stream = query.get_output_stream();
+                        let target_stream_name = output_stream
+                            .get_target_id()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| "OutputStream".to_string());
+
+                        // Don't create StreamDefinition for tables
+                        if !app.table_definition_map.contains_key(&target_stream_name) {
+                            app.stream_definition_map
+                                .entry(target_stream_name.clone())
+                                .or_insert_with(|| {
+                                    let selector = query.get_selector();
+                                    let mut output_stream =
+                                        StreamDefinition::new(target_stream_name.clone());
+
+                                    for output_attr in selector.get_selection_list() {
+                                        let attr_name =
+                                            output_attr.get_rename().clone().unwrap_or_else(|| {
+                                                if let Expression::Variable(var) =
+                                                    output_attr.get_expression()
+                                                {
+                                                    var.get_attribute_name().to_string()
+                                                } else {
+                                                    "output".to_string()
+                                                }
+                                            });
+
+                                        output_stream =
+                                            output_stream.attribute(attr_name, AttributeType::STRING);
+                                    }
+
+                                    Arc::new(output_stream)
+                                });
+                        }
                     }
                 }
             }

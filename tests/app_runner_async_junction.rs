@@ -14,13 +14,21 @@ use std::time::Duration;
 // Async annotations and advanced app-level annotations will be implemented in Phase 2.
 // See feat/grammar/GRAMMAR_STATUS.md for M1 feature list.
 #[tokio::test]
-#[ignore = "Requires @app annotation support - Not part of M1"]
 async fn async_junction_concurrent_dispatch() {
-    let app = "@app:async('true')\n\
-        define stream In (v int);\n\
-        define stream Out (v int);\n\
-        from In select v insert into Out;\n";
-    let runner = Arc::new(AppRunner::new(app, "Out").await);
+    use eventflux_rust::core::config::ConfigManager;
+    use eventflux_rust::core::eventflux_manager::EventFluxManager;
+
+    // MIGRATED: Use YAML configuration for global async mode
+    let config_manager = ConfigManager::from_file("tests/fixtures/app-async-enabled.yaml");
+    let manager = EventFluxManager::new_with_config_manager(config_manager);
+
+    // MIGRATED: Old EventFluxQL replaced with SQL
+    let app = "\
+        CREATE STREAM In (v INT);\n\
+        CREATE STREAM Out (v INT);\n\
+        INSERT INTO Out SELECT v FROM In;\n";
+
+    let runner = Arc::new(AppRunner::new_with_manager(manager, app, "Out").await);
     let mut handles = Vec::new();
     for i in 0..4 {
         let r = Arc::clone(&runner);

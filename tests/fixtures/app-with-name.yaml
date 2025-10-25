@@ -1,0 +1,24 @@
+apiVersion: eventflux.io/v1
+kind: EventFluxConfig
+metadata:
+  name: app-config-with-name
+  description: Application configuration with name (replaces @app annotation)
+
+# Replaces: @app(name='MyApp')
+# Used by: redis_eventflux_persistence.rs tests
+
+eventflux:
+  application:
+    name: "RedisTestApp"
+
+  runtime:
+    mode: single-node
+    performance:
+      thread_pool_size: 2
+      event_buffer_size: 1024
+
+  observability:
+    metrics:
+      enabled: false
+    logging:
+      level: warn

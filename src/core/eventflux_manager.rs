@@ -72,17 +72,25 @@ impl EventFluxManager {
         let sql_app = crate::sql_compiler::parse_sql_application(eventflux_app_string)
             .map_err(|e| format!("SQL parse error: {}", e))?;
 
-        // 2. Convert to EventFluxApp
-        let app_name = sql_app
-            .catalog
-            .get_stream_names()
-            .first()
-            .map(|s| format!("App_{}", s))
-            .unwrap_or_else(|| "EventFluxApp".to_string());
+        // 2. Determine application name
+        // Priority: YAML config > stream-based name > default name
+        let app_name = if let Some(config_name) = self.get_config_app_name().await {
+            config_name
+        } else {
+            // Fallback to stream-based naming if no YAML config
+            sql_app
+                .catalog
+                .get_stream_names()
+                .first()
+                .map(|s| format!("App_{}", s))
+                .unwrap_or_else(|| "EventFluxApp".to_string())
+        };
+
+        // 3. Convert to EventFluxApp
         let api_eventflux_app = sql_app.to_eventflux_app(app_name);
         let api_eventflux_app_arc = Arc::new(api_eventflux_app);
 
-        // 3. Create runtime from ApiEventFluxApp
+        // 4. Create runtime from ApiEventFluxApp
         self.create_eventflux_app_runtime_from_api(
             api_eventflux_app_arc,
             Some(eventflux_app_string.to_string()),
@@ -371,6 +379,22 @@ impl EventFluxManager {
     ) -> Result<Option<ApplicationConfig>, String> {
         let config = self.get_config().await?;
         Ok(config.applications.get(app_name).cloned())
+    }
+
+    /// Get the application name from YAML configuration
+    ///
+    /// Returns the application name from `eventflux.application.name` if configured,
+    /// otherwise returns None.
+    async fn get_config_app_name(&self) -> Option<String> {
+        if let Ok(config) = self.get_config().await {
+            config
+                .eventflux
+                .application
+                .as_ref()
+                .and_then(|app| app.name.clone())
+        } else {
+            None
+        }
     }
 
     // --- Validation ---

@@ -40,19 +40,10 @@ impl EventFluxAppParser {
             application_config.clone(),
         );
 
-        // Parse @app level annotations to configure defaults
-        let mut default_stream_async = eventflux_app_context
+        // Get default async mode from configuration (YAML/TOML)
+        let default_stream_async = eventflux_app_context
             .get_eventflux_context()
             .get_default_async_mode();
-        for ann in &api_eventflux_app.annotations {
-            if ann.name.eq_ignore_ascii_case("app") {
-                for el in &ann.elements {
-                    if el.key.to_lowercase().as_str() == "async" {
-                        default_stream_async = el.value.eq_ignore_ascii_case("true");
-                    }
-                }
-            }
-        }
 
         // 1. Define Stream Definitions and create StreamJunctions
         for (stream_id, stream_def_arc) in &api_eventflux_app.stream_definition_map {
@@ -61,74 +52,36 @@ impl EventFluxAppParser {
             let mut config = JunctionConfig::new(stream_id.clone())
                 .with_buffer_size(eventflux_app_context.buffer_size as usize)
                 .with_async(default_stream_async);
-            let mut create_fault_stream = false;
             let mut use_optimized = false;
 
-            for ann in &stream_def_arc.abstract_definition.annotations {
-                match ann.name.to_lowercase().as_str() {
-                    "async" => {
+            // Check for SQL WITH async properties
+            if let Some(with_config) = &stream_def_arc.with_config {
+                // async.buffer_size property
+                if let Some(buffer_size_str) = with_config.get("async.buffer_size") {
+                    if let Ok(sz) = buffer_size_str.parse::<usize>() {
+                        config = config.with_buffer_size(sz);
+                    }
+                }
+
+                // async.workers property
+                if let Some(workers_str) = with_config.get("async.workers") {
+                    if let Ok(workers) = workers_str.parse::<u64>() {
+                        let estimated_throughput = workers * 10000; // 10K events/worker estimate
+                        config = config.with_expected_throughput(estimated_throughput);
+                    }
+                }
+
+                // async.enabled property
+                if let Some(async_str) = with_config.get("async.enabled") {
+                    if async_str.eq_ignore_ascii_case("true") {
                         use_optimized = true;
                         config = config.with_async(true);
-
-                        // Parse @Async annotation parameters
-                        for el in &ann.elements {
-                            match el.key.to_lowercase().as_str() {
-                                "buffer_size" | "buffersize" => {
-                                    if let Ok(sz) = el.value.parse::<usize>() {
-                                        config = config.with_buffer_size(sz);
-                                    }
-                                }
-                                "workers" => {
-                                    // Note: workers parameter is handled internally by the pipeline
-                                    // based on CPU cores, but we can use it as a hint for throughput
-                                    if let Ok(workers) = el.value.parse::<u64>() {
-                                        let estimated_throughput = workers * 10000; // 10K events/worker estimate
-                                        config =
-                                            config.with_expected_throughput(estimated_throughput);
-                                    }
-                                }
-                                "batch_size_max" | "batchsizemax" => {
-                                    // Note: batch size is handled internally by the pipeline
-                                    // This is for compatibility with Java EventFlux
-                                }
-                                _ => {}
-                            }
-                        }
                     }
-                    "buffersize" | "buffer_size" => {
-                        if let Some(el) = ann.elements.first() {
-                            if let Ok(sz) = el.value.parse::<usize>() {
-                                config = config.with_buffer_size(sz);
-                            }
-                        }
-                    }
-                    "config" => {
-                        for el in &ann.elements {
-                            if el.key.to_lowercase().as_str() == "async" {
-                                if el.value.eq_ignore_ascii_case("true") {
-                                    use_optimized = true;
-                                    config = config.with_async(true);
-                                }
-                            }
-                        }
-                    }
-                    "onerror" => {
-                        if ann
-                            .elements
-                            .iter()
-                            .find(|e| {
-                                e.key.eq_ignore_ascii_case("action")
-                                    && e.value.eq_ignore_ascii_case("stream")
-                            })
-                            .is_some()
-                        {
-                            create_fault_stream = true;
-                        }
-                    }
-                    _ => {}
                 }
             }
 
+            // Create fault stream if needed (currently not supported via SQL WITH)
+            let create_fault_stream = false;
             if create_fault_stream {
                 let mut fault_def = ApiStreamDefinition::new(format!(
                     "{}{}",
@@ -151,7 +104,7 @@ impl EventFluxAppParser {
                 builder.add_stream_definition(Arc::new(fault_def));
             }
 
-            // Create StreamJunction with enhanced async configuration
+            // Create StreamJunction with async configuration from SQL WITH or YAML
             let stream_junction = Arc::new(Mutex::new(StreamJunction::new(
                 stream_id.clone(),
                 Arc::clone(stream_def_arc),
@@ -161,16 +114,6 @@ impl EventFluxAppParser {
                 None,
             )));
 
-            // If @Async annotation was specified, log the enhanced configuration
-            if use_optimized {
-                println!(
-                    "Created async stream '{}' with buffer_size={}, async={}",
-                    stream_id, config.buffer_size, config.is_async
-                );
-                // TODO: In future versions, replace with OptimizedStreamJunction
-                // when EventFluxAppRuntimeBuilder is updated to support it
-            }
-
             builder.add_stream_junction(stream_id.clone(), stream_junction);
         }
 
@@ -178,40 +121,54 @@ impl EventFluxAppParser {
         for (table_id, table_def) in &api_eventflux_app.table_definition_map {
             builder.add_table_definition(Arc::clone(table_def));
 
-            let table: Arc<dyn crate::core::table::Table> = if let Some(store_ann) = table_def
-                .abstract_definition
-                .annotations
-                .iter()
-                .find(|a| a.name.eq_ignore_ascii_case("store"))
-            {
-                let mut props = HashMap::new();
-                for el in &store_ann.elements {
-                    props.insert(el.key.clone(), el.value.clone());
+            // Extract table type and properties from SQL WITH clause
+            let mut props = HashMap::new();
+            let table_type: Option<String>;
+
+            if let Some(with_config) = &table_def.with_config {
+                // Extract extension (table type) from WITH clause
+                table_type = with_config.get("extension").cloned();
+
+                // Copy all WITH properties
+                for (key, value) in with_config.properties() {
+                    props.insert(key.clone(), value.clone());
                 }
-                if let Some(t_type) = props.get("type") {
-                    if let Some(factory) = eventflux_app_context
-                        .get_eventflux_context()
-                        .get_table_factory(t_type)
-                    {
-                        factory.create(
-                            table_id.clone(),
-                            props.clone(),
-                            eventflux_app_context.get_eventflux_context(),
-                        )?
-                    } else if t_type == "jdbc" {
-                        let ds = props.get("data_source").cloned().unwrap_or_default();
-                        Arc::new(crate::core::table::JdbcTable::new(
-                            table_id.clone(),
-                            ds,
-                            eventflux_app_context.get_eventflux_context(),
-                        )?)
-                    } else {
-                        Arc::new(crate::core::table::InMemoryTable::new())
-                    }
+            } else {
+                // No SQL WITH configuration - use default InMemoryTable
+                table_type = None;
+            }
+
+            // Create table based on type
+            let table: Arc<dyn crate::core::table::Table> = if let Some(t_type) = table_type {
+                // Try registered factory first
+                if let Some(factory) = eventflux_app_context
+                    .get_eventflux_context()
+                    .get_table_factory(&t_type)
+                {
+                    factory.create(
+                        table_id.clone(),
+                        props.clone(),
+                        eventflux_app_context.get_eventflux_context(),
+                    )?
+                }
+                // Built-in JDBC table
+                else if t_type == "jdbc" {
+                    let ds = props.get("data_source").cloned().unwrap_or_default();
+                    Arc::new(crate::core::table::JdbcTable::new(
+                        table_id.clone(),
+                        ds,
+                        eventflux_app_context.get_eventflux_context(),
+                    )?)
+                }
+                // Built-in cache table
+                else if t_type == "cache" {
+                    Arc::new(crate::core::table::InMemoryTable::new())
                 } else {
+                    // Unknown extension type - default to InMemoryTable
                     Arc::new(crate::core::table::InMemoryTable::new())
                 }
             } else {
+                // No extension specified - default to InMemoryTable
                 Arc::new(crate::core::table::InMemoryTable::new())
             };
 

@@ -38,35 +38,50 @@ pub fn parse_sql_application(sql: &str) -> Result<SqlApplication, ApplicationErr
     for stmt in parsed_statements {
         match stmt {
             sqlparser::ast::Statement::CreateTable(create) => {
-                // Handle CREATE STREAM (parsed as CREATE TABLE by sqlparser)
-                let stream_name = create.name.to_string();
-                let mut stream_def =
-                    crate::query_api::definition::StreamDefinition::new(stream_name.clone());
-
-                // Extract column definitions
-                for col in &create.columns {
-                    let attr_type = sql_type_to_attribute_type(&col.data_type)?;
-                    stream_def = stream_def.attribute(col.name.value.clone(), attr_type);
-                }
+                let name = create.name.to_string();
 
                 // Extract and validate WITH clause options
                 let with_config = extract_with_options(&create.table_options)?;
-                if !with_config.is_empty() {
-                    // Phase 1 Validation: Validate the WITH clause configuration at parse-time
-                    validate_with_clause(&with_config)?;
 
-                    // Store configuration with stream definition for end-to-end flow:
-                    // SQL parsing → Runtime creation → Factory initialization
-                    //
-                    // The stored FlatConfig will be:
-                    // 1. Retrieved during EventFluxAppRuntime creation
-                    // 2. Merged with TOML configuration (SQL WITH has highest priority)
-                    // 3. Passed to factory.create_initialized() for source/sink/mapper creation
-                    // 4. Used for Phase 2 connectivity validation
-                    stream_def = stream_def.with_config(with_config);
+                // Distinguish between TABLE and STREAM:
+                // - STREAM: has 'type' property (source/sink/internal)
+                // - TABLE: no 'type' but has 'extension' (e.g., cache/jdbc)
+                // - STREAM: no 'type' and no 'extension' (pure internal stream)
+                let is_table = with_config.get("type").is_none() && with_config.get("extension").is_some();
+
+                if is_table {
+                    // This is a TABLE (e.g., CREATE TABLE T (...) WITH ('extension' = 'cache'))
+                    let mut table_def = crate::query_api::definition::TableDefinition::new(name.clone());
+
+                    // Extract column definitions
+                    for col in &create.columns {
+                        let attr_type = sql_type_to_attribute_type(&col.data_type)?;
+                        table_def = table_def.attribute(col.name.value.clone(), attr_type);
+                    }
+
+                    if !with_config.is_empty() {
+                        validate_with_clause(&with_config)?;
+                        table_def = table_def.with_config(with_config);
+                    }
+
+                    catalog.register_table(name, table_def);
+                } else {
+                    // This is a STREAM (e.g., CREATE STREAM S (...) or CREATE STREAM S (...) WITH ('type' = 'source'))
+                    let mut stream_def = crate::query_api::definition::StreamDefinition::new(name.clone());
+
+                    // Extract column definitions
+                    for col in &create.columns {
+                        let attr_type = sql_type_to_attribute_type(&col.data_type)?;
+                        stream_def = stream_def.attribute(col.name.value.clone(), attr_type);
+                    }
+
+                    if !with_config.is_empty() {
+                        validate_with_clause(&with_config)?;
+                        stream_def = stream_def.with_config(with_config);
+                    }
+
+                    catalog.register_stream(name, stream_def)?;
                 }
-
-                catalog.register_stream(stream_name, stream_def)?;
             }
             sqlparser::ast::Statement::Query(query) => {
                 // Convert query AST directly (no re-parsing!)

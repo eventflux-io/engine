@@ -11,6 +11,10 @@ use std::time::Duration;
 /// Global EventFlux runtime configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EventFluxGlobalConfig {
+    /// Application configuration (name, async mode, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub application: Option<ApplicationGlobalConfig>,
+
     /// Runtime configuration
     pub runtime: RuntimeConfig,
 
@@ -38,6 +42,7 @@ pub struct EventFluxGlobalConfig {
 impl Default for EventFluxGlobalConfig {
     fn default() -> Self {
         Self {
+            application: None,
             runtime: RuntimeConfig::default(),
             distributed: None,
             security: None,
@@ -53,6 +58,19 @@ impl EventFluxGlobalConfig {
     ///
     /// The other configuration takes precedence for conflicting values.
     pub fn merge(&mut self, other: EventFluxGlobalConfig) {
+        // Merge application configuration
+        if other.application.is_some() {
+            match (&mut self.application, other.application) {
+                (Some(ref mut self_app), Some(other_app)) => {
+                    self_app.merge(other_app);
+                }
+                (self_app, Some(other_app)) => {
+                    *self_app = Some(other_app);
+                }
+                _ => {}
+            }
+        }
+
         // Deep merge runtime configuration
         self.runtime.merge(other.runtime);
 
@@ -115,6 +133,45 @@ impl EventFluxGlobalConfig {
                 }
                 _ => {}
             }
+        }
+    }
+}
+
+/// Application-level global configuration
+///
+/// Configures application-wide settings like application name and default async mode.
+/// Used to replace `@app` annotations in the old EventFluxQL syntax.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ApplicationGlobalConfig {
+    /// Application name used for runtime identification and persistence
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+
+    /// Default async mode for all streams (unless overridden by stream-level config)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub async_default: Option<bool>,
+}
+
+impl Default for ApplicationGlobalConfig {
+    fn default() -> Self {
+        Self {
+            name: None,
+            async_default: None,
+        }
+    }
+}
+
+impl ApplicationGlobalConfig {
+    /// Merge another application configuration into this one
+    ///
+    /// The other configuration takes precedence for conflicting values.
+    pub fn merge(&mut self, other: ApplicationGlobalConfig) {
+        // Other's values take precedence if present
+        if other.name.is_some() {
+            self.name = other.name;
+        }
+        if other.async_default.is_some() {
+            self.async_default = other.async_default;
         }
     }
 }
