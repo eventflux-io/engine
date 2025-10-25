@@ -54,22 +54,36 @@ async fn length_window_restore_state() {
 // This is an implementation detail for cross-restart persistence.
 // See feat/grammar/GRAMMAR_STATUS.md for M1 feature list.
 #[tokio::test]
-#[ignore = "Requires app naming support in SQL - Not part of M1"]
 async fn persist_shutdown_restore_state() {
+    use eventflux_rust::core::config::ConfigManager;
+    use eventflux_rust::core::eventflux_manager::EventFluxManager;
+
     let store: Arc<dyn PersistenceStore> = Arc::new(InMemoryPersistenceStore::new());
+
+    // MIGRATED: Use YAML configuration for app naming
+    let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
+    let manager = EventFluxManager::new_with_config_manager(config_manager);
+    manager.set_persistence_store(Arc::clone(&store));
+
     let app = "\
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
         SELECT v FROM In WINDOW('length', 2);\n";
-    let runner = AppRunner::new_with_store(app, "Out", Arc::clone(&store)).await;
+
+    let runner = AppRunner::new_with_manager(manager, app, "Out").await;
     runner.send("In", vec![AttributeValue::Int(1)]);
     runner.send("In", vec![AttributeValue::Int(2)]);
     let rev = runner.persist();
     runner.send("In", vec![AttributeValue::Int(3)]);
     let _ = runner.shutdown();
 
-    let runner2 = AppRunner::new_with_store(app, "Out", Arc::clone(&store)).await;
+    // Second instance with same config
+    let config_manager2 = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
+    let manager2 = EventFluxManager::new_with_config_manager(config_manager2);
+    manager2.set_persistence_store(Arc::clone(&store));
+
+    let runner2 = AppRunner::new_with_manager(manager2, app, "Out").await;
     runner2.restore_revision(&rev);
     runner2.send("In", vec![AttributeValue::Int(4)]);
     let out = runner2.shutdown();

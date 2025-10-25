@@ -118,8 +118,7 @@ persistence.
     * The `update_variables` function (for substituting environment/system variables in EventFluxQL strings) has been
       ported.
     * Parsing now uses the grammar in `query_compiler/grammar.lalrpop` to build the AST.
-    * **@Async Annotation Support**: Full parsing support for `@Async(buffer.size='1024', workers='2')` annotations with
-      dotted parameter names.
+    * **SQL WITH Clause Support**: Full parsing support for SQL WITH clauses on streams and tables for configuration.
 * **`eventflux-core` Module**: Foundational elements for a Phase 1 feature set (simple stateless queries like filters
   and projections) are structurally in place. This includes:
     * **Configuration (`config`)**: `EventFluxContext` and `EventFluxAppContext` defined (many internal fields are
@@ -140,7 +139,7 @@ persistence.
       routing.
     * **Runtime Parsers (`util/parser/eventflux_app_parser.rs`, `util/parser/query_parser.rs`)**: Build
       `EventFluxAppRuntime`s from the AST. The parser supports windows, joins, patterns, sequences and incremental
-      aggregations. **@Async annotation processing** automatically configures high-performance async streams.
+      aggregations. **SQL WITH property processing** automatically configures high-performance async streams and table extensions.
     * **Runtime (`eventflux_app_runtime.rs`)**: `EventFluxAppRuntime` executes queries built by the parser, including
       windows, joins, patterns, sequences and aggregations. Runtimes use the scheduler for time-based operations and can
       register callbacks for output.
@@ -392,42 +391,47 @@ let manager = EventFluxManager::new();
 
 ## High-Performance Async Streams
 
-EventFlux Rust supports high-performance async event processing through @Async annotations, compatible with Java
-EventFlux syntax:
+EventFlux Rust supports high-performance async event processing through standard SQL WITH clauses:
 
 ```rust
 use eventflux_rust::core::eventflux_manager::EventFluxManager;
+use eventflux_rust::core::config::ConfigManager;
 
 let mut manager = EventFluxManager::new();
+
+// Stream-level async configuration via SQL WITH
 let eventflux_app = r#"
-    @Async(buffer_size='1024', workers='2', batch_size_max='10')
-    define stream HighThroughputStream (symbol string, price float, volume long);
-    
-    @config(async='true')
-    define stream ConfigAsyncStream (id int, value string);
-    
-    @app(async='true')  // Global async configuration
-    define stream AutoAsyncStream (data string);
-    
-    from HighThroughputStream[price > 100.0]
-    select symbol, price * volume as value
-    insert into FilteredStream;
+    CREATE STREAM HighThroughputStream (symbol STRING, price DOUBLE, volume BIGINT) WITH (
+        'async.buffer_size' = '1024',
+        'async.workers' = '2',
+        'async.batch_size_max' = '10'
+    );
+
+    CREATE STREAM MinimalAsyncStream (id INT, value STRING) WITH (
+        'async.enabled' = 'true'
+    );
+
+    INSERT INTO FilteredStream
+    SELECT symbol, price * volume as value
+    FROM HighThroughputStream
+    WHERE price > 100.0;
 "#;
 
-let app_runtime = manager.create_eventflux_app_runtime_from_string(eventflux_app) ?;
+let app_runtime = manager.create_eventflux_app_runtime_from_string(eventflux_app).await?;
 ```
 
-### Async Annotation Parameters:
+### Async Configuration Properties:
 
-- **`buffer_size`**: Queue buffer size (default: context buffer size)
-- **`workers`**: Hint for throughput estimation (used internally)
-- **`batch_size_max`**: Batch processing size (Java compatibility)
+- **`async.enabled`**: Enable async processing (true/false)
+- **`async.buffer_size`**: Queue buffer size (default: context buffer size)
+- **`async.workers`**: Hint for throughput estimation (used internally)
+- **`async.batch_size_max`**: Batch processing size
 
-### Configuration Options:
+### Configuration Methods:
 
-- **Stream-level**: `@Async(buffer_size='1024')` on individual streams
-- **Global config**: `@config(async='true')` or `@app(async='true')`
-- **Minimal syntax**: `@Async` without parameters
+- **Stream-level**: SQL WITH clause on individual streams (highest priority)
+- **Application-level**: YAML configuration file for global async defaults
+- **Pure SQL**: No custom annotations - standard SQL WITH syntax only
 
 The async pipeline uses lock-free crossbeam data structures with configurable backpressure strategies, providing >1M
 events/second throughput capability.
@@ -487,7 +491,8 @@ See [docs/writing_extensions.md](docs/writing_extensions.md) for a full guide.
 Extensions implement traits from `eventflux_rust::core::extension` and are
 registered with a `EventFluxManager`. A table extension provides a
 `TableFactory` that constructs structs implementing the `Table` trait. Queries
-can reference the extension using an `@store(type='<name>')` annotation. To
+can reference the extension using SQL WITH clause syntax:
+`CREATE TABLE MyTable (...) WITH ('extension' = '<name>', ...)`. To
 optimize operations, the table should also implement `compile_condition` and
 `compile_update_set` which translate EventFlux expressions into a custom
 `CompiledCondition` or `CompiledUpdateSet`. For joins, implementing

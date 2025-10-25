@@ -1,0 +1,26 @@
+apiVersion: eventflux.io/v1
+kind: EventFluxConfig
+metadata:
+  name: app-config-complete
+  description: Complete application configuration (replaces @app with multiple properties)
+
+# Replaces: @app(name='MyApp', async='true')
+# Used by: Tests needing both app name and async configuration
+
+eventflux:
+  application:
+    name: "CompleteTestApp"
+    async_default: true
+
+  runtime:
+    mode: single-node
+    performance:
+      thread_pool_size: 4
+      event_buffer_size: 2048
+      batch_processing: true
+
+  observability:
+    metrics:
+      enabled: false
+    logging:
+      level: info

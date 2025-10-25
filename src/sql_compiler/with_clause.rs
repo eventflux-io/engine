@@ -119,7 +119,16 @@ fn extract_value_as_string(expr: &Expr) -> Result<String, ConverterError> {
 /// * `Ok(())` - Configuration is valid
 /// * `Err(ConverterError)` - Configuration violates validation rules
 pub fn validate_with_clause(config: &FlatConfig) -> Result<(), ConverterError> {
-    // Type is optional (omit for pure internal streams)
+    // Check if this is a table configuration (has 'extension' but no 'type')
+    // Tables use 'extension' directly (e.g., 'cache', 'jdbc')
+    // Streams use 'type' (e.g., 'source', 'sink', 'internal')
+    if config.get("type").is_none() && config.get("extension").is_some() {
+        // This is a TABLE with extension - skip stream validation
+        // Tables are validated at runtime by the table factory
+        return Ok(());
+    }
+
+    // Stream validation
     if let Some(stream_type_str) = config.get("type") {
         match stream_type_str.as_str() {
             "source" | "sink" => {
@@ -148,12 +157,8 @@ pub fn validate_with_clause(config: &FlatConfig) -> Result<(), ConverterError> {
             }
         }
     } else {
-        // No type = pure internal stream
-        if config.get("extension").is_some() {
-            return Err(ConverterError::InvalidExpression(
-                "Pure internal streams (no type) cannot specify 'extension'".to_string(),
-            ));
-        }
+        // No type and no extension = pure internal stream (async properties, etc.)
+        // Pure internal streams cannot have extension or format
         if config.get("format").is_some() {
             return Err(ConverterError::InvalidExpression(
                 "Pure internal streams (no type) cannot specify 'format'".to_string(),
@@ -358,17 +363,13 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_with_clause_pure_internal_with_extension() {
+    fn test_validate_with_clause_table_with_extension() {
         let mut config = FlatConfig::new();
-        // No type specified (pure internal)
-        config.set("extension", "kafka", PropertySource::SqlWith);
+        // No type + extension = TABLE (e.g., cache, jdbc)
+        config.set("extension", "cache", PropertySource::SqlWith);
 
         let result = validate_with_clause(&config);
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Pure internal streams (no type) cannot specify 'extension'"));
+        assert!(result.is_ok(), "Tables with extension should be valid");
     }
 
     #[test]

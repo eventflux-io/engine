@@ -98,6 +98,58 @@ Error handling framework using thiserror and comprehensive error hierarchy.
 
 ---
 
+### 📂 [stream_table_relations/](stream_table_relations/)
+Unified stream and table handling in SQL queries with late binding architecture.
+
+**Documentation**: [STREAM_TABLE_RELATIONS.md](stream_table_relations/STREAM_TABLE_RELATIONS.md)
+
+**Topics Covered**:
+- Relation enum for unified stream/table catalog
+- Four-layer architecture (Catalog, Converter, Query API, Runtime)
+- Late binding with runtime type detection
+- Stream-table JOIN implementation (cache and JDBC)
+- SQL WITH clause for table configuration
+- Known limitations and workarounds
+- Comprehensive test coverage (9 passing tests)
+
+**Related Code**: `src/sql_compiler/catalog.rs`, `src/core/util/parser/query_parser.rs`, `tests/app_runner_tables.rs`
+
+**Status**: Core Functionality Working - Basic JOINs operational
+
+---
+
+### 📂 [table_operations/](table_operations/)
+Production-ready table operations with INSERT, UPDATE, DELETE, and O(1) indexing.
+
+**Documentation**: [TABLE_OPERATIONS.md](table_operations/TABLE_OPERATIONS.md)
+
+**Topics Covered**:
+- Critical bug fixes (StreamDefinition auto-creation)
+- HashMap-based O(1) indexing (100x-10,000x performance improvement)
+- Database-agnostic Table trait API design
+- INSERT INTO TABLE runtime implementation
+- Stream-table JOIN optimizations
+- Strategic roadmap (M2 Part C: DB backends → M3: high-throughput optimizations)
+- Performance benchmarks and production readiness assessment
+- Deferred optimizations (bulk batching, DashMap, transactions)
+
+**Related Code**: `src/core/table/`, `src/core/query/output/insert_into_table_processor.rs`, `tests/app_runner_tables.rs`
+
+**Status**: ✅ **M2 Part A Complete** - Production Ready for <50k events/sec
+
+**Key Achievements** (2025-10-25):
+- Fixed root cause bug preventing INSERT INTO TABLE
+- Added HashMap indexing for O(1) find/contains operations
+- All 11 table tests passing
+- Stream-table enrichment JOINs working
+- API validated across InMemory, Cache, JDBC table types
+
+**Next Steps**:
+- M2 Part C: PostgreSQL, MySQL, MongoDB, Redis table backends
+- M3: Bulk operations, DashMap, transactions (after API validation)
+
+---
+
 ### 📂 [implementation/](implementation/)
 Developer guides for implementing new features and components.
 
@@ -176,4 +228,4 @@ When adding new features:
 
 ---
 
-Last Updated: 2025-10-02
+Last Updated: 2025-10-25

@@ -7,17 +7,23 @@
 //! These tests verify that actual EventFlux application state (window processors,
 //! aggregators, etc.) can be persisted to Redis and restored correctly.
 
-// TODO: NOT PART OF M1 - Redis persistence tests with old EventFluxQL syntax
-// Most tests in this file use old EventFluxQL syntax with @app:name annotations and "define stream".
-// Tests using old syntax have been disabled for M1.
-// Test using PersistenceStore interface directly (not parser) remains enabled.
-// See feat/grammar/GRAMMAR_STATUS.md for M1 feature list.
+// ✅ MIGRATED: All tests converted to SQL syntax with YAML configuration
+//
+// These tests verify Redis persistence using modern SQL syntax and YAML configuration,
+// replacing legacy @app:name annotations and old EventFluxQL "define stream" syntax.
+//
+// Migration completed: 2025-10-24
+// - All 5 disabled tests migrated to SQL CREATE STREAM syntax
+// - Application names configured via YAML (app-with-name.yaml)
+// - Pure SQL syntax with no custom annotations
 
 #[path = "common/mod.rs"]
 mod common;
 use common::AppRunner;
+use eventflux_rust::core::config::ConfigManager;
 use eventflux_rust::core::distributed::RedisConfig;
 use eventflux_rust::core::event::value::AttributeValue;
+use eventflux_rust::core::eventflux_manager::EventFluxManager;
 use eventflux_rust::core::persistence::{PersistenceStore, RedisPersistenceStore};
 use std::sync::Arc;
 
@@ -46,7 +52,6 @@ fn ensure_redis_available() -> Result<Arc<dyn PersistenceStore>, String> {
 }
 
 #[tokio::test]
-#[ignore = "@app:name annotation and old EventFluxQL syntax not part of M1"]
 async fn test_redis_persistence_basic() {
     let store = match ensure_redis_available() {
         Ok(store) => store,
@@ -56,13 +61,18 @@ async fn test_redis_persistence_basic() {
         }
     };
 
-    let app = "\
-        @app:name('RedisTestApp')\n\
-        define stream In (v int);\n\
-        define stream Out (v int);\n\
-        from In#window:length(2) select v insert into Out;\n";
+    // MIGRATED: @app:name replaced with YAML configuration
+    let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
+    let manager = EventFluxManager::new_with_config_manager(config_manager);
+    manager.set_persistence_store(Arc::clone(&store));
 
-    let runner = AppRunner::new_with_store(app, "Out", Arc::clone(&store)).await;
+    // MIGRATED: Old EventFluxQL replaced with SQL
+    let app = "\
+        CREATE STREAM In (v INT);\n\
+        CREATE STREAM Out (v INT);\n\
+        INSERT INTO Out SELECT v FROM In WINDOW('length', 2);\n";
+
+    let runner = AppRunner::new_with_manager(manager, app, "Out").await;
     runner.send("In", vec![AttributeValue::Int(1)]);
     let rev = runner.persist();
     runner.send("In", vec![AttributeValue::Int(2)]);
@@ -74,7 +84,6 @@ async fn test_redis_persistence_basic() {
 }
 
 #[tokio::test]
-#[ignore = "@app:name annotation and old EventFluxQL syntax not part of M1"]
 async fn test_redis_length_window_state_persistence() {
     let store = match ensure_redis_available() {
         Ok(store) => store,
@@ -84,21 +93,31 @@ async fn test_redis_length_window_state_persistence() {
         }
     };
 
+    // MIGRATED: @app:name replaced with YAML configuration
+    let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
+    let manager = EventFluxManager::new_with_config_manager(config_manager);
+    manager.set_persistence_store(Arc::clone(&store));
+
+    // MIGRATED: Old EventFluxQL replaced with SQL
     // Test basic window filtering (aggregation state persistence not yet implemented)
     let app = "\
-        @app:name('RedisLengthWindowApp')\n\
-        define stream In (v int);\n\
-        define stream Out (v int);\n\
-        from In#window:length(2) select v insert into Out;\n";
+        CREATE STREAM In (v INT);\n\
+        CREATE STREAM Out (v INT);\n\
+        INSERT INTO Out SELECT v FROM In WINDOW('length', 2);\n";
 
-    let runner = AppRunner::new_with_store(app, "Out", Arc::clone(&store)).await;
+    let runner = AppRunner::new_with_manager(manager, app, "Out").await;
     runner.send("In", vec![AttributeValue::Int(1)]);
     runner.send("In", vec![AttributeValue::Int(2)]);
     let rev = runner.persist();
     runner.send("In", vec![AttributeValue::Int(3)]);
     let _ = runner.shutdown();
 
-    let runner2 = AppRunner::new_with_store(app, "Out", Arc::clone(&store)).await;
+    // Second instance with same config
+    let config_manager2 = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
+    let manager2 = EventFluxManager::new_with_config_manager(config_manager2);
+    manager2.set_persistence_store(Arc::clone(&store));
+
+    let runner2 = AppRunner::new_with_manager(manager2, app, "Out").await;
     runner2.restore_revision(&rev);
     runner2.send("In", vec![AttributeValue::Int(4)]);
     let out = runner2.shutdown();
@@ -108,7 +127,6 @@ async fn test_redis_length_window_state_persistence() {
 }
 
 #[tokio::test]
-#[ignore = "@app:name annotation and old EventFluxQL syntax not part of M1"]
 async fn test_redis_persist_across_app_restarts() {
     let store = match ensure_redis_available() {
         Ok(store) => store,
@@ -118,15 +136,20 @@ async fn test_redis_persist_across_app_restarts() {
         }
     };
 
+    // MIGRATED: @app:name replaced with YAML configuration
     // Test basic persistence across app restarts (aggregation state persistence not yet implemented)
+    let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
+    let manager = EventFluxManager::new_with_config_manager(config_manager);
+    manager.set_persistence_store(Arc::clone(&store));
+
+    // MIGRATED: Old EventFluxQL replaced with SQL
     let app = "\
-        @app:name('RedisRestartApp')\n\
-        define stream In (v int);\n\
-        define stream Out (v int);\n\
-        from In#window:length(2) select v insert into Out;\n";
+        CREATE STREAM In (v INT);\n\
+        CREATE STREAM Out (v INT);\n\
+        INSERT INTO Out SELECT v FROM In WINDOW('length', 2);\n";
 
     // First app instance
-    let runner1 = AppRunner::new_with_store(app, "Out", Arc::clone(&store)).await;
+    let runner1 = AppRunner::new_with_manager(manager, app, "Out").await;
     runner1.send("In", vec![AttributeValue::Int(1)]);
     runner1.send("In", vec![AttributeValue::Int(2)]);
     let rev = runner1.persist();
@@ -134,7 +157,11 @@ async fn test_redis_persist_across_app_restarts() {
     let _ = runner1.shutdown();
 
     // Second app instance (simulating restart)
-    let runner2 = AppRunner::new_with_store(app, "Out", Arc::clone(&store)).await;
+    let config_manager2 = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
+    let manager2 = EventFluxManager::new_with_config_manager(config_manager2);
+    manager2.set_persistence_store(Arc::clone(&store));
+
+    let runner2 = AppRunner::new_with_manager(manager2, app, "Out").await;
     runner2.restore_revision(&rev);
     runner2.send("In", vec![AttributeValue::Int(4)]);
     let out = runner2.shutdown();
@@ -144,7 +171,6 @@ async fn test_redis_persist_across_app_restarts() {
 }
 
 #[tokio::test]
-#[ignore = "@app:name annotation and old EventFluxQL syntax not part of M1"]
 async fn test_redis_multiple_windows_persistence() {
     let store = match ensure_redis_available() {
         Ok(store) => store,
@@ -154,16 +180,21 @@ async fn test_redis_multiple_windows_persistence() {
         }
     };
 
-    let app = "\
-        @app:name('RedisMultiWindowApp')\n\
-        define stream In (id int, value double);\n\
-        define stream Out1 (id int, value double, count long);\n\
-        define stream Out2 (total double, avg double);\n\
-        \n\
-        from In#window:length(2) select id, value, count() as count insert into Out1;\n\
-        from In#window:lengthBatch(3) select sum(value) as total, avg(value) as avg insert into Out2;\n";
+    // MIGRATED: @app:name replaced with YAML configuration
+    let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
+    let manager = EventFluxManager::new_with_config_manager(config_manager);
+    manager.set_persistence_store(Arc::clone(&store));
 
-    let runner = AppRunner::new_with_store(app, "Out1", Arc::clone(&store)).await;
+    // MIGRATED: Old EventFluxQL replaced with SQL
+    let app = "\
+        CREATE STREAM In (id INT, value DOUBLE);\n\
+        CREATE STREAM Out1 (id INT, value DOUBLE, count BIGINT);\n\
+        CREATE STREAM Out2 (total DOUBLE, avg DOUBLE);\n\
+        \n\
+        INSERT INTO Out1 SELECT id, value, COUNT() as count FROM In WINDOW('length', 2);\n\
+        INSERT INTO Out2 SELECT SUM(value) as total, AVG(value) as avg FROM In WINDOW('lengthBatch', 3);\n";
+
+    let runner = AppRunner::new_with_manager(manager, app, "Out1").await;
 
     // Build up state in both windows
     runner.send(
@@ -212,7 +243,6 @@ async fn test_redis_multiple_windows_persistence() {
 }
 
 #[tokio::test]
-#[ignore = "@app:name annotation and old EventFluxQL syntax not part of M1"]
 async fn test_redis_aggregation_state_persistence() {
     let store = match ensure_redis_available() {
         Ok(store) => store,
@@ -222,17 +252,22 @@ async fn test_redis_aggregation_state_persistence() {
         }
     };
 
-    let app = "\
-        @app:name('RedisAggregationApp')\n\
-        define stream In (category string, value double);\n\
-        define stream Out (category string, total double, count long);\n\
-        \n\
-        from In#window:length(5) \n\
-        select category, sum(value) as total, count() as count \n\
-        group by category \n\
-        insert into Out;\n";
+    // MIGRATED: @app:name replaced with YAML configuration
+    let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
+    let manager = EventFluxManager::new_with_config_manager(config_manager);
+    manager.set_persistence_store(Arc::clone(&store));
 
-    let runner = AppRunner::new_with_store(app, "Out", Arc::clone(&store)).await;
+    // MIGRATED: Old EventFluxQL replaced with SQL
+    let app = "\
+        CREATE STREAM In (category STRING, value DOUBLE);\n\
+        CREATE STREAM Out (category STRING, total DOUBLE, count BIGINT);\n\
+        \n\
+        INSERT INTO Out \n\
+        SELECT category, SUM(value) as total, COUNT() as count \n\
+        FROM In WINDOW('length', 5) \n\
+        GROUP BY category;\n";
+
+    let runner = AppRunner::new_with_manager(manager, app, "Out").await;
 
     // Build up aggregation state for different categories
     runner.send(

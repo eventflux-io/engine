@@ -743,14 +743,9 @@ impl QueryParser {
         // This needs to match on api_query.output_stream.action
         match &api_query.output_stream.action {
             crate::query_api::execution::query::output::output_stream::OutputStreamAction::InsertInto(insert_action) => {
-                if let Some(target_junction) = stream_junction_map.get(&insert_action.target_id) {
-                    let insert_processor = Arc::new(Mutex::new(InsertIntoStreamProcessor::new(
-                        target_junction.clone(),
-                        Arc::clone(eventflux_app_context),
-                        Arc::clone(&eventflux_query_context),
-                    )));
-                    link_processor(insert_processor);
-                } else if let Some(table) = eventflux_app_context.get_eventflux_context().get_table(&insert_action.target_id) {
+                // Priority order: TABLE → STREAM → AGGREGATION
+                // This ensures INSERT INTO uses the correct processor based on target type
+                if let Some(table) = eventflux_app_context.get_eventflux_context().get_table(&insert_action.target_id) {
                     let insert_processor = Arc::new(Mutex::new(
                         crate::core::query::output::InsertIntoTableProcessor::new(
                             table,
@@ -758,6 +753,13 @@ impl QueryParser {
                             Arc::clone(&eventflux_query_context),
                         ),
                     ));
+                    link_processor(insert_processor);
+                } else if let Some(target_junction) = stream_junction_map.get(&insert_action.target_id) {
+                    let insert_processor = Arc::new(Mutex::new(InsertIntoStreamProcessor::new(
+                        target_junction.clone(),
+                        Arc::clone(eventflux_app_context),
+                        Arc::clone(&eventflux_query_context),
+                    )));
                     link_processor(insert_processor);
                 } else if let Some(agg) = aggregation_map.get(&insert_action.target_id) {
                     let insert_processor = Arc::new(Mutex::new(

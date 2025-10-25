@@ -1,0 +1,26 @@
+apiVersion: eventflux.io/v1
+kind: EventFluxConfig
+metadata:
+  name: app-config-async-enabled
+  description: Application configuration with async enabled (replaces @app/@config annotations)
+
+# Replaces: @app(async='true') or @config(async='true')
+# Used by: async_annotation_tests.rs
+
+eventflux:
+  application:
+    name: "AsyncTestApp"
+    async_default: true  # Global async mode for all streams
+
+  runtime:
+    mode: single-node
+    performance:
+      thread_pool_size: 4
+      event_buffer_size: 2048  # Larger buffer for async processing
+      batch_processing: true
+
+  observability:
+    metrics:
+      enabled: false
+    logging:
+      level: warn

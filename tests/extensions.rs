@@ -4,6 +4,7 @@
 mod common;
 use eventflux_rust::core::config::{
     eventflux_app_context::EventFluxAppContext, eventflux_query_context::EventFluxQueryContext,
+    stream_config::{FlatConfig, PropertySource},
 };
 use eventflux_rust::core::event::complex_event::ComplexEvent;
 use eventflux_rust::core::event::value::AttributeValue;
@@ -15,7 +16,6 @@ use eventflux_rust::core::stream::stream_junction::StreamJunction;
 use eventflux_rust::core::util::parser::{
     parse_expression, EventFluxAppParser, ExpressionParserContext, QueryParser,
 };
-use eventflux_rust::query_api::annotation::Annotation;
 use eventflux_rust::query_api::definition::{
     attribute::Type as AttrType, StreamDefinition, TableDefinition,
 };
@@ -381,12 +381,13 @@ fn test_table_factory_invoked() {
         String::new(),
     ));
 
-    let table_def = TableDefinition::id("T1".to_string())
-        .attribute("v".to_string(), AttrType::INT)
-        .annotation(
-            Annotation::new("store".to_string())
-                .element(Some("type".to_string()), "rec".to_string()),
-        );
+    // Create WITH config: WITH ('extension' = 'rec')
+    let mut with_config = FlatConfig::new();
+    with_config.set("extension", "rec", PropertySource::SqlWith);
+
+    let mut table_def = TableDefinition::id("T1".to_string())
+        .attribute("v".to_string(), AttrType::INT);
+    table_def.with_config = Some(with_config);
 
     let mut app_obj = EventFluxApp::new("TApp".to_string());
     app_obj

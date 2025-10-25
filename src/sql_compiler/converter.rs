@@ -99,15 +99,15 @@ impl SqlConverter {
             let stream_name = key.stream_name.to_string();
             let attribute_name = key.attribute.value.clone();
 
-            // Validate stream exists
+            // Validate relation (stream or table) exists
             catalog
-                .get_stream(&stream_name)
+                .get_relation(&stream_name)
                 .map_err(|_| ConverterError::SchemaNotFound(stream_name.clone()))?;
 
-            // Validate attribute exists in stream
+            // Validate attribute exists in the relation
             if !catalog.has_column(&stream_name, &attribute_name) {
                 return Err(ConverterError::InvalidExpression(format!(
-                    "Attribute '{}' not found in stream '{}'",
+                    "Attribute '{}' not found in relation '{}'",
                     attribute_name, stream_name
                 )));
             }
@@ -208,12 +208,12 @@ impl SqlConverter {
             // Handle single stream
             let stream_name = Self::extract_from_stream(&select.from)?;
 
-            // Validate stream exists
+            // Validate relation (stream or table) exists
             catalog
-                .get_stream(&stream_name)
+                .get_relation(&stream_name)
                 .map_err(|_| ConverterError::SchemaNotFound(stream_name.clone()))?;
 
-            // Create InputStream
+            // Create InputStream (works for both streams and tables - runtime will differentiate)
             let mut single_stream = SingleInputStream::new_basic(
                 stream_name.clone(),
                 false,      // is_inner_stream
@@ -423,9 +423,9 @@ impl SqlConverter {
                         ConverterError::ConversionFailed("No left table name".to_string())
                     })?;
 
-                // Validate stream exists
-                catalog
-                    .get_stream(&stream_name)
+                // Validate relation (stream or table) exists for JOIN
+                let _ = catalog
+                    .get_relation(&stream_name)
                     .map_err(|_| ConverterError::SchemaNotFound(stream_name.clone()))?;
 
                 let mut left_stream = SingleInputStream::new_basic(
@@ -465,9 +465,9 @@ impl SqlConverter {
                         ConverterError::ConversionFailed("No right table name".to_string())
                     })?;
 
-                // Validate stream exists
-                catalog
-                    .get_stream(&stream_name)
+                // Validate relation (stream or table) exists for JOIN
+                let _ = catalog
+                    .get_relation(&stream_name)
                     .map_err(|_| ConverterError::SchemaNotFound(stream_name.clone()))?;
 
                 let mut right_stream = SingleInputStream::new_basic(

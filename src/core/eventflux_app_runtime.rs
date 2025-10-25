@@ -183,58 +183,17 @@ impl EventFluxAppRuntime {
         eventflux_app_string: Option<String>,
         app_config: &ApplicationConfig,
     ) -> Result<Self, String> {
-        // 1. Create EventFluxAppContext using @app level annotations when present
-        let mut name = api_eventflux_app.name.clone();
-        let mut is_playback = false;
-        let mut enforce_order = false;
+        // 1. Create EventFluxAppContext using YAML/TOML configuration (ApplicationConfig)
+        let name = api_eventflux_app.name.clone();
         let mut root_metrics =
             crate::core::config::eventflux_app_context::MetricsLevelPlaceholder::OFF;
-        let mut buffer_size = 0i32;
-        let mut transport_creation = false;
+        let buffer_size = 0i32;
 
         // Apply configuration-based settings from monitoring
         if let Some(ref monitoring) = app_config.monitoring {
             if monitoring.metrics_enabled {
                 root_metrics =
                     crate::core::config::eventflux_app_context::MetricsLevelPlaceholder::BASIC;
-            }
-            // Note: ApplicationConfig::MonitoringConfig doesn't have detailed_metrics
-            // This would be a global configuration setting
-        }
-
-        // Then apply @app level annotations (which override config)
-        if let Some(app_ann) = api_eventflux_app
-            .annotations
-            .iter()
-            .find(|a| a.name.eq_ignore_ascii_case("app"))
-        {
-            for el in &app_ann.elements {
-                match el.key.to_lowercase().as_str() {
-                    "name" => name = el.value.clone(),
-                    "playback" => is_playback = el.value.eq_ignore_ascii_case("true"),
-                    "enforce.order" | "enforceorder" => {
-                        enforce_order = el.value.eq_ignore_ascii_case("true")
-                    }
-                    "statistics" | "stats" => root_metrics = match el.value.to_lowercase().as_str()
-                    {
-                        "true" | "basic" => {
-                            crate::core::config::eventflux_app_context::MetricsLevelPlaceholder::BASIC
-                        }
-                        "detail" | "detailed" => {
-                            crate::core::config::eventflux_app_context::MetricsLevelPlaceholder::DETAIL
-                        }
-                        _ => crate::core::config::eventflux_app_context::MetricsLevelPlaceholder::OFF,
-                    },
-                    "buffer_size" | "buffersize" => {
-                        if let Ok(sz) = el.value.parse::<i32>() {
-                            buffer_size = sz;
-                        }
-                    }
-                    "transport.channel.creation" => {
-                        transport_creation = el.value.eq_ignore_ascii_case("true");
-                    }
-                    _ => {}
-                }
             }
         }
 
@@ -252,7 +211,6 @@ impl EventFluxAppRuntime {
         if buffer_size > 0 {
             ctx.set_buffer_size(buffer_size);
         }
-        ctx.set_transport_channel_creation_enabled(transport_creation);
 
         // Apply additional configuration settings to context
         if let Some(ref _error_handling) = app_config.error_handling {
