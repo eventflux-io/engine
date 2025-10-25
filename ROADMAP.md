@@ -85,6 +85,38 @@
 - Aggregations (COUNT, SUM, AVG, MIN, MAX, COUNT(*))
 - Built-in functions (ROUND, arithmetic, comparisons)
 
+#### **WHERE vs HAVING: Implementation & Test Coverage** ✅ **VERIFIED** (2025-10-25)
+
+**Implementation Status**: ✅ **CORRECT** - Both clauses fully functional with proper execution order
+
+**Execution Flow**:
+```
+Input → FilterProcessor (WHERE) → SelectProcessor (Aggregation) → HAVING Check → Output
+```
+
+**Code Evidence**:
+- WHERE: `src/core/util/parser/query_parser.rs:135-144` - Filters BEFORE aggregation
+- HAVING: `src/core/query/selector/select_processor.rs:473-482, 492-500` - Filters AFTER aggregation
+
+**Test Coverage Status**:
+- ✅ **WHERE tests**: `test_sql_query_1_basic_filter`, `test_processor_pipeline`, `test_filter_projection`
+- ✅ **HAVING tests**: `test_sql_query_6_sum_having`, `group_by_having_order_limit_offset`, `group_by_having_order_asc`
+- ✅ **NEW**: `test_where_before_having_after_aggregation` - Critical test verifying the distinction
+  - Validates WHERE filters BEFORE COUNT
+  - Validates HAVING filters AFTER COUNT
+  - Ensures COUNT operates only on rows that passed WHERE filter
+
+**Test Gap Resolved**: Previous tests checked WHERE and HAVING in isolation. New comprehensive test (`tests/where_vs_having_test.rs`) validates they work correctly together, ensuring WHERE affects aggregation input and HAVING operates on aggregated results.
+
+**Key Test Case**:
+```sql
+SELECT category, COUNT(*) as count
+FROM Products
+WHERE price > 100      -- Filters individual rows BEFORE counting
+GROUP BY category
+HAVING COUNT(*) > 2;   -- Filters groups AFTER counting
+```
+
 #### **Window Syntax Revolution** 🚀 **COMPLETED** (2025-10-08)
 
 **What Changed**: Replaced verbose Flink-style TVF syntax with beginner-friendly `WINDOW('type', params)`

@@ -1,18 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// TODO: Some tests converted to SQL syntax but still disabled due to missing features
-// Tests using programmatic API (not parser) remain enabled and passing.
-// See feat/grammar/GRAMMAR_STATUS.md for M1 feature list.
-
 #[path = "common/mod.rs"]
 mod common;
 use common::AppRunner;
 use eventflux_rust::core::event::value::AttributeValue;
 
 #[tokio::test]
-#[ignore = "WHERE filter syntax not yet supported in SQL parser"]
 async fn test_filter_projection() {
-    // TODO: Converted to SQL syntax, but WHERE clause filtering not yet implemented
+    // Test WHERE clause filtering with projection
     let app = "\
         CREATE STREAM InputStream (a INT);\n\
         CREATE STREAM OutStream (a INT);\n\

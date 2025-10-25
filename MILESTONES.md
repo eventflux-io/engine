@@ -2,11 +2,11 @@
 
 **Purpose**: This document provides a clear roadmap of upcoming releases and features, helping users understand the product evolution and plan their adoption strategy.
 
-**Last Updated**: 2025-10-23
-**Current Status**: M2 Part B Complete - Full Configuration System with Error Handling & Data Mapping
-**Previous**: M1.6 Complete - Native Parser Migration (Zero Regex)
-**Test Status**: 786 library tests + 10 SQL WITH tests + 16 error handling tests + 21 mapper tests = 833+ passing
-**Note**: TOML configuration, error handling with DLQ/retry, and data mapping fully implemented
+**Last Updated**: 2025-10-25
+**Current Status**: M2 Part A Complete - Table Operations with WHERE/HAVING Test Coverage Verified
+**Previous**: M2 Part B Complete - Full Configuration System (2025-10-23)
+**Test Status**: 786 library tests + 10 SQL WITH tests + 16 error handling tests + 21 mapper tests + 11 table tests + 3 WHERE/HAVING distinction tests = 847+ passing
+**Note**: WHERE and HAVING implementation verified with comprehensive test coverage (see ROADMAP.md for details)
 **Target First Release**: Q2 2025
 
 ---
