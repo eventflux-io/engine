@@ -8,13 +8,15 @@ use crate::query_api::definition::abstract_definition::AbstractDefinition;
 use crate::query_api::definition::attribute::{Attribute, Type as AttributeType};
 use crate::query_api::definition::{StreamDefinition, TableDefinition};
 use crate::query_api::eventflux_app::EventFluxApp;
+use crate::query_api::execution::query::input::stream::input_stream::InputStreamTrait;
 use crate::query_api::execution::ExecutionElement;
 use crate::query_api::expression::Expression;
 use sqlparser::ast::ColumnDef;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::error::CatalogError;
+use super::error::{ApplicationError, CatalogError, TypeError};
+use super::type_inference::{TypeContext, TypeInferenceEngine};
 
 /// A relation that can appear in SQL queries (either a stream or a table)
 ///
@@ -220,41 +222,40 @@ impl SqlCatalog {
     /// * `true` if the column exists in the relation
     /// * `false` if the relation doesn't exist or doesn't have that column
     pub fn has_column(&self, relation_name: &str, column_name: &str) -> bool {
-        // Use unified relation lookup
-        if let Ok(relation) = self.get_relation(relation_name) {
-            return relation
-                .abstract_definition()
-                .get_attribute_list()
-                .iter()
-                .any(|attr| attr.get_name() == column_name);
-        }
-
-        false
+        self.get_relation(relation_name)
+            .map(|relation| {
+                relation
+                    .abstract_definition()
+                    .get_attribute_list()
+                    .iter()
+                    .any(|attr| attr.get_name() == column_name)
+            })
+            .unwrap_or(false)
     }
 
-    /// Get column type from a stream
+    /// Get column type from a relation (stream or table)
     pub fn get_column_type(
         &self,
-        stream_name: &str,
+        relation_name: &str,
         column_name: &str,
     ) -> Result<AttributeType, CatalogError> {
-        let stream = self.get_stream(stream_name)?;
+        let relation = self.get_relation(relation_name)?;
+        let definition = relation.abstract_definition();
 
-        stream
-            .abstract_definition
+        definition
             .get_attribute_list()
             .iter()
             .find(|attr| attr.get_name() == column_name)
             .map(|attr| *attr.get_type())
             .ok_or_else(|| {
-                CatalogError::UnknownColumn(stream_name.to_string(), column_name.to_string())
+                CatalogError::UnknownColumn(relation_name.to_string(), column_name.to_string())
             })
     }
 
-    /// Get all columns from a stream
-    pub fn get_all_columns(&self, stream_name: &str) -> Result<Vec<Attribute>, CatalogError> {
-        let stream = self.get_stream(stream_name)?;
-        Ok(stream.abstract_definition.get_attribute_list().to_vec())
+    /// Get all columns from a relation (stream or table)
+    pub fn get_all_columns(&self, relation_name: &str) -> Result<Vec<Attribute>, CatalogError> {
+        let relation = self.get_relation(relation_name)?;
+        Ok(relation.abstract_definition().get_attribute_list().to_vec())
     }
 
     /// Get all stream names
@@ -305,33 +306,20 @@ impl SqlApplication {
         self.execution_elements.is_empty()
     }
 
-    /// Convert to EventFluxApp for runtime creation
-    pub fn to_eventflux_app(self, app_name: String) -> EventFluxApp {
-        let mut app = EventFluxApp::new(app_name);
+    /// Process output streams using type inference (called before moving catalog)
+    fn process_output_streams(&self, app: &mut EventFluxApp) -> Result<(), ApplicationError> {
+        let type_engine = TypeInferenceEngine::new(&self.catalog);
 
-        // Add all stream definitions from catalog
-        for (stream_name, stream_def) in self.catalog.streams {
-            app.stream_definition_map.insert(stream_name, stream_def);
-        }
-
-        // Add all table definitions from catalog
-        for (table_name, table_def) in self.catalog.tables {
-            app.table_definition_map.insert(table_name, table_def);
-        }
-
-        // Auto-create output streams from queries in execution elements
         for elem in &self.execution_elements {
             match elem {
                 ExecutionElement::Query(query) => {
-                    // Extract target stream name from query's output stream
                     let output_stream = query.get_output_stream();
                     let target_stream_name = output_stream
                         .get_target_id()
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| "OutputStream".to_string());
 
-                    // Create output stream if it doesn't exist AND it's not a table
-                    // CRITICAL FIX: Don't create StreamDefinition for tables!
+                    // Don't create StreamDefinition for tables
                     if !app.table_definition_map.contains_key(&target_stream_name) {
                         app.stream_definition_map
                             .entry(target_stream_name.clone())
@@ -340,7 +328,8 @@ impl SqlApplication {
                                 let mut output_stream =
                                     StreamDefinition::new(target_stream_name.clone());
 
-                                // Add attributes from selector output
+                                // Infer types for all output attributes
+                                let context = type_engine.build_context_from_query(query);
                                 for output_attr in selector.get_selection_list() {
                                     let attr_name =
                                         output_attr.get_rename().clone().unwrap_or_else(|| {
@@ -353,9 +342,11 @@ impl SqlApplication {
                                             }
                                         });
 
-                                    // Default to STRING type (type inference would be better)
-                                    output_stream =
-                                        output_stream.attribute(attr_name, AttributeType::STRING);
+                                    let attr_type = type_engine
+                                        .infer_type(output_attr.get_expression(), &context)
+                                        .expect("Type inference failed - query cannot be compiled");
+
+                                    output_stream = output_stream.attribute(attr_name, attr_type);
                                 }
 
                                 Arc::new(output_stream)
@@ -363,7 +354,6 @@ impl SqlApplication {
                     }
                 }
                 ExecutionElement::Partition(partition) => {
-                    // Auto-create output streams from queries within partition
                     for query in &partition.query_list {
                         let output_stream = query.get_output_stream();
                         let target_stream_name = output_stream
@@ -371,7 +361,6 @@ impl SqlApplication {
                             .map(|s| s.to_string())
                             .unwrap_or_else(|| "OutputStream".to_string());
 
-                        // Don't create StreamDefinition for tables
                         if !app.table_definition_map.contains_key(&target_stream_name) {
                             app.stream_definition_map
                                 .entry(target_stream_name.clone())
@@ -380,6 +369,7 @@ impl SqlApplication {
                                     let mut output_stream =
                                         StreamDefinition::new(target_stream_name.clone());
 
+                                    let context = type_engine.build_context_from_query(query);
                                     for output_attr in selector.get_selection_list() {
                                         let attr_name =
                                             output_attr.get_rename().clone().unwrap_or_else(|| {
@@ -392,8 +382,11 @@ impl SqlApplication {
                                                 }
                                             });
 
-                                        output_stream =
-                                            output_stream.attribute(attr_name, AttributeType::STRING);
+                                        let attr_type = type_engine
+                                            .infer_type(output_attr.get_expression(), &context)
+                                            .expect("Type inference failed - query cannot be compiled");
+
+                                        output_stream = output_stream.attribute(attr_name, attr_type);
                                     }
 
                                     Arc::new(output_stream)
@@ -404,12 +397,35 @@ impl SqlApplication {
             }
         }
 
+        Ok(())
+    }
+
+    /// Convert to EventFluxApp for runtime creation
+    pub fn to_eventflux_app(
+        mut self,
+        app_name: String,
+    ) -> Result<EventFluxApp, ApplicationError> {
+        let mut app = EventFluxApp::new(app_name);
+
+        // Process output streams BEFORE moving catalog data
+        // This allows us to use type_engine with catalog reference
+        self.process_output_streams(&mut app)?;
+
+        // Move catalog data into app
+        for (stream_name, stream_def) in self.catalog.streams {
+            app.stream_definition_map.insert(stream_name, stream_def);
+        }
+
+        for (table_name, table_def) in self.catalog.tables {
+            app.table_definition_map.insert(table_name, table_def);
+        }
+
         // Add all execution elements
         for elem in self.execution_elements {
             app.add_execution_element(elem);
         }
 
-        app
+        Ok(app)
     }
 }
 
