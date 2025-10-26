@@ -87,7 +87,9 @@ impl EventFluxManager {
         };
 
         // 3. Convert to EventFluxApp
-        let api_eventflux_app = sql_app.to_eventflux_app(app_name);
+        let api_eventflux_app = sql_app
+            .to_eventflux_app(app_name)
+            .map_err(|e| format!("Type inference error: {}", e))?;
         let api_eventflux_app_arc = Arc::new(api_eventflux_app);
 
         // 4. Create runtime from ApiEventFluxApp
@@ -410,7 +412,9 @@ impl EventFluxManager {
             .first()
             .map(|s| format!("App_{}", s))
             .unwrap_or_else(|| "EventFluxApp".to_string());
-        let api_eventflux_app = sql_app.to_eventflux_app(app_name);
+        let api_eventflux_app = sql_app
+            .to_eventflux_app(app_name)
+            .map_err(|e| format!("Type inference error: {}", e))?;
 
         self.validate_eventflux_app_api(
             &Arc::new(api_eventflux_app),
@@ -516,7 +520,9 @@ impl EventFluxManager {
 
         // Convert to EventFluxApp
         let app_name = app_name.unwrap_or_else(|| "SqlApp".to_string());
-        let eventflux_app = sql_app.to_eventflux_app(app_name);
+        let eventflux_app = sql_app
+            .to_eventflux_app(app_name)
+            .map_err(|e| format!("Type inference error: {}", e))?;
 
         // Create runtime using existing method
         self.create_eventflux_app_runtime_from_api(Arc::new(eventflux_app), Some(sql.to_string()))

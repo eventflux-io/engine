@@ -30,6 +30,7 @@ use crate::query_api::expression::Expression;
 use super::catalog::SqlCatalog;
 use super::error::ConverterError;
 use super::expansion::SelectExpander;
+use super::type_inference::TypeInferenceEngine;
 
 /// SQL to Query Converter
 pub struct SqlConverter;
@@ -350,10 +351,18 @@ impl SqlConverter {
         let output_stream = OutputStream::new(OutputStreamAction::InsertInto(output_action), None);
 
         // Build Query
-        Ok(Query::query()
+        let query = Query::query()
             .from(input_stream)
             .select(selector)
-            .out_stream(output_stream))
+            .out_stream(output_stream);
+
+        // Validate query for type correctness (no allocation, uses catalog reference)
+        let type_engine = TypeInferenceEngine::new(catalog);
+        type_engine
+            .validate_query(&query)
+            .map_err(|e| ConverterError::ConversionFailed(format!("Type validation failed: {}", e)))?;
+
+        Ok(query)
     }
 
     /// Extract stream name from FROM clause
@@ -1002,5 +1011,116 @@ mod tests {
         let result = SqlConverter::convert(sql, &catalog);
 
         assert!(result.is_err());
+    }
+
+    // ============================================================================
+    // Type Validation Error Tests
+    // ============================================================================
+
+    #[test]
+    fn test_where_clause_non_boolean_variable() {
+        let catalog = setup_catalog();
+        // WHERE price - returns DOUBLE, not BOOL
+        let sql = "SELECT symbol, price FROM StockStream WHERE price";
+        let result = SqlConverter::convert(sql, &catalog);
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Type validation failed"),
+            "Error message should mention type validation: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("WHERE"),
+            "Error message should mention WHERE clause: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_where_clause_arithmetic_expression() {
+        let catalog = setup_catalog();
+        // WHERE price * 2 - returns DOUBLE, not BOOL
+        let sql = "SELECT symbol, price FROM StockStream WHERE price * 2";
+        let result = SqlConverter::convert(sql, &catalog);
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Type validation failed"),
+            "Error message should mention type validation: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("WHERE"),
+            "Error message should mention WHERE clause: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_where_clause_valid_boolean() {
+        let catalog = setup_catalog();
+        // WHERE price > 100 - valid BOOL expression
+        let sql = "SELECT symbol, price FROM StockStream WHERE price > 100";
+        let result = SqlConverter::convert(sql, &catalog);
+
+        assert!(
+            result.is_ok(),
+            "Valid WHERE clause should succeed: {:?}",
+            result.unwrap_err()
+        );
+    }
+
+    #[test]
+    fn test_having_clause_non_boolean() {
+        let catalog = setup_catalog();
+        // HAVING SUM(volume) - returns LONG, not BOOL
+        let sql = "SELECT symbol, SUM(volume) as total FROM StockStream GROUP BY symbol HAVING SUM(volume)";
+        let result = SqlConverter::convert(sql, &catalog);
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Type validation failed"),
+            "Error message should mention type validation: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("HAVING"),
+            "Error message should mention HAVING clause: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_having_clause_valid_boolean() {
+        let catalog = setup_catalog();
+        // HAVING SUM(volume) > 1000 - valid BOOL expression
+        let sql = "SELECT symbol, SUM(volume) as total FROM StockStream GROUP BY symbol HAVING SUM(volume) > 1000";
+        let result = SqlConverter::convert(sql, &catalog);
+
+        assert!(
+            result.is_ok(),
+            "Valid HAVING clause should succeed: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_where_with_function_non_boolean() {
+        let catalog = setup_catalog();
+        // WHERE ROUND(price, 2) - returns DOUBLE, not BOOL
+        let sql = "SELECT symbol, price FROM StockStream WHERE ROUND(price, 2)";
+        let result = SqlConverter::convert(sql, &catalog);
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Type validation failed"),
+            "Error message should mention type validation: {}",
+            err_msg
+        );
     }
 }

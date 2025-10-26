@@ -36,6 +36,7 @@ pub mod converter;
 pub mod error;
 pub mod expansion;
 pub mod normalization;
+pub mod type_inference;
 pub mod type_mapping;
 pub mod with_clause;
 
@@ -48,6 +49,7 @@ pub use error::{
 };
 pub use expansion::SelectExpander;
 pub use normalization::{is_create_stream, normalize_stream_syntax};
+pub use type_inference::{TypeContext, TypeInferenceEngine};
 pub use type_mapping::{attribute_type_to_sql_type, sql_type_to_attribute_type};
 pub use with_clause::{extract_with_options, validate_with_clause};
 
