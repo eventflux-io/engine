@@ -367,7 +367,8 @@ impl QueryParser {
             }
             ApiInputStream::State(state_stream) => {
                 use crate::core::query::input::stream::state::{
-                    LogicalProcessor, LogicalType, SequenceProcessor, SequenceSide, SequenceType,
+                    LogicalProcessor, OldLogicalType as LogicalType, SequenceProcessor,
+                    SequenceSide, SequenceType,
                 };
                 use crate::query_api::execution::query::input::state::logical_state_element::Type as ApiLogicalType;
                 use crate::query_api::execution::query::input::state::state_element::StateElement;

@@ -50,6 +50,13 @@ impl Clone for StateEvent {
 }
 
 impl StateEvent {
+    /// Generate a new unique ID for StateEvent
+    ///
+    /// **Used by**: StateEventCloner for 'every' patterns (need fresh IDs)
+    pub fn next_id() -> u64 {
+        NEXT_STATE_EVENT_ID.fetch_add(1, Ordering::Relaxed)
+    }
+
     pub fn clone_without_next(&self) -> Self {
         StateEvent {
             stream_events: self.stream_events.clone(),
@@ -88,20 +95,62 @@ impl StateEvent {
         &self.stream_events
     }
 
+    /// Get the number of stream event positions in this StateEvent
+    pub fn stream_event_count(&self) -> usize {
+        self.stream_events.len()
+    }
+
     pub fn set_event(&mut self, position: usize, event: StreamEvent) {
         if position < self.stream_events.len() {
             self.stream_events[position] = Some(event);
         }
     }
 
+    /// Expand the StateEvent to have at least `min_size` positions
+    /// Used when forwarding StateEvents to next processors that need more positions
+    pub fn expand_to_size(&mut self, min_size: usize) {
+        while self.stream_events.len() < min_size {
+            self.stream_events.push(None);
+        }
+    }
+
+    /// Add event to chain at position (for count quantifiers)
+    /// Properly builds a chain: first -> second -> third -> ...
     pub fn add_event(&mut self, position: usize, stream_event: StreamEvent) {
-        // Simplified: just append if slot empty, otherwise replace existing next chain head.
         if position >= self.stream_events.len() {
             return;
         }
+
         match &mut self.stream_events[position] {
-            None => self.stream_events[position] = Some(stream_event),
-            Some(existing) => existing.next = Some(Box::new(stream_event)),
+            None => {
+                // First event at this position
+                self.stream_events[position] = Some(stream_event);
+            }
+            Some(existing) => {
+                // Find the last event in chain and append
+                let mut current = existing;
+                loop {
+                    let has_next = current.next.is_some();
+                    if !has_next {
+                        current.next = Some(Box::new(stream_event));
+                        break;
+                    }
+
+                    // Get the next stream event
+                    if let Some(ref mut next_box) = current.next {
+                        if let Some(stream_event_ref) =
+                            next_box.as_any_mut().downcast_mut::<StreamEvent>()
+                        {
+                            current = stream_event_ref;
+                        } else {
+                            // Not a StreamEvent, break
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -151,14 +200,87 @@ impl StateEvent {
         Some(stream_event)
     }
 
-    pub fn remove_last_event(&mut self, position: usize) {
+    /// Remove last event from chain at position (backtracking for count quantifiers)
+    pub fn remove_last_event(&mut self, position: usize) -> Option<StreamEvent> {
         if position >= self.stream_events.len() {
-            return;
+            return None;
         }
-        if let Some(ref mut event) = self.stream_events[position] {
-            // Simplified: drop the chain entirely
-            event.next = None;
+
+        let slot = &mut self.stream_events[position];
+
+        match slot.as_mut() {
+            None => None,
+            Some(first) => {
+                if first.next.is_none() {
+                    // Only one event in chain, remove it
+                    slot.take()
+                } else {
+                    // Find second-to-last event
+                    let mut current = first;
+                    loop {
+                        let next_is_last = if let Some(ref next_box) = current.next {
+                            if let Some(next_stream) =
+                                next_box.as_any().downcast_ref::<StreamEvent>()
+                            {
+                                next_stream.next.is_none()
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if next_is_last {
+                            // Take the last event
+                            if let Some(last_box) = current.next.take() {
+                                return last_box.as_any().downcast_ref::<StreamEvent>().cloned();
+                            }
+                            return None;
+                        }
+
+                        // Move to next
+                        if let Some(ref mut next_box) = current.next {
+                            if let Some(next_stream) =
+                                next_box.as_any_mut().downcast_mut::<StreamEvent>()
+                            {
+                                current = next_stream;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    None
+                }
+            }
         }
+    }
+
+    /// Get all events in chain at position
+    pub fn get_event_chain(&self, position: usize) -> Vec<&StreamEvent> {
+        let mut result = Vec::new();
+
+        if let Some(first) = self.get_stream_event(position) {
+            result.push(first);
+            let mut current: &dyn ComplexEvent = first;
+
+            while let Some(next) = current.get_next() {
+                if let Some(stream_event) = next.as_any().downcast_ref::<StreamEvent>() {
+                    result.push(stream_event);
+                    current = stream_event;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Count events in chain at position
+    pub fn count_events_at(&self, position: usize) -> usize {
+        self.get_event_chain(position).len()
     }
 }
 
@@ -336,5 +458,193 @@ impl ComplexEvent for StateEvent {
     }
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ===== DAY 1 TESTS: StateEvent Basic Functionality =====
+
+    #[test]
+    fn test_new_state_event() {
+        let event = StateEvent::new(3, 5);
+        assert_eq!(event.stream_events.len(), 3);
+        assert_eq!(event.output_data.as_ref().unwrap().len(), 5);
+        assert_eq!(event.timestamp, -1);
+        assert_eq!(event.event_type, ComplexEventType::Current);
+    }
+
+    #[test]
+    fn test_set_get_event() {
+        let mut state = StateEvent::new(2, 0);
+        let stream_event = StreamEvent::new(1000, 1, 0, 0);
+
+        state.set_event(0, stream_event);
+        assert!(state.get_stream_event(0).is_some());
+        assert!(state.get_stream_event(1).is_none());
+    }
+
+    #[test]
+    fn test_multiple_positions() {
+        let mut state = StateEvent::new(3, 0);
+
+        let event1 = StreamEvent::new(1000, 1, 0, 0);
+        let event2 = StreamEvent::new(2000, 2, 0, 0);
+        let event3 = StreamEvent::new(3000, 3, 0, 0);
+
+        state.set_event(0, event1);
+        state.set_event(1, event2);
+        state.set_event(2, event3);
+
+        assert!(state.get_stream_event(0).is_some());
+        assert!(state.get_stream_event(1).is_some());
+        assert!(state.get_stream_event(2).is_some());
+
+        assert_eq!(state.get_stream_event(0).unwrap().timestamp, 1000);
+        assert_eq!(state.get_stream_event(1).unwrap().timestamp, 2000);
+        assert_eq!(state.get_stream_event(2).unwrap().timestamp, 3000);
+    }
+
+    #[test]
+    fn test_out_of_bounds() {
+        let mut state = StateEvent::new(2, 0);
+        let stream_event = StreamEvent::new(1000, 1, 0, 0);
+
+        // Should not panic when setting position >= len
+        state.set_event(10, stream_event);
+
+        // Should return None for out of bounds
+        assert!(state.get_stream_event(10).is_none());
+    }
+
+    #[test]
+    fn test_timestamp_type() {
+        let mut state = StateEvent::new(1, 0);
+
+        state.set_timestamp(12345);
+        assert_eq!(state.get_timestamp(), 12345);
+
+        state.set_event_type(ComplexEventType::Expired);
+        assert_eq!(state.get_event_type(), ComplexEventType::Expired);
+
+        state.set_event_type(ComplexEventType::Current);
+        assert_eq!(state.get_event_type(), ComplexEventType::Current);
+    }
+
+    // ===== DAY 2 TESTS: Event Chain Operations =====
+
+    #[test]
+    fn test_add_event_chain() {
+        let mut state = StateEvent::new(1, 0);
+
+        let event1 = StreamEvent::new(100, 1, 0, 0);
+        let event2 = StreamEvent::new(200, 1, 0, 0);
+
+        state.add_event(0, event1);
+        state.add_event(0, event2);
+
+        assert_eq!(state.count_events_at(0), 2);
+
+        let chain = state.get_event_chain(0);
+        assert_eq!(chain.len(), 2);
+        assert_eq!(chain[0].timestamp, 100);
+        assert_eq!(chain[1].timestamp, 200);
+    }
+
+    #[test]
+    fn test_remove_last_event() {
+        let mut state = StateEvent::new(1, 0);
+
+        let event1 = StreamEvent::new(100, 1, 0, 0);
+        let event2 = StreamEvent::new(200, 1, 0, 0);
+
+        state.add_event(0, event1);
+        state.add_event(0, event2);
+
+        assert_eq!(state.count_events_at(0), 2);
+
+        let removed = state.remove_last_event(0);
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().timestamp, 200);
+
+        assert_eq!(state.count_events_at(0), 1);
+        let chain = state.get_event_chain(0);
+        assert_eq!(chain[0].timestamp, 100);
+    }
+
+    #[test]
+    fn test_get_event_chain() {
+        let mut state = StateEvent::new(1, 0);
+
+        let event1 = StreamEvent::new(100, 1, 0, 0);
+        let event2 = StreamEvent::new(200, 1, 0, 0);
+        let event3 = StreamEvent::new(300, 1, 0, 0);
+
+        state.add_event(0, event1);
+        state.add_event(0, event2);
+        state.add_event(0, event3);
+
+        let chain = state.get_event_chain(0);
+        assert_eq!(chain.len(), 3);
+        assert_eq!(chain[0].timestamp, 100);
+        assert_eq!(chain[1].timestamp, 200);
+        assert_eq!(chain[2].timestamp, 300);
+    }
+
+    #[test]
+    fn test_count_events() {
+        let mut state = StateEvent::new(1, 0);
+        assert_eq!(state.count_events_at(0), 0);
+
+        state.add_event(0, StreamEvent::new(100, 1, 0, 0));
+        assert_eq!(state.count_events_at(0), 1);
+
+        state.add_event(0, StreamEvent::new(200, 1, 0, 0));
+        assert_eq!(state.count_events_at(0), 2);
+
+        state.add_event(0, StreamEvent::new(300, 1, 0, 0));
+        assert_eq!(state.count_events_at(0), 3);
+    }
+
+    #[test]
+    fn test_empty_chain() {
+        let state = StateEvent::new(1, 0);
+        assert_eq!(state.count_events_at(0), 0);
+        assert!(state.get_event_chain(0).is_empty());
+    }
+
+    #[test]
+    fn test_single_event_chain() {
+        let mut state = StateEvent::new(1, 0);
+        state.add_event(0, StreamEvent::new(100, 1, 0, 0));
+
+        let chain = state.get_event_chain(0);
+        assert_eq!(chain.len(), 1);
+    }
+
+    #[test]
+    fn test_multiple_event_chain() {
+        let mut state = StateEvent::new(1, 0);
+
+        // Add 5 events
+        for i in 0..5 {
+            let event = StreamEvent::new(((i + 1) * 100) as i64, 1, 0, 0);
+            state.add_event(0, event);
+        }
+
+        let chain = state.get_event_chain(0);
+        assert_eq!(chain.len(), 5);
+
+        for (i, event) in chain.iter().enumerate() {
+            assert_eq!(event.timestamp, ((i + 1) * 100) as i64);
+        }
+    }
+
+    #[test]
+    fn test_remove_from_empty() {
+        let mut state = StateEvent::new(1, 0);
+        assert!(state.remove_last_event(0).is_none());
     }
 }
