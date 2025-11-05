@@ -20,9 +20,9 @@ async fn test_sort_window_rejects_constant_expression() {
         WINDOW('sort', 2, 5);\n";
 
     let result = std::panic::catch_unwind(|| {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            AppRunner::new(app, "Out").await
-        })
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { AppRunner::new(app, "Out").await })
     });
 
     // Should panic with validation error
@@ -45,9 +45,9 @@ async fn test_sort_window_rejects_string_literal() {
         WINDOW('sort', 2, 'literal');\n";
 
     let result = std::panic::catch_unwind(|| {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            AppRunner::new(app, "Out").await
-        })
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { AppRunner::new(app, "Out").await })
     });
 
     assert!(
@@ -69,9 +69,9 @@ async fn test_sort_window_rejects_invalid_order_string() {
         WINDOW('sort', 2, value, 'ascending');\n";
 
     let result = std::panic::catch_unwind(|| {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            AppRunner::new(app, "Out").await
-        })
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { AppRunner::new(app, "Out").await })
     });
 
     assert!(
@@ -93,9 +93,9 @@ async fn test_sort_window_rejects_order_typo() {
         WINDOW('sort', 2, value, 'descending');\n";
 
     let result = std::panic::catch_unwind(|| {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            AppRunner::new(app, "Out").await
-        })
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { AppRunner::new(app, "Out").await })
     });
 
     assert!(
@@ -192,9 +192,9 @@ async fn test_sort_window_requires_attribute() {
         WINDOW('sort', 2);\n";
 
     let result = std::panic::catch_unwind(|| {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            AppRunner::new(app, "Out").await
-        })
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { AppRunner::new(app, "Out").await })
     });
 
     assert!(

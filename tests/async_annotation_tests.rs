@@ -220,10 +220,7 @@ async fn test_multiple_async_streams_with_sql() {
         with_config2.get("async.buffer_size"),
         Some(&"2048".to_string())
     );
-    assert_eq!(
-        with_config2.get("async.workers"),
-        Some(&"4".to_string())
-    );
+    assert_eq!(with_config2.get("async.workers"), Some(&"4".to_string()));
 
     // Check Stream3 has no WITH configuration
     let stream3 = stream_definitions.get("Stream3").unwrap();
@@ -270,7 +267,11 @@ async fn test_async_with_sql_query() {
     let input_stream = stream_definitions.get("InputStream").unwrap();
     assert!(input_stream.with_config.is_some());
     assert_eq!(
-        input_stream.with_config.as_ref().unwrap().get("async.buffer_size"),
+        input_stream
+            .with_config
+            .as_ref()
+            .unwrap()
+            .get("async.buffer_size"),
         Some(&"1024".to_string())
     );
 

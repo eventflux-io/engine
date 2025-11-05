@@ -547,7 +547,9 @@ pub fn create_window_processor(
                 ExternalTimeWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
             ))),
             "externalTimeBatch" => Ok(Arc::new(Mutex::new(
-                ExternalTimeBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
+                ExternalTimeBatchWindowProcessor::from_handler(
+                    handler, app_ctx, query_ctx, parse_ctx,
+                )?,
             ))),
             "session" => Ok(Arc::new(Mutex::new(SessionWindowProcessor::from_handler(
                 handler, app_ctx, query_ctx, parse_ctx,

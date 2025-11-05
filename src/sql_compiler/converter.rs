@@ -358,9 +358,9 @@ impl SqlConverter {
 
         // Validate query for type correctness (no allocation, uses catalog reference)
         let type_engine = TypeInferenceEngine::new(catalog);
-        type_engine
-            .validate_query(&query)
-            .map_err(|e| ConverterError::ConversionFailed(format!("Type validation failed: {}", e)))?;
+        type_engine.validate_query(&query).map_err(|e| {
+            ConverterError::ConversionFailed(format!("Type validation failed: {}", e))
+        })?;
 
         Ok(query)
     }
@@ -645,11 +645,7 @@ impl SqlConverter {
                 for param in parameters {
                     converted_params.push(Self::convert_expression(param, catalog)?);
                 }
-                Ok(stream.window(
-                    None,
-                    WINDOW_TYPE_SORT.to_string(),
-                    converted_params,
-                ))
+                Ok(stream.window(None, WINDOW_TYPE_SORT.to_string(), converted_params))
             }
         }
     }

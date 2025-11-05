@@ -44,6 +44,7 @@ tokio-stream = "0.1"
 redis = { version = "0.25", features = ["aio", "tokio-comp", "connection-manager"] }
 deadpool-redis = "0.15"
 log = "0.4"
+dashmap = "6.0"
 
 # Configuration management dependencies
 serde_yaml = "0.9"

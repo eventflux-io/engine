@@ -301,6 +301,52 @@ impl StreamPreStateProcessor {
             None => event.clone(),
         }
     }
+
+    /// Get stream event cloner (for CountPreStateProcessor)
+    pub fn get_stream_event_cloner(&self) -> &StreamEventCloner {
+        self.stream_event_cloner.as_ref().expect("StreamEventCloner not initialized")
+    }
+
+    /// Set stream event cloner (for testing and initialization)
+    pub fn set_stream_event_cloner(&mut self, cloner: StreamEventCloner) {
+        self.stream_event_cloner = Some(cloner);
+    }
+
+    /// Set state event cloner (for testing and initialization)
+    pub fn set_state_event_cloner(&mut self, cloner: StateEventCloner) {
+        self.state_event_cloner = Some(cloner);
+    }
+
+    /// Get this state post processor (for CountPreStateProcessor)
+    pub fn get_this_state_post_processor(&self) -> Option<Arc<Mutex<dyn PostStateProcessor>>> {
+        self.this_state_post_processor.clone()
+    }
+
+    /// Get next processor (for CountPreStateProcessor)
+    pub fn get_next_processor(&self) -> Option<Arc<Mutex<dyn Processor>>> {
+        self.next_processor.clone()
+    }
+
+    /// Clone this processor (for CountPreStateProcessor)
+    pub fn clone_stream_processor(&self) -> StreamPreStateProcessor {
+        Self {
+            state_id: self.state_id,
+            is_start_state: self.is_start_state,
+            state_type: self.state_type,
+            app_context: Arc::clone(&self.app_context),
+            query_context: Arc::clone(&self.query_context),
+            state: Arc::clone(&self.state),
+            shared_state: Arc::clone(&self.shared_state),
+            stream_event_cloner: self.stream_event_cloner.clone(),
+            state_event_cloner: self.state_event_cloner.clone(),
+            within_time: self.within_time,
+            start_state_ids: self.start_state_ids.clone(),
+            success_condition: self.success_condition,
+            next_processor: self.next_processor.clone(),
+            this_state_post_processor: self.this_state_post_processor.clone(),
+            condition_fn: None, // Cannot clone closures
+        }
+    }
 }
 
 // ===== Processor Trait Implementation =====

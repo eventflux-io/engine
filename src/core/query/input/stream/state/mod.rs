@@ -14,6 +14,11 @@ pub mod stream_post_state_processor; // Base implementation of PostStateProcesso
 pub mod stream_pre_state; // Three-list state management for pattern processing
 pub mod stream_pre_state_processor; // Base implementation of PreStateProcessor // AND/OR PostStateProcessor implementation
 
+// Pattern processing Phase 2: Count Quantifiers
+pub mod count_pre_state_processor; // Count quantifier patterns (A{n}, A{m,n}, A+, A*)
+pub mod count_post_state_processor; // Count quantifier validation
+pub mod pattern_chain_builder; // Pattern chain factory for multi-processor chains
+
 // Runtime infrastructure (Week 6)
 pub mod inner_state_runtime; // InnerStateRuntime trait for processor lifecycle
 pub mod receiver;
@@ -41,6 +46,11 @@ pub use shared_processor_state::ProcessorSharedState;
 pub use stream_post_state_processor::StreamPostStateProcessor;
 pub use stream_pre_state::StreamPreState;
 pub use stream_pre_state_processor::{StateType, StreamPreStateProcessor};
+
+// Re-export Phase 2 types
+pub use count_post_state_processor::CountPostStateProcessor;
+pub use count_pre_state_processor::CountPreStateProcessor;
+pub use pattern_chain_builder::{PatternChainBuilder, PatternStepConfig, ProcessorChain};
 
 // Re-export runtime types
 pub use inner_state_runtime::InnerStateRuntime;

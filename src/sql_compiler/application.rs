@@ -47,11 +47,13 @@ pub fn parse_sql_application(sql: &str) -> Result<SqlApplication, ApplicationErr
                 // - STREAM: has 'type' property (source/sink/internal)
                 // - TABLE: no 'type' but has 'extension' (e.g., cache/jdbc)
                 // - STREAM: no 'type' and no 'extension' (pure internal stream)
-                let is_table = with_config.get("type").is_none() && with_config.get("extension").is_some();
+                let is_table =
+                    with_config.get("type").is_none() && with_config.get("extension").is_some();
 
                 if is_table {
                     // This is a TABLE (e.g., CREATE TABLE T (...) WITH ('extension' = 'cache'))
-                    let mut table_def = crate::query_api::definition::TableDefinition::new(name.clone());
+                    let mut table_def =
+                        crate::query_api::definition::TableDefinition::new(name.clone());
 
                     // Extract column definitions
                     for col in &create.columns {
@@ -67,7 +69,8 @@ pub fn parse_sql_application(sql: &str) -> Result<SqlApplication, ApplicationErr
                     catalog.register_table(name, table_def);
                 } else {
                     // This is a STREAM (e.g., CREATE STREAM S (...) or CREATE STREAM S (...) WITH ('type' = 'source'))
-                    let mut stream_def = crate::query_api::definition::StreamDefinition::new(name.clone());
+                    let mut stream_def =
+                        crate::query_api::definition::StreamDefinition::new(name.clone());
 
                     // Extract column definitions
                     for col in &create.columns {

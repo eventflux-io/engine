@@ -315,21 +315,30 @@ async fn test_table_on_left_stream_on_right_join() {
         INSERT INTO Out \n\
         SELECT T.id, T.label, S.data \n\
         FROM T JOIN S ON T.id = S.id;\n";
-    
+
     let runner = AppRunner::new(query, "Out").await;
-    
+
     // Add data to table
     let th = runner.runtime().get_table_input_handler("T").unwrap();
     th.add(vec![
         eventflux_rust::core::event::event::Event::new_with_data(
             0,
-            vec![AttributeValue::Int(42), AttributeValue::String("test".into())],
+            vec![
+                AttributeValue::Int(42),
+                AttributeValue::String("test".into()),
+            ],
         ),
     ]);
-    
+
     // Send stream event
-    runner.send("S", vec![AttributeValue::Int(42), AttributeValue::String("hello".into())]);
-    
+    runner.send(
+        "S",
+        vec![
+            AttributeValue::Int(42),
+            AttributeValue::String("hello".into()),
+        ],
+    );
+
     let out = runner.shutdown();
     assert_eq!(out.len(), 1, "Should have exactly one joined result");
     // NOTE: Current runtime behavior swaps field order when table is on left
@@ -359,30 +368,42 @@ async fn test_multiple_tables_in_query() {
         FROM events \n\
         JOIN users ON events.userId = users.userId \n\
         JOIN products ON events.productId = products.productId;\n";
-    
+
     let runner = AppRunner::new(query, "enriched").await;
-    
+
     // Add user data
     let user_handler = runner.runtime().get_table_input_handler("users").unwrap();
     user_handler.add(vec![
         eventflux_rust::core::event::event::Event::new_with_data(
             0,
-            vec![AttributeValue::Int(100), AttributeValue::String("Alice".into())],
+            vec![
+                AttributeValue::Int(100),
+                AttributeValue::String("Alice".into()),
+            ],
         ),
     ]);
-    
+
     // Add product data
-    let product_handler = runner.runtime().get_table_input_handler("products").unwrap();
+    let product_handler = runner
+        .runtime()
+        .get_table_input_handler("products")
+        .unwrap();
     product_handler.add(vec![
         eventflux_rust::core::event::event::Event::new_with_data(
             0,
-            vec![AttributeValue::Int(200), AttributeValue::String("Widget".into())],
+            vec![
+                AttributeValue::Int(200),
+                AttributeValue::String("Widget".into()),
+            ],
         ),
     ]);
-    
+
     // Send event
-    runner.send("events", vec![AttributeValue::Int(100), AttributeValue::Int(200)]);
-    
+    runner.send(
+        "events",
+        vec![AttributeValue::Int(100), AttributeValue::Int(200)],
+    );
+
     let out = runner.shutdown();
     assert_eq!(out.len(), 1, "Should join across both tables");
     assert_eq!(
@@ -404,23 +425,36 @@ async fn test_table_join_no_match() {
         INSERT INTO Out \n\
         SELECT S.id, T.label, S.val \n\
         FROM S JOIN T ON S.id = T.id;\n";
-    
+
     let runner = AppRunner::new(query, "Out").await;
-    
+
     // Add table data with id=1
     let th = runner.runtime().get_table_input_handler("T").unwrap();
     th.add(vec![
         eventflux_rust::core::event::event::Event::new_with_data(
             0,
-            vec![AttributeValue::Int(1), AttributeValue::String("label1".into())],
+            vec![
+                AttributeValue::Int(1),
+                AttributeValue::String("label1".into()),
+            ],
         ),
     ]);
-    
+
     // Send stream event with id=999 (no match)
-    runner.send("S", vec![AttributeValue::Int(999), AttributeValue::String("test".into())]);
-    
+    runner.send(
+        "S",
+        vec![
+            AttributeValue::Int(999),
+            AttributeValue::String("test".into()),
+        ],
+    );
+
     let out = runner.shutdown();
-    assert_eq!(out.len(), 0, "Should have no results when JOIN doesn't match");
+    assert_eq!(
+        out.len(),
+        0,
+        "Should have no results when JOIN doesn't match"
+    );
 }
 
 #[tokio::test]
@@ -433,21 +467,30 @@ async fn test_table_join_multiple_matches() {
         INSERT INTO Out \n\
         SELECT S.category, T.label, S.event \n\
         FROM S JOIN T ON S.category = T.category;\n";
-    
+
     let runner = AppRunner::new(query, "Out").await;
-    
+
     // Add multiple table rows with same category
     let th = runner.runtime().get_table_input_handler("T").unwrap();
     th.add(vec![
         eventflux_rust::core::event::event::Event::new_with_data(
             0,
-            vec![AttributeValue::Int(5), AttributeValue::String("label_a".into())],
+            vec![
+                AttributeValue::Int(5),
+                AttributeValue::String("label_a".into()),
+            ],
         ),
     ]);
-    
+
     // Send stream event
-    runner.send("S", vec![AttributeValue::Int(5), AttributeValue::String("click".into())]);
-    
+    runner.send(
+        "S",
+        vec![
+            AttributeValue::Int(5),
+            AttributeValue::String("click".into()),
+        ],
+    );
+
     let out = runner.shutdown();
     assert_eq!(out.len(), 1, "Should join with table row");
     assert_eq!(
@@ -471,21 +514,30 @@ async fn test_stream_table_join_with_qualified_names() {
         INSERT INTO geoOrders \n\
         SELECT orders.orderId, user_profiles.country \n\
         FROM orders JOIN user_profiles ON orders.userId = user_profiles.userId;\n";
-    
+
     let runner = AppRunner::new(query, "geoOrders").await;
-    
+
     // Add user profile
-    let th = runner.runtime().get_table_input_handler("user_profiles").unwrap();
+    let th = runner
+        .runtime()
+        .get_table_input_handler("user_profiles")
+        .unwrap();
     th.add(vec![
         eventflux_rust::core::event::event::Event::new_with_data(
             0,
-            vec![AttributeValue::Int(123), AttributeValue::String("US".into())],
+            vec![
+                AttributeValue::Int(123),
+                AttributeValue::String("US".into()),
+            ],
         ),
     ]);
-    
+
     // Send order
-    runner.send("orders", vec![AttributeValue::Int(999), AttributeValue::Int(123)]);
-    
+    runner.send(
+        "orders",
+        vec![AttributeValue::Int(999), AttributeValue::Int(123)],
+    );
+
     let out = runner.shutdown();
     assert_eq!(out.len(), 1);
     assert_eq!(
@@ -511,7 +563,7 @@ async fn test_error_unknown_table_in_join() {
         INSERT INTO Out \n\
         SELECT S.id, S.val \n\
         FROM S JOIN NonExistentTable ON S.id = NonExistentTable.id;\n";
-    
+
     let _runner = AppRunner::new(query, "Out").await;
 }
 
@@ -525,7 +577,7 @@ async fn test_error_unknown_stream_in_join() {
         INSERT INTO Out \n\
         SELECT T.id, T.label \n\
         FROM NonExistentStream JOIN T ON NonExistentStream.id = T.id;\n";
-    
+
     let _runner = AppRunner::new(query, "Out").await;
 }
 
@@ -540,7 +592,6 @@ async fn test_error_unknown_column_in_table() {
         INSERT INTO Out \n\
         SELECT S.id, T.nonExistentColumn \n\
         FROM S JOIN T ON S.id = T.id;\n";
-    
+
     let _runner = AppRunner::new(query, "Out").await;
 }
-

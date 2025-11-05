@@ -384,9 +384,12 @@ impl SqlApplication {
 
                                         let attr_type = type_engine
                                             .infer_type(output_attr.get_expression(), &context)
-                                            .expect("Type inference failed - query cannot be compiled");
+                                            .expect(
+                                                "Type inference failed - query cannot be compiled",
+                                            );
 
-                                        output_stream = output_stream.attribute(attr_name, attr_type);
+                                        output_stream =
+                                            output_stream.attribute(attr_name, attr_type);
                                     }
 
                                     Arc::new(output_stream)
@@ -401,10 +404,7 @@ impl SqlApplication {
     }
 
     /// Convert to EventFluxApp for runtime creation
-    pub fn to_eventflux_app(
-        mut self,
-        app_name: String,
-    ) -> Result<EventFluxApp, ApplicationError> {
+    pub fn to_eventflux_app(mut self, app_name: String) -> Result<EventFluxApp, ApplicationError> {
         let mut app = EventFluxApp::new(app_name);
 
         // Process output streams BEFORE moving catalog data

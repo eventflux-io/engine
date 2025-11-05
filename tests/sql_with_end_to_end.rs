@@ -374,7 +374,11 @@ async fn test_sql_with_priority_over_yaml() {
 
     // Each event should have a "tick" string attribute
     for event in out {
-        assert_eq!(event.len(), 1, "Each event should have exactly one attribute");
+        assert_eq!(
+            event.len(),
+            1,
+            "Each event should have exactly one attribute"
+        );
         assert!(
             matches!(event[0], AttributeValue::String(_)),
             "Tick attribute should be a String"
