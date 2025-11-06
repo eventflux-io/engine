@@ -172,7 +172,7 @@ impl StreamJunction {
 
         let event_pool = Arc::new(EventPool::new(buffer_size * 2)); // 2x for buffering
 
-        Ok(Self {
+        let junction = Self {
             stream_id,
             stream_definition,
             eventflux_app_context,
@@ -189,7 +189,16 @@ impl StreamJunction {
             events_dropped: Arc::new(CachePadded::new(AtomicU64::new(0))),
             processing_errors: Arc::new(CachePadded::new(AtomicU64::new(0))),
             executor_service,
-        })
+        };
+
+        // Automatically start async consumer if in async mode
+        // This preserves backward compatibility - async junctions work immediately
+        if is_async {
+            junction.start_async_consumer()?;
+            junction.started.store(true, Ordering::Release);
+        }
+
+        Ok(junction)
     }
 
     /// Get the stream definition
@@ -224,6 +233,10 @@ impl StreamJunction {
     }
 
     /// Start processing events
+    ///
+    /// For async junctions, this is called automatically during construction.
+    /// This method is idempotent - calling it multiple times is safe.
+    /// For synchronous junctions, this is a no-op.
     pub fn start_processing(&self) -> Result<(), String> {
         if self
             .started
@@ -923,6 +936,49 @@ mod tests {
         let metrics = junction.get_performance_metrics();
         assert_eq!(metrics.events_processed, 1);
         assert_eq!(metrics.events_dropped, 0);
+    }
+
+    #[test]
+    fn test_async_junction_auto_starts_without_explicit_start_processing() {
+        // REGRESSION TEST: Async junctions must auto-start consumer thread in constructor
+        // Bug: Previously, async junctions required explicit start_processing() call
+        // This test mimics production usage where start_processing() is never called
+
+        let (junction, processor) = setup_junction(true); // async=true
+
+        // CRITICAL: Do NOT call start_processing() - mimics production code!
+        // If auto-start is broken, events will queue forever and this test fails
+
+        // Send events immediately after construction
+        let events: Vec<_> = (0..50)
+            .map(|i| Event::new_with_data(1000 + i, vec![AttributeValue::Int(i as i32)]))
+            .collect();
+
+        junction.send_events(events).unwrap();
+
+        // Wait for async processing (consumer should be running)
+        thread::sleep(Duration::from_millis(200));
+
+        // ASSERT: Events must be received (proves consumer auto-started)
+        let received_events = processor.lock().unwrap().get_events();
+        assert_eq!(
+            received_events.len(),
+            50,
+            "Async junction must auto-start consumer thread in constructor. \
+             Events were not processed, indicating consumer never started!"
+        );
+
+        // Verify metrics show processing happened
+        let metrics = junction.get_performance_metrics();
+        assert!(
+            metrics.events_processed >= 50,
+            "Async junction consumer must auto-start. Processed: {}, Expected: >= 50",
+            metrics.events_processed
+        );
+        assert!(
+            metrics.pipeline_metrics.events_consumed > 0,
+            "Pipeline consumer must be running. No events consumed!"
+        );
     }
 
     #[test]
