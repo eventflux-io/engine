@@ -428,7 +428,19 @@ impl StreamJunction {
             self.events_dropped.fetch_add(dropped, Ordering::Relaxed);
             self.processing_errors.fetch_add(errors, Ordering::Relaxed);
 
-            if successful > 0 {
+            // CRITICAL: Consistent with send_event() behavior - return error if ANY event failed
+            // This allows upstream retry logic to work correctly
+            if dropped > 0 || errors > 0 {
+                Err(EventFluxError::SendError {
+                    message: format!(
+                        "Failed to process {} of {} events (dropped: {}, errors: {})",
+                        dropped + errors,
+                        event_count,
+                        dropped,
+                        errors
+                    ),
+                })
+            } else if successful > 0 {
                 Ok(())
             } else {
                 Err(EventFluxError::SendError {
@@ -804,6 +816,7 @@ mod tests {
     use crate::core::config::eventflux_context::EventFluxContext;
     use crate::core::event::value::AttributeValue;
     use crate::query_api::definition::attribute::Type as AttrType;
+    use crate::query_api::eventflux_app::EventFluxApp;
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -1085,5 +1098,75 @@ mod tests {
         // Test legacy methods for compatibility
         assert!(junction.total_events().unwrap() > 0);
         // Note: average_latency_ns might be None if processing is too fast
+    }
+
+    #[test]
+    fn test_async_batch_partial_failure_returns_error() {
+        // REGRESSION TEST: Partial batch failures must be reported as errors
+        // Bug: Previously returned Ok(()) if ANY event succeeded, even if others failed
+        // This broke retry logic because callers thought all events succeeded
+
+        let ctx = Arc::new(EventFluxContext::new());
+        let app = Arc::new(EventFluxApp::new("TestApp".to_string()));
+        let app_ctx = Arc::new(EventFluxAppContext::new(
+            Arc::clone(&ctx),
+            "Test".to_string(),
+            Arc::clone(&app),
+            String::new(),
+        ));
+
+        let stream_def = Arc::new(
+            StreamDefinition::new("TestStream".to_string())
+                .attribute("value".to_string(), AttrType::INT),
+        );
+
+        // Create async junction with minimal buffer to force drops
+        let junction = Arc::new(Mutex::new(
+            StreamJunction::new(
+                "TestStream".to_string(),
+                stream_def,
+                app_ctx,
+                64, // Minimum buffer size
+                true,
+                None,
+            )
+            .unwrap(),
+        ));
+
+        // Create processor that captures events
+        let processor = Arc::new(Mutex::new(TestProcessor::new("test".to_string())));
+        junction.lock().unwrap().subscribe(processor.clone());
+
+        // DO NOT start processing - this will cause the pipeline to fill up
+
+        // Send a large batch - buffer will fill (64) and rest will be dropped
+        let events: Vec<_> = (0..500)
+            .map(|i| Event::new_with_data(1000 + i, vec![AttributeValue::Int(i as i32)]))
+            .collect();
+
+        let result = junction.lock().unwrap().send_events(events);
+
+        // CRITICAL ASSERTION: Must return error because SOME events failed
+        // Previously this would return Ok(()) if ANY events succeeded
+        assert!(
+            result.is_err(),
+            "send_events() must return error when ANY events fail (partial batch failure). \
+             Got Ok(()) which breaks retry logic!"
+        );
+
+        // Verify error message includes details
+        let err = result.unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("Failed to process") || msg.contains("dropped") || msg.contains("errors"),
+            "Error message should include failure details, got: {msg}"
+        );
+
+        // Verify metrics show both successful and dropped events
+        let metrics = junction.lock().unwrap().get_performance_metrics();
+        assert!(
+            metrics.events_dropped > 0,
+            "Should have dropped events due to small buffer"
+        );
     }
 }
