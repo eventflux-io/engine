@@ -185,9 +185,16 @@ impl PreStateProcessor for CountPreStateProcessor {
                 let mut state_guard = self.stream_processor.state.lock().unwrap();
                 state_guard.get_pending_list_mut().push_back(state_event);
             } else {
-                // count > max_count - shouldn't happen with proper logic
-                // Don't add back to pending (discard this path)
+                // count > max_count - shouldn't normally happen, but handle gracefully
+                // CRITICAL: Preserve the state after trimming, don't discard it!
+                // Without re-queuing, we lose the entire match chain and future events
+                // can never reach min_count (no overlapping matches possible)
                 state_event.remove_last_event(state_id);
+
+                // Re-queue the trimmed state so it can continue forming matches
+                // After trimming, count should be exactly max_count
+                let mut state_guard = self.stream_processor.state.lock().unwrap();
+                state_guard.get_pending_list_mut().push_back(state_event);
             }
         }
 
