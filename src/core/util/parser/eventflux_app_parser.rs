@@ -9,9 +9,8 @@ use crate::core::config::eventflux_app_context::EventFluxAppContext;
 use crate::core::config::eventflux_query_context::EventFluxQueryContext; // QueryParser will need this
 use crate::core::config::ApplicationConfig;
 use crate::core::eventflux_app_runtime_builder::EventFluxAppRuntimeBuilder;
-use crate::core::stream::{junction_factory::JunctionConfig, stream_junction::StreamJunction}; // For creating junctions
+use crate::core::stream::junction_factory::{JunctionConfig, StreamJunctionFactory}; // For creating junctions
 use crate::core::window::WindowRuntime;
-use crate::query_api::execution::query::input::stream::input_stream::InputStreamTrait;
 use crate::query_api::{
     definition::{Attribute as ApiAttribute, StreamDefinition as ApiStreamDefinition}, // For fault stream creation
     // Other API definitions will be needed by specific parsers (Table, Window etc.)
@@ -52,7 +51,6 @@ impl EventFluxAppParser {
             let mut config = JunctionConfig::new(stream_id.clone())
                 .with_buffer_size(eventflux_app_context.buffer_size as usize)
                 .with_async(default_stream_async);
-            let mut use_optimized = false;
 
             // Check for SQL WITH async properties
             if let Some(with_config) = &stream_def_arc.with_config {
@@ -74,7 +72,6 @@ impl EventFluxAppParser {
                 // async.enabled property
                 if let Some(async_str) = with_config.get("async.enabled") {
                     if async_str.eq_ignore_ascii_case("true") {
-                        use_optimized = true;
                         config = config.with_async(true);
                     }
                 }
@@ -105,14 +102,17 @@ impl EventFluxAppParser {
             }
 
             // Create StreamJunction with async configuration from SQL WITH or YAML
-            let stream_junction = Arc::new(Mutex::new(StreamJunction::new(
-                stream_id.clone(),
+            let junction_config = JunctionConfig::new(stream_id.clone())
+                .with_buffer_size(config.buffer_size)
+                .with_async(config.is_async);
+
+            let stream_junction = StreamJunctionFactory::create(
+                junction_config,
                 Arc::clone(stream_def_arc),
                 eventflux_app_context.clone(),
-                config.buffer_size,
-                config.is_async,
                 None,
-            )));
+            )
+            .map_err(|e| format!("Failed to create stream junction for '{}': {}", stream_id, e))?;
 
             builder.add_stream_junction(stream_id.clone(), stream_junction);
         }
@@ -195,18 +195,19 @@ impl EventFluxAppParser {
                     None,
                 ));
                 // Create minimal parse context for legacy WindowDefinition path
-                let empty_parse_ctx = crate::core::util::parser::expression_parser::ExpressionParserContext {
-                    eventflux_app_context: Arc::clone(&eventflux_app_context),
-                    eventflux_query_context: Arc::clone(&qctx),
-                    stream_meta_map: std::collections::HashMap::new(),
-                    table_meta_map: std::collections::HashMap::new(),
-                    window_meta_map: std::collections::HashMap::new(),
-                    aggregation_meta_map: std::collections::HashMap::new(),
-                    state_meta_map: std::collections::HashMap::new(),
-                    stream_positions: std::collections::HashMap::new(),
-                    default_source: String::new(),
-                    query_name: &format!("__window_{window_id}"),
-                };
+                let empty_parse_ctx =
+                    crate::core::util::parser::expression_parser::ExpressionParserContext {
+                        eventflux_app_context: Arc::clone(&eventflux_app_context),
+                        eventflux_query_context: Arc::clone(&qctx),
+                        stream_meta_map: std::collections::HashMap::new(),
+                        table_meta_map: std::collections::HashMap::new(),
+                        window_meta_map: std::collections::HashMap::new(),
+                        aggregation_meta_map: std::collections::HashMap::new(),
+                        state_meta_map: std::collections::HashMap::new(),
+                        stream_positions: std::collections::HashMap::new(),
+                        default_source: String::new(),
+                        query_name: &format!("__window_{window_id}"),
+                    };
                 if let Ok(proc) =
                     crate::core::query::processor::stream::window::create_window_processor(
                         handler,
@@ -288,17 +289,5 @@ impl EventFluxAppParser {
         }
 
         Ok(builder)
-    }
-}
-
-// Helper to get stream_id from ApiInputStream (simplified)
-use crate::query_api::execution::query::input::InputStream as ApiInputStream;
-impl ApiInputStream {
-    fn get_first_stream_id_placeholder(&self) -> Option<String> {
-        match self {
-            ApiInputStream::Single(s) => Some(s.get_stream_id_str().to_string()),
-            ApiInputStream::Join(j) => j.left_input_stream.get_unique_stream_ids().first().cloned(),
-            ApiInputStream::State(s) => s.get_unique_stream_ids().first().cloned(),
-        }
     }
 }

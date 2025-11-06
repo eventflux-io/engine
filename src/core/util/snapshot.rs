@@ -37,3 +37,26 @@ impl PersistenceReference {
         Self { revision }
     }
 }
+
+/// State management trait for pattern processing components
+/// Provides snapshot/restore capabilities for checkpointing and recovery
+pub mod state {
+    use serde_json::Value;
+    use std::collections::HashMap;
+
+    /// State trait for components that need snapshot/restore capabilities
+    /// Used for pattern processing state persistence and recovery
+    pub trait State {
+        /// Take a snapshot of the current state
+        /// Returns a map of state keys to JSON values for persistence
+        fn snapshot(&self) -> HashMap<String, Value>;
+
+        /// Restore state from a snapshot
+        /// Takes a map of state keys to JSON values and restores internal state
+        fn restore(&mut self, state: HashMap<String, Value>);
+
+        /// Check if this state can be safely destroyed
+        /// Returns true if the state is empty/idle and can be cleaned up
+        fn can_destroy(&self) -> bool;
+    }
+}

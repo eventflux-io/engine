@@ -3,7 +3,8 @@
 #[path = "common/mod.rs"]
 mod common;
 use eventflux_rust::core::config::{
-    eventflux_app_context::EventFluxAppContext, eventflux_query_context::EventFluxQueryContext,
+    eventflux_app_context::EventFluxAppContext,
+    eventflux_query_context::EventFluxQueryContext,
     stream_config::{FlatConfig, PropertySource},
 };
 use eventflux_rust::core::event::complex_event::ComplexEvent;
@@ -225,7 +226,7 @@ fn setup_query_env(
         1024,
         false,
         None,
-    )));
+    ).unwrap()));
     let out_j = Arc::new(Mutex::new(StreamJunction::new(
         "Out".to_string(),
         Arc::clone(&out_def),
@@ -233,7 +234,7 @@ fn setup_query_env(
         1024,
         false,
         None,
-    )));
+    ).unwrap()));
 
     let mut map = HashMap::new();
     map.insert("Input".to_string(), in_j);
@@ -260,18 +261,19 @@ fn test_register_window_factory() {
     ));
 
     // Create minimal ExpressionParserContext for the test
-    let parse_ctx = eventflux_rust::core::util::parser::expression_parser::ExpressionParserContext {
-        eventflux_app_context: Arc::clone(&app_ctx),
-        eventflux_query_context: Arc::clone(&q_ctx),
-        stream_meta_map: std::collections::HashMap::new(),
-        table_meta_map: std::collections::HashMap::new(),
-        window_meta_map: std::collections::HashMap::new(),
-        aggregation_meta_map: std::collections::HashMap::new(),
-        state_meta_map: std::collections::HashMap::new(),
-        stream_positions: std::collections::HashMap::new(),
-        default_source: String::new(),
-        query_name: "test_query",
-    };
+    let parse_ctx =
+        eventflux_rust::core::util::parser::expression_parser::ExpressionParserContext {
+            eventflux_app_context: Arc::clone(&app_ctx),
+            eventflux_query_context: Arc::clone(&q_ctx),
+            stream_meta_map: std::collections::HashMap::new(),
+            table_meta_map: std::collections::HashMap::new(),
+            window_meta_map: std::collections::HashMap::new(),
+            aggregation_meta_map: std::collections::HashMap::new(),
+            state_meta_map: std::collections::HashMap::new(),
+            stream_positions: std::collections::HashMap::new(),
+            default_source: String::new(),
+            query_name: "test_query",
+        };
 
     let res = eventflux_rust::core::query::processor::stream::window::create_window_processor(
         &handler, app_ctx, q_ctx, &parse_ctx,
@@ -385,8 +387,8 @@ fn test_table_factory_invoked() {
     let mut with_config = FlatConfig::new();
     with_config.set("extension", "rec", PropertySource::SqlWith);
 
-    let mut table_def = TableDefinition::id("T1".to_string())
-        .attribute("v".to_string(), AttrType::INT);
+    let mut table_def =
+        TableDefinition::id("T1".to_string()).attribute("v".to_string(), AttrType::INT);
     table_def.with_config = Some(with_config);
 
     let mut app_obj = EventFluxApp::new("TApp".to_string());

@@ -163,7 +163,9 @@ impl SortWindowProcessor {
 
         // Parse remaining parameters as attribute/order pairs
         // Format: sort(length, attr1, 'asc', attr2, 'desc', ...)
-        let mut executors: Vec<Box<dyn crate::core::executor::expression_executor::ExpressionExecutor>> = Vec::new();
+        let mut executors: Vec<
+            Box<dyn crate::core::executor::expression_executor::ExpressionExecutor>,
+        > = Vec::new();
         let mut ascending: Vec<bool> = Vec::new();
 
         let remaining_params = &params[1..];
@@ -175,8 +177,7 @@ impl SortWindowProcessor {
 
             // Parse the attribute expression using the context
             let executor = crate::core::util::parser::expression_parser::parse_expression(
-                attr_expr,
-                parse_ctx,
+                attr_expr, parse_ctx,
             )
             .map_err(|e| format!("Failed to parse sort attribute: {}", e))?;
 

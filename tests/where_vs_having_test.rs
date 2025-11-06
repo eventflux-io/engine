@@ -49,23 +49,60 @@ async fn test_where_before_having_after_aggregation() {
         "Products",
         vec![
             // Category A
-            vec![AttributeValue::String("A".to_string()), AttributeValue::Int(50)],  // Filtered by WHERE
-            vec![AttributeValue::String("A".to_string()), AttributeValue::Int(150)], // Passes WHERE
-            vec![AttributeValue::String("A".to_string()), AttributeValue::Int(200)], // Passes WHERE
-            vec![AttributeValue::String("A".to_string()), AttributeValue::Int(120)], // Passes WHERE
-
+            vec![
+                AttributeValue::String("A".to_string()),
+                AttributeValue::Int(50),
+            ], // Filtered by WHERE
+            vec![
+                AttributeValue::String("A".to_string()),
+                AttributeValue::Int(150),
+            ], // Passes WHERE
+            vec![
+                AttributeValue::String("A".to_string()),
+                AttributeValue::Int(200),
+            ], // Passes WHERE
+            vec![
+                AttributeValue::String("A".to_string()),
+                AttributeValue::Int(120),
+            ], // Passes WHERE
             // Category B
-            vec![AttributeValue::String("B".to_string()), AttributeValue::Int(80)],  // Filtered by WHERE
-            vec![AttributeValue::String("B".to_string()), AttributeValue::Int(90)],  // Filtered by WHERE
-            vec![AttributeValue::String("B".to_string()), AttributeValue::Int(110)], // Passes WHERE
-            vec![AttributeValue::String("B".to_string()), AttributeValue::Int(130)], // Passes WHERE
-
+            vec![
+                AttributeValue::String("B".to_string()),
+                AttributeValue::Int(80),
+            ], // Filtered by WHERE
+            vec![
+                AttributeValue::String("B".to_string()),
+                AttributeValue::Int(90),
+            ], // Filtered by WHERE
+            vec![
+                AttributeValue::String("B".to_string()),
+                AttributeValue::Int(110),
+            ], // Passes WHERE
+            vec![
+                AttributeValue::String("B".to_string()),
+                AttributeValue::Int(130),
+            ], // Passes WHERE
             // Category C
-            vec![AttributeValue::String("C".to_string()), AttributeValue::Int(150)], // Passes WHERE
-            vec![AttributeValue::String("C".to_string()), AttributeValue::Int(160)], // Passes WHERE
-            vec![AttributeValue::String("C".to_string()), AttributeValue::Int(170)], // Passes WHERE
-            vec![AttributeValue::String("C".to_string()), AttributeValue::Int(180)], // Passes WHERE
-            vec![AttributeValue::String("C".to_string()), AttributeValue::Int(190)], // Passes WHERE
+            vec![
+                AttributeValue::String("C".to_string()),
+                AttributeValue::Int(150),
+            ], // Passes WHERE
+            vec![
+                AttributeValue::String("C".to_string()),
+                AttributeValue::Int(160),
+            ], // Passes WHERE
+            vec![
+                AttributeValue::String("C".to_string()),
+                AttributeValue::Int(170),
+            ], // Passes WHERE
+            vec![
+                AttributeValue::String("C".to_string()),
+                AttributeValue::Int(180),
+            ], // Passes WHERE
+            vec![
+                AttributeValue::String("C".to_string()),
+                AttributeValue::Int(190),
+            ], // Passes WHERE
         ],
     );
 
@@ -161,10 +198,22 @@ async fn test_having_without_where() {
     runner.send_batch(
         "Sales",
         vec![
-            vec![AttributeValue::String("A".to_string()), AttributeValue::Int(200)],
-            vec![AttributeValue::String("A".to_string()), AttributeValue::Int(400)], // Total: 600 > 500
-            vec![AttributeValue::String("B".to_string()), AttributeValue::Int(100)],
-            vec![AttributeValue::String("B".to_string()), AttributeValue::Int(200)], // Total: 300 <= 500
+            vec![
+                AttributeValue::String("A".to_string()),
+                AttributeValue::Int(200),
+            ],
+            vec![
+                AttributeValue::String("A".to_string()),
+                AttributeValue::Int(400),
+            ], // Total: 600 > 500
+            vec![
+                AttributeValue::String("B".to_string()),
+                AttributeValue::Int(100),
+            ],
+            vec![
+                AttributeValue::String("B".to_string()),
+                AttributeValue::Int(200),
+            ], // Total: 300 <= 500
         ],
     );
 
@@ -173,7 +222,9 @@ async fn test_having_without_where() {
     // Only product A should pass (600 > 500), B filtered by HAVING (300 <= 500)
     assert_eq!(output.len(), 1, "Expected only product A in output");
 
-    if let (AttributeValue::String(product), AttributeValue::Long(total)) = (&output[0][0], &output[0][1]) {
+    if let (AttributeValue::String(product), AttributeValue::Long(total)) =
+        (&output[0][0], &output[0][1])
+    {
         assert_eq!(product, "A");
         assert_eq!(*total, 600);
     } else {
@@ -200,10 +251,22 @@ async fn test_where_without_having() {
     runner.send_batch(
         "Data",
         vec![
-            vec![AttributeValue::String("X".to_string()), AttributeValue::Int(30)],  // Filtered by WHERE
-            vec![AttributeValue::String("X".to_string()), AttributeValue::Int(60)],  // Counted
-            vec![AttributeValue::String("X".to_string()), AttributeValue::Int(70)],  // Counted
-            vec![AttributeValue::String("Y".to_string()), AttributeValue::Int(100)], // Counted
+            vec![
+                AttributeValue::String("X".to_string()),
+                AttributeValue::Int(30),
+            ], // Filtered by WHERE
+            vec![
+                AttributeValue::String("X".to_string()),
+                AttributeValue::Int(60),
+            ], // Counted
+            vec![
+                AttributeValue::String("X".to_string()),
+                AttributeValue::Int(70),
+            ], // Counted
+            vec![
+                AttributeValue::String("Y".to_string()),
+                AttributeValue::Int(100),
+            ], // Counted
         ],
     );
 
@@ -223,7 +286,10 @@ async fn test_where_without_having() {
     assert!(cat_x.is_some(), "Category X should be in output");
     if let Some(row) = cat_x {
         if let AttributeValue::Long(count) = &row[1] {
-            assert_eq!(*count, 2, "Category X should have count 2 (WHERE filtered out 1)");
+            assert_eq!(
+                *count, 2,
+                "Category X should have count 2 (WHERE filtered out 1)"
+            );
         }
     }
 

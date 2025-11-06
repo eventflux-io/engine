@@ -37,24 +37,20 @@ impl InsertIntoStreamProcessor {
 
 impl Processor for InsertIntoStreamProcessor {
     fn process(&self, complex_event_chunk: Option<Box<dyn ComplexEvent>>) {
-        if let Some(chunk_head) = complex_event_chunk {
-            // Take ownership if Some
-            // StreamJunction::send_complex_event_chunk expects Option<Box<dyn ComplexEvent>>
-            // and handles the linked list internally.
-            if let Err(e) = self
-                .output_stream_junction
-                .lock()
-                .expect("Output StreamJunction Mutex poisoned")
-                .send_complex_event_chunk(Some(chunk_head))
-            {
-                eprintln!(
-                    "Error sending event chunk to output stream junction '{}': {}",
-                    self.output_stream_junction.lock().unwrap().stream_id,
-                    e
-                );
-            }
+        // StreamJunction now handles ComplexEvent conversion properly
+        // It will handle both StreamEvent and StateEvent types correctly
+        if let Err(e) = self
+            .output_stream_junction
+            .lock()
+            .expect("Output StreamJunction Mutex poisoned")
+            .send_complex_event_chunk(complex_event_chunk)
+        {
+            eprintln!(
+                "Error sending event chunk to output stream junction '{}': {}",
+                self.output_stream_junction.lock().unwrap().stream_id,
+                e
+            );
         }
-        // If complex_event_chunk was None, nothing to process.
     }
 
     fn next_processor(&self) -> Option<Arc<Mutex<dyn Processor>>> {

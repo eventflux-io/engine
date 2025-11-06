@@ -221,9 +221,12 @@ impl<'a> TypeInferenceEngine<'a> {
             Expression::Mod(m) => {
                 self.infer_arithmetic_type(&m.left_value, &m.right_value, context)
             }
-            Expression::Compare(_) | Expression::And(_) | Expression::Or(_) | Expression::Not(_) | Expression::IsNull(_) | Expression::In(_) => {
-                Ok(AttributeType::BOOL)
-            }
+            Expression::Compare(_)
+            | Expression::And(_)
+            | Expression::Or(_)
+            | Expression::Not(_)
+            | Expression::IsNull(_)
+            | Expression::In(_) => Ok(AttributeType::BOOL),
             Expression::AttributeFunction(func) => self.infer_function_type(func, context),
         }
     }
@@ -255,9 +258,15 @@ impl<'a> TypeInferenceEngine<'a> {
 
         // Qualified variable (e.g., "s.price")
         if let Some(stream_id) = variable.get_stream_id() {
-            return self.catalog.get_column_type(stream_id, attr_name).map_err(|e| {
-                TypeError::ConversionFailed(format!("Column {}.{} not found: {}", stream_id, attr_name, e))
-            });
+            return self
+                .catalog
+                .get_column_type(stream_id, attr_name)
+                .map_err(|e| {
+                    TypeError::ConversionFailed(format!(
+                        "Column {}.{} not found: {}",
+                        stream_id, attr_name, e
+                    ))
+                });
         }
 
         // Unqualified - search all available streams
@@ -293,11 +302,13 @@ impl<'a> TypeInferenceEngine<'a> {
         }
 
         // Return higher precedence type
-        Ok(if type_precedence(left_type) >= type_precedence(right_type) {
-            left_type
-        } else {
-            right_type
-        })
+        Ok(
+            if type_precedence(left_type) >= type_precedence(right_type) {
+                left_type
+            } else {
+                right_type
+            },
+        )
     }
 
     /// Infer result type for function calls using function registry

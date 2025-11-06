@@ -1,5 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+//! # DEPRECATED: Streaming Join Architecture (Not Pattern Processing)
+//!
+//! **WARNING**: This module implements streaming joins, NOT pattern processing.
+//! It uses StreamEvent instead of StateEvent and lacks processor chaining.
+//!
+//! **Use Instead**:
+//! - `logical_pre_state_processor.rs` - Correct pattern processing architecture
+//! - `logical_post_state_processor.rs` - Correct pattern processing architecture
+//!
+//! **Will Be Removed**: Phase 2 (after migration complete)
+//!
+//! This file is kept temporarily for reference but should NOT be used in new code.
+
+use log::error;
 use std::sync::{Arc, Mutex};
 
 use super::sequence_processor::SequenceSide;
@@ -13,12 +27,24 @@ use crate::core::event::stream::{
 use crate::core::event::value::AttributeValue;
 use crate::core::query::processor::{CommonProcessorMeta, ProcessingMode, Processor};
 
+/// **DEPRECATED**: Use LogicalPreStateProcessor instead.
+/// This enum is part of the old streaming join architecture.
+#[deprecated(
+    since = "0.1.0",
+    note = "Use logical_pre_state_processor::LogicalType instead"
+)]
 #[derive(Debug, Clone, Copy)]
 pub enum LogicalType {
     And,
     Or,
 }
 
+/// **DEPRECATED**: Use LogicalPreStateProcessor and LogicalPostStateProcessor instead.
+/// This struct implements streaming joins, not pattern processing.
+#[deprecated(
+    since = "0.1.0",
+    note = "Use LogicalPreStateProcessor for pattern processing"
+)]
 #[derive(Debug)]
 pub struct LogicalProcessor {
     meta: CommonProcessorMeta,
@@ -63,7 +89,8 @@ impl LogicalProcessor {
         let mut event = self.event_factory.new_instance();
         event.timestamp = second
             .map(|s| s.timestamp)
-            .unwrap_or_else(|| first.unwrap().timestamp);
+            .or_else(|| first.map(|f| f.timestamp))
+            .unwrap_or(0); // Default to 0 if both are None (should not happen in normal operation)
         for i in 0..self.first_attr_count {
             let val = first
                 .and_then(|f| f.before_window_data.get(i).cloned())
@@ -81,7 +108,13 @@ impl LogicalProcessor {
 
     fn forward(&self, se: StreamEvent) {
         if let Some(ref next) = self.next_processor {
-            next.lock().unwrap().process(Some(Box::new(se)));
+            match next.lock() {
+                Ok(mut processor) => processor.process(Some(Box::new(se))),
+                Err(e) => {
+                    error!("Next processor mutex poisoned during forward: {}", e);
+                    // Skip forwarding - event lost
+                }
+            }
         }
     }
 
@@ -114,27 +147,27 @@ impl LogicalProcessor {
         while let Some(mut ce) = chunk {
             chunk = ce.set_next(None);
             if let Some(se) = ce.as_any().downcast_ref::<StreamEvent>() {
-                let cloner = match side {
+                // Initialize cloner if needed
+                match side {
                     SequenceSide::First => {
                         if self.first_cloner.is_none() {
                             self.first_cloner = Some(StreamEventCloner::from_event(se));
                         }
-                        self.first_cloner.as_ref().unwrap()
+                        // Clone event using the initialized cloner
+                        if let Some(ref cloner) = self.first_cloner {
+                            let se_clone = cloner.copy_stream_event(se);
+                            self.first_buffer.push(se_clone);
+                        }
                     }
                     SequenceSide::Second => {
                         if self.second_cloner.is_none() {
                             self.second_cloner = Some(StreamEventCloner::from_event(se));
                         }
-                        self.second_cloner.as_ref().unwrap()
-                    }
-                };
-                let se_clone = cloner.copy_stream_event(se);
-                match side {
-                    SequenceSide::First => {
-                        self.first_buffer.push(se_clone);
-                    }
-                    SequenceSide::Second => {
-                        self.second_buffer.push(se_clone);
+                        // Clone event using the initialized cloner
+                        if let Some(ref cloner) = self.second_cloner {
+                            let se_clone = cloner.copy_stream_event(se);
+                            self.second_buffer.push(se_clone);
+                        }
                     }
                 }
                 self.try_produce();
@@ -161,48 +194,130 @@ pub struct LogicalProcessorSide {
 
 impl Processor for LogicalProcessorSide {
     fn process(&self, chunk: Option<Box<dyn ComplexEvent>>) {
-        self.parent.lock().unwrap().process_event(self.side, chunk);
+        match self.parent.lock() {
+            Ok(mut parent) => parent.process_event(self.side, chunk),
+            Err(e) => {
+                error!(
+                    "LogicalProcessor parent mutex poisoned during process: {}",
+                    e
+                );
+                // Cannot process - event lost
+            }
+        }
     }
 
     fn next_processor(&self) -> Option<Arc<Mutex<dyn Processor>>> {
-        self.parent.lock().unwrap().next_processor.clone()
+        match self.parent.lock() {
+            Ok(parent) => parent.next_processor.clone(),
+            Err(e) => {
+                error!(
+                    "LogicalProcessor parent mutex poisoned during next_processor: {}",
+                    e
+                );
+                None
+            }
+        }
     }
 
     fn set_next_processor(&mut self, next: Option<Arc<Mutex<dyn Processor>>>) {
-        self.parent.lock().unwrap().next_processor = next;
+        match self.parent.lock() {
+            Ok(mut parent) => parent.next_processor = next,
+            Err(e) => {
+                error!(
+                    "LogicalProcessor parent mutex poisoned during set_next_processor: {}",
+                    e
+                );
+                // Cannot set - skip operation
+            }
+        }
     }
 
     fn clone_processor(&self, ctx: &Arc<EventFluxQueryContext>) -> Box<dyn Processor> {
-        let parent = self.parent.lock().unwrap();
-        let cloned = LogicalProcessor::new(
-            parent.logical_type,
-            parent.first_attr_count,
-            parent.second_attr_count,
-            Arc::clone(&parent.meta.eventflux_app_context),
-            Arc::clone(ctx),
-        );
-        let arc = Arc::new(Mutex::new(cloned));
-        Box::new(LogicalProcessorSide {
-            parent: arc,
-            side: self.side,
-        })
+        match self.parent.lock() {
+            Ok(parent) => {
+                let cloned = LogicalProcessor::new(
+                    parent.logical_type,
+                    parent.first_attr_count,
+                    parent.second_attr_count,
+                    Arc::clone(&parent.meta.eventflux_app_context),
+                    Arc::clone(ctx),
+                );
+                let arc = Arc::new(Mutex::new(cloned));
+                Box::new(LogicalProcessorSide {
+                    parent: arc,
+                    side: self.side,
+                })
+            }
+            Err(e) => {
+                error!(
+                    "LogicalProcessor parent mutex poisoned during clone_processor: {}",
+                    e
+                );
+                // Return a minimal clone with default values
+                let app_ctx = Arc::new(EventFluxAppContext::new(
+                    Arc::new(crate::core::config::eventflux_context::EventFluxContext::new()),
+                    "default".to_string(),
+                    Arc::new(crate::query_api::eventflux_app::EventFluxApp::new(
+                        "default".to_string(),
+                    )),
+                    String::new(),
+                ));
+                let cloned =
+                    LogicalProcessor::new(LogicalType::And, 0, 0, app_ctx, Arc::clone(ctx));
+                let arc = Arc::new(Mutex::new(cloned));
+                Box::new(LogicalProcessorSide {
+                    parent: arc,
+                    side: self.side,
+                })
+            }
+        }
     }
 
     fn get_eventflux_app_context(&self) -> Arc<EventFluxAppContext> {
-        self.parent
-            .lock()
-            .unwrap()
-            .meta
-            .eventflux_app_context
-            .clone()
+        match self.parent.lock() {
+            Ok(parent) => parent.meta.eventflux_app_context.clone(),
+            Err(e) => {
+                error!(
+                    "LogicalProcessor parent mutex poisoned during get_eventflux_app_context: {}",
+                    e
+                );
+                // Return a default context
+                Arc::new(EventFluxAppContext::new(
+                    Arc::new(crate::core::config::eventflux_context::EventFluxContext::new()),
+                    "default".to_string(),
+                    Arc::new(crate::query_api::eventflux_app::EventFluxApp::new(
+                        "default".to_string(),
+                    )),
+                    String::new(),
+                ))
+            }
+        }
     }
 
     fn get_eventflux_query_context(&self) -> Arc<EventFluxQueryContext> {
-        self.parent
-            .lock()
-            .unwrap()
-            .meta
-            .get_eventflux_query_context()
+        match self.parent.lock() {
+            Ok(parent) => parent.meta.get_eventflux_query_context(),
+            Err(e) => {
+                error!(
+                    "LogicalProcessor parent mutex poisoned during get_eventflux_query_context: {}",
+                    e
+                );
+                // Return a minimal context
+                let app_ctx = Arc::new(EventFluxAppContext::new(
+                    Arc::new(crate::core::config::eventflux_context::EventFluxContext::new()),
+                    "default".to_string(),
+                    Arc::new(crate::query_api::eventflux_app::EventFluxApp::new(
+                        "default".to_string(),
+                    )),
+                    String::new(),
+                ));
+                Arc::new(EventFluxQueryContext::new(
+                    app_ctx,
+                    "default".to_string(),
+                    None,
+                ))
+            }
+        }
     }
 
     fn get_processing_mode(&self) -> ProcessingMode {

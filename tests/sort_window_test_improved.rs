@@ -32,7 +32,10 @@ async fn test_sort_window_expiry_with_explicit_timestamps() {
     runner.send_with_ts("In", 3000, vec![AttributeValue::Int(20)]);
 
     let output = runner.shutdown();
-    println!("Sort window output with attribute-based sorting: {:?}", output);
+    println!(
+        "Sort window output with attribute-based sorting: {:?}",
+        output
+    );
 
     // Expected output:
     // Event 1: value=30 (current)
@@ -40,13 +43,33 @@ async fn test_sort_window_expiry_with_explicit_timestamps() {
     // Event 3: value=20 (current)
     // Event 4: value=30 (expired) - highest value in ascending sort, so expelled from window
 
-    assert_eq!(output.len(), 4, "Should have exactly 4 events (3 current + 1 expired)");
+    assert_eq!(
+        output.len(),
+        4,
+        "Should have exactly 4 events (3 current + 1 expired)"
+    );
 
     // Verify values
-    assert_eq!(output[0], vec![AttributeValue::Int(30)], "First event should be 30");
-    assert_eq!(output[1], vec![AttributeValue::Int(10)], "Second event should be 10");
-    assert_eq!(output[2], vec![AttributeValue::Int(20)], "Third event should be 20");
-    assert_eq!(output[3], vec![AttributeValue::Int(30)], "Fourth event (expired) should be 30 - highest value");
+    assert_eq!(
+        output[0],
+        vec![AttributeValue::Int(30)],
+        "First event should be 30"
+    );
+    assert_eq!(
+        output[1],
+        vec![AttributeValue::Int(10)],
+        "Second event should be 10"
+    );
+    assert_eq!(
+        output[2],
+        vec![AttributeValue::Int(20)],
+        "Third event should be 20"
+    );
+    assert_eq!(
+        output[3],
+        vec![AttributeValue::Int(30)],
+        "Fourth event (expired) should be 30 - highest value"
+    );
 }
 
 #[tokio::test]
@@ -65,9 +88,9 @@ async fn test_sort_window_value_based_sorting() {
     let runner = AppRunner::new(app, "Out").await;
 
     // Send events in descending value order but ascending timestamp order
-    runner.send_with_ts("In", 100, vec![AttributeValue::Int(90)]);  // T=100, V=90
-    runner.send_with_ts("In", 200, vec![AttributeValue::Int(50)]);  // T=200, V=50
-    runner.send_with_ts("In", 300, vec![AttributeValue::Int(70)]);  // T=300, V=70
+    runner.send_with_ts("In", 100, vec![AttributeValue::Int(90)]); // T=100, V=90
+    runner.send_with_ts("In", 200, vec![AttributeValue::Int(50)]); // T=200, V=50
+    runner.send_with_ts("In", 300, vec![AttributeValue::Int(70)]); // T=300, V=70
 
     let output = runner.shutdown();
     println!("Attribute-based sorting (by value): {:?}", output);
@@ -79,7 +102,11 @@ async fn test_sort_window_value_based_sorting() {
     assert_eq!(output[0], vec![AttributeValue::Int(90)]);
     assert_eq!(output[1], vec![AttributeValue::Int(50)]);
     assert_eq!(output[2], vec![AttributeValue::Int(70)]);
-    assert_eq!(output[3], vec![AttributeValue::Int(90)], "Expired: highest value (V=90) in ascending sort");
+    assert_eq!(
+        output[3],
+        vec![AttributeValue::Int(90)],
+        "Expired: highest value (V=90) in ascending sort"
+    );
 }
 
 #[tokio::test]
@@ -107,12 +134,20 @@ async fn test_sort_window_maintains_order_in_buffer() {
     println!("Sort order maintenance test: {:?}", output);
 
     // Should emit 4 current events + 1 expired
-    assert_eq!(output.len(), 5, "Should have 5 events (4 current + 1 expired)");
+    assert_eq!(
+        output.len(),
+        5,
+        "Should have 5 events (4 current + 1 expired)"
+    );
 
     // The 4th event causes expiry
     // After sorting by VALUE (ascending): [10, 20, 30, 40]
     // Should expire value=40 (highest value)
-    assert_eq!(output[4], vec![AttributeValue::Int(40)], "Should expire highest value (40) in ascending sort");
+    assert_eq!(
+        output[4],
+        vec![AttributeValue::Int(40)],
+        "Should expire highest value (40) in ascending sort"
+    );
 }
 
 #[tokio::test]
@@ -140,8 +175,11 @@ async fn test_sort_window_by_value_ascending() {
 
     // Expected: expires 100.0 (highest value in ascending sort)
     assert_eq!(output.len(), 4);
-    assert_eq!(output[3], vec![AttributeValue::Double(100.0)],
-               "Should expire highest value (100.0) in ascending sort");
+    assert_eq!(
+        output[3],
+        vec![AttributeValue::Double(100.0)],
+        "Should expire highest value (100.0) in ascending sort"
+    );
 }
 
 #[tokio::test]
@@ -168,6 +206,9 @@ async fn test_sort_window_by_value_descending() {
 
     // Expected: expires 50.0 (lowest value in descending sort)
     assert_eq!(output.len(), 4);
-    assert_eq!(output[3], vec![AttributeValue::Double(50.0)],
-               "Should expire lowest value (50.0) in descending sort");
+    assert_eq!(
+        output[3],
+        vec![AttributeValue::Double(50.0)],
+        "Should expire lowest value (50.0) in descending sort"
+    );
 }

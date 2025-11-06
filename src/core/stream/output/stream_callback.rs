@@ -10,11 +10,9 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc; // For toMap method
 
-use crate::core::stream::stream_junction::Receiver as StreamJunctionReceiver; // Import the Receiver trait
-
 // StreamCallback in Java is an abstract class implementing StreamJunction.Receiver.
-// In Rust, we can define it as a trait that extends StreamJunctionReceiver and adds its own methods.
-pub trait StreamCallback: StreamJunctionReceiver + Debug + Send + Sync {
+// In Rust, we define it as a trait with its own methods (Receiver pattern not used in optimized implementation).
+pub trait StreamCallback: Debug + Send + Sync {
     // Abstract method from Java StreamCallback
     fn receive_events(&self, events: &[Event]); // Corresponds to receive(Event[] events)
 
@@ -122,28 +120,6 @@ pub trait StreamCallback: StreamJunctionReceiver + Debug + Send + Sync {
     }
 }
 
-// Implementing StreamJunctionReceiver for anything that implements StreamCallback
-impl<T: StreamCallback + ?Sized> StreamJunctionReceiver for T {
-    fn get_stream_id(&self) -> &str {
-        // This is problematic. StreamCallback itself doesn't store stream_id in Java.
-        // It's set by StreamRuntime. A struct implementing StreamCallback would store it.
-        // For now, returning a placeholder. This needs to be implemented by concrete types.
-        "unknown_stream_id_in_StreamCallback_default"
-    }
-    fn receive_complex_event_chunk(&self, complex_event_chunk: &mut Option<Box<dyn ComplexEvent>>) {
-        self.default_receive_complex_event_chunk(complex_event_chunk);
-    }
-    // The other receive methods from StreamJunction.Receiver need to be implemented here
-    // by calling the default_... methods above or directly calling receive_events.
-    // However, the prompt's StreamJunction.Receiver only had receive(ComplexEvent), receive(Event), etc.
-    // Let's assume the StreamJunction.Receiver methods are:
-    // fn receive_complex_event_chunk(&self, event_chunk: &mut Option<Box<dyn ComplexEvent>>);
-    // fn receive_single_event(&self, event: Event);
-    // fn receive_event_array(&self, events: &[Event]);
-    // fn receive_event_vec(&self, events: Vec<Event>);
-    // fn receive_timestamp_data(&self, timestamp: i64, data: Vec<AttributeValue>);
-}
-
 // Example of a concrete StreamCallback struct
 #[derive(Debug, Clone)] // Clone if the callback logic is cloneable
 pub struct LogStreamCallback {
@@ -166,13 +142,4 @@ impl StreamCallback for LogStreamCallback {
     fn receive_events(&self, events: &[Event]) {
         println!("[{}] Received events: {:?}", self.stream_id, events);
     }
-    // The get_stream_id required by StreamJunctionReceiver (which StreamCallback extends)
-    // will be provided by the generic impl of StreamJunctionReceiver for T: StreamCallback.
-    // However, that generic impl currently has a placeholder for get_stream_id.
-    // For LogStreamCallback to work with the generic impl, StreamCallback trait would need to
-    // require get_stream_id, or LogStreamCallback needs to provide it in a way the generic impl can use,
-    // or the generic impl's get_stream_id needs to be removed (making it non-object-safe for StreamJunctionReceiver alone).
-    // This is a deeper design issue with the generic impl's get_stream_id.
-    // For now, removing the specific conflicting impl is the direct fix for E0119.
 }
-// Removed specific `impl StreamJunctionReceiver for LogStreamCallback`

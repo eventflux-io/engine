@@ -1,6 +1,79 @@
 # EventFlux Rust Implementation Roadmap
 
-## 🎉 **LATEST**: Type System Complete - Zero-Allocation Architecture
+## Milestone Ordering (Corrected 2025-11-03)
+
+**Priority**: Core > API > Grammar > Documentation
+
+**M1**: SQL Streaming Foundation - Complete
+**M2**: Pattern Processing (Phases 1-2) - Complete (Phase 1 complete, Phase 2 complete - 2025-11-05)
+**M3**: Grammar Completion (pattern syntax, PARTITION, DEFINE AGGREGATION) - Planned
+**M4**: Essential Connectivity (HTTP, Kafka, File sources/sinks) - Planned
+**M5+**: Database backends, optimizations, distributed processing
+
+**Rationale**: Cannot write grammar for APIs that don't exist. Complete pattern processing APIs first, then add grammar syntax.
+
+See MILESTONES.md for details.
+
+---
+
+## LATEST: Pattern Processing Phase 2 Complete
+
+**Date**: 2025-11-05
+**Milestone**: M2 Phase 2 - Count Quantifiers & Pattern Chaining
+**Status**: Complete
+**Test Results**: 1,436 tests passing (271 pattern processing tests: 195 Phase 1 + 76 Phase 2)
+
+**Phase 2a Complete (2025-11-04)**:
+- CountPreStateProcessor for single patterns (A{3}, A{2,5})
+- CountPostStateProcessor with validation
+- Event chaining (add_event, remove_last_event)
+- Min/max count tracking
+- 52 tests passing
+
+**Phase 2b Complete (2025-11-05)**:
+- PatternChainBuilder factory for multi-processor chains
+- Multi-processor wiring (PreA -> PostA -> PreB -> PostB -> PreC)
+- Validation rules (first min>=1, last exact, all min>=1, no optional steps)
+- Pattern chaining with count quantifiers
+- WITHIN time constraints in chains (reactive validation)
+- Pattern vs Sequence modes in chains
+- Multi-instance pattern matching
+- 24 tests passing (5 sub-phases) + 1 ignored (Phase 3 proactive expiry)
+
+**Code Quality**:
+- Cleanup: Deleted 782 lines of obsolete code
+- Test refactoring: Eliminated 470+ lines of duplicate code
+- Common test utilities: Created shared module (257 lines)
+- Full test suite: 1,436 tests passing
+
+**Remaining Work**:
+- Query parser migration from deprecated processors (8-12 hours, blocked)
+- Delete deprecated logical_processor.rs and sequence_processor.rs
+
+**Deferred to M3 Grammar**:
+- A+, A* syntax support (core logic complete)
+- Grammar parser integration with CountPreStateProcessor
+
+**Next**: M3 Grammar Completion or M2 Phase 3 (Absent Patterns)
+
+---
+
+## Previous: Pattern Processing Phase 1 Complete
+
+**Date**: 2025-11-03
+**Milestone**: M2 Phase 1 - Pattern Processing Foundation
+**Status**: Complete (commit 8acac2f)
+**Test Results**: 991 tests passing (195 pattern tests)
+**Implemented**:
+- StateEvent with multi-stream tracking
+- PreStateProcessor + PostStateProcessor architecture
+- LogicalPreStateProcessor (AND/OR patterns)
+- Lock-free ProcessorSharedState (deadlock resolution)
+- PatternStreamReceiver + SequenceStreamReceiver
+
+---
+
+## Previous: Type System Complete - Zero-Allocation Architecture
 
 **Date**: 2025-10-26
 **Milestone**: M2 Part A - Type System with Zero-Cost Abstractions

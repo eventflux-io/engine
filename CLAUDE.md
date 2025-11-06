@@ -16,6 +16,50 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **📊 For current implementation status:**
 → See **[ROADMAP.md#current-status](ROADMAP.md#📊-comprehensive-audit-results-current-status-vs-java-eventflux)** - Real-time status vs Java EventFlux
 
+## ⚠️ CRITICAL: Code Safety and Refactoring Rules
+
+**NEVER use `sed`, `awk`, or bulk deletion commands for refactoring. EVER.**
+
+### Mandatory Refactoring Protocol:
+
+1. **ALWAYS create backups before any bulk operation:**
+   ```bash
+   # Copy files to .bak before ANY bulk changes
+   cp file.rs file.rs.bak
+   ```
+
+2. **NEVER use sed/awk for code refactoring:**
+   - ❌ `sed -i '14,212d' file.rs` - FORBIDDEN
+   - ❌ `sed 's/old/new/g'` for multi-line code - FORBIDDEN
+   - ✅ Use Edit tool for targeted, verified changes
+   - ✅ Manual editing only for complex refactoring
+
+3. **For removing duplicate code:**
+   - Create shared module FIRST
+   - Update imports in ONE file
+   - Verify compilation
+   - Repeat for next file
+   - **NEVER batch process multiple files**
+
+4. **Ask user permission before deleting code:**
+   - Even with backups
+   - Explain what will be deleted
+   - Wait for explicit approval
+   - Only delete after everything verified working
+
+5. **Verification after ANY file modification:**
+   ```bash
+   # Always verify immediately after changes
+   cargo build
+   cargo test --test <affected_test>
+   ```
+
+### Why These Rules Exist:
+
+These rules were created after a catastrophic incident where sed commands deleted 850+ lines of working test code across 5 files, requiring hours of manual restoration. The damage included loss of potentially critical test validation logic that "passing tests" cannot verify.
+
+**Remember: Passing tests don't prove correctness. Lost assertions and edge case checks may never be detected.**
+
 ## Project Overview
 
 EventFlux Rust is an experimental port of the Java-based EventFlux CEP (Complex Event Processing) engine to Rust. The project aims to create an **enterprise-grade distributed CEP engine** with superior performance characteristics leveraging Rust's memory safety and concurrency features.

@@ -325,7 +325,10 @@ impl Table for InMemoryTable {
 
         // Update index: remove old key entries, add new key entries
         index.remove(&old_key);
-        index.entry(new_key).or_insert_with(Vec::new).extend(indices_to_update);
+        index
+            .entry(new_key)
+            .or_insert_with(Vec::new)
+            .extend(indices_to_update);
 
         true
     }
