@@ -243,11 +243,26 @@ impl Debug for StreamPostStateProcessor {
 
 impl PostStateProcessor for StreamPostStateProcessor {
     fn process(&mut self, chunk: Option<Box<dyn ComplexEvent>>) -> Option<Box<dyn ComplexEvent>> {
-        if let Some(event) = chunk {
-            // Try to downcast to StateEvent
+        if let Some(mut event) = chunk {
+            // Try to downcast to StateEvent (immutable first for checking)
             if let Some(state_event) = event.as_any().downcast_ref::<StateEvent>() {
-                // Process the matched StateEvent
-                self.process_state_event(state_event);
+                // CRITICAL: Set timestamp on terminal patterns before forwarding to output
+                // Terminal patterns (with only next_processor, no next_state_pre_processor)
+                // need timestamp set here, otherwise they'd be emitted with timestamp=-1
+                if let Some(stream_event) = state_event.get_stream_event(self.state_id) {
+                    let timestamp = stream_event.timestamp;
+
+                    // Now downcast mutably to set the timestamp in-place (zero-cost, we own the Box)
+                    if let Some(state_event_mut) = event.as_any_mut().downcast_mut::<StateEvent>() {
+                        state_event_mut.set_timestamp(timestamp);
+                    }
+                }
+
+                // Process the matched StateEvent (still needs to forward to next states)
+                // Note: we borrow immutably again since process_state_event doesn't need mut
+                if let Some(state_event) = event.as_any().downcast_ref::<StateEvent>() {
+                    self.process_state_event(state_event);
+                }
 
                 // If we have a next processor in the chain, forward the event
                 if self.next_processor.is_some() {
