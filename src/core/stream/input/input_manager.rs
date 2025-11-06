@@ -56,10 +56,7 @@ impl InputManager {
             .get(stream_id)
             .ok_or_else(|| format!("StreamJunction '{stream_id}' not found"))?
             .clone();
-        let publisher = junction
-            .lock()
-            .map_err(|_| "junction mutex".to_string())?
-            .construct_publisher();
+        let publisher = StreamJunction::construct_publisher(junction);
         self.input_distributor
             .lock()
             .map_err(|_| "distributor mutex".to_string())?

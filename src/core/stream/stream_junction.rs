@@ -198,8 +198,10 @@ impl StreamJunction {
     }
 
     /// Create a publisher for this junction
-    pub fn construct_publisher(&self) -> Publisher {
-        Publisher::new(self)
+    ///
+    /// The publisher holds an Arc to keep the junction alive for its lifetime
+    pub fn construct_publisher(junction: Arc<Mutex<StreamJunction>>) -> Publisher {
+        Publisher::new(junction)
     }
 
     /// Subscribe a processor to receive events
@@ -732,24 +734,18 @@ impl JunctionPerformanceMetrics {
     }
 }
 
-/// High-performance publisher for the optimized stream junction
+/// High-performance publisher for the stream junction
+///
+/// Holds an Arc to the junction to ensure it remains alive while the publisher exists.
+/// This prevents use-after-free issues when publishers outlive their creating scope.
 #[derive(Debug, Clone)]
 pub struct Publisher {
-    junction: *const StreamJunction, // Raw pointer for performance
+    junction: Arc<Mutex<StreamJunction>>,
 }
 
-unsafe impl Send for Publisher {}
-unsafe impl Sync for Publisher {}
-
 impl Publisher {
-    fn new(junction: &StreamJunction) -> Self {
-        Self {
-            junction: junction as *const StreamJunction,
-        }
-    }
-
-    fn get_junction(&self) -> &StreamJunction {
-        unsafe { &*self.junction }
+    fn new(junction: Arc<Mutex<StreamJunction>>) -> Self {
+        Self { junction }
     }
 }
 
@@ -761,13 +757,17 @@ impl InputProcessor for Publisher {
         _stream_index: usize,
     ) -> Result<(), String> {
         let event = Event::new_with_data(timestamp, data);
-        self.get_junction()
+        self.junction
+            .lock()
+            .map_err(|_| "Junction mutex poisoned".to_string())?
             .send_event(event)
             .map_err(|e| format!("Send error: {e}"))
     }
 
     fn send_single_event(&mut self, event: Event, _stream_index: usize) -> Result<(), String> {
-        self.get_junction()
+        self.junction
+            .lock()
+            .map_err(|_| "Junction mutex poisoned".to_string())?
             .send_event(event)
             .map_err(|e| format!("Send error: {e}"))
     }
@@ -777,7 +777,9 @@ impl InputProcessor for Publisher {
         events: Vec<Event>,
         _stream_index: usize,
     ) -> Result<(), String> {
-        self.get_junction()
+        self.junction
+            .lock()
+            .map_err(|_| "Junction mutex poisoned".to_string())?
             .send_events(events)
             .map_err(|e| format!("Send error: {e}"))
     }
