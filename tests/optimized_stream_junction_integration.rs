@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Integration tests for OptimizedStreamJunction
+//! Integration tests for StreamJunction
 //!
 //! Tests the crossbeam pipeline-based StreamJunction implementation
 //! for correctness, performance, and compatibility with existing code.
@@ -15,8 +15,7 @@ use eventflux_rust::core::event::stream::StreamEvent;
 use eventflux_rust::core::event::value::AttributeValue;
 use eventflux_rust::core::query::processor::{ProcessingMode, Processor};
 use eventflux_rust::core::stream::{
-    JunctionBenchmark, JunctionConfig, JunctionType, OptimizedStreamJunction, PerformanceLevel,
-    StreamJunctionFactory,
+    JunctionBenchmark, JunctionConfig, StreamJunction, StreamJunctionFactory,
 };
 use eventflux_rust::query_api::definition::attribute::Type as AttrType;
 use eventflux_rust::query_api::definition::StreamDefinition;
@@ -146,7 +145,7 @@ fn setup_test_context() -> (Arc<EventFluxAppContext>, Arc<StreamDefinition>) {
 fn test_optimized_junction_basic_functionality() {
     let (app_ctx, stream_def) = setup_test_context();
 
-    let junction = OptimizedStreamJunction::new(
+    let junction = StreamJunction::new(
         "TestStream".to_string(),
         stream_def,
         app_ctx,
@@ -224,18 +223,11 @@ fn test_default_synchronous_mode() {
         StreamJunctionFactory::create(config, stream_def.clone(), app_ctx.clone(), None).unwrap();
 
     // Verify it's NOT using async mode internally
-    match &junction {
-        JunctionType::Optimized(opt_junction) => {
-            let metrics = opt_junction.lock().unwrap().get_performance_metrics();
-            assert!(
-                !metrics.is_async,
-                "Default junction should not be in async mode"
-            );
-        }
-        JunctionType::Standard(_) => {
-            // Standard junctions are inherently synchronous - this is also fine
-        }
-    }
+    let metrics = junction.lock().unwrap().get_performance_metrics();
+    assert!(
+        !metrics.is_async,
+        "Default junction should not be in async mode"
+    );
 
     // Test that we can explicitly enable async mode if needed
     let async_config = JunctionConfig::new("AsyncTestStream".to_string())
@@ -252,7 +244,7 @@ fn test_synchronous_mode_ordering_guarantee() {
     let (app_ctx, stream_def) = setup_test_context();
 
     // Create junction in explicit synchronous mode
-    let junction = OptimizedStreamJunction::new(
+    let junction = StreamJunction::new(
         "SyncOrderTest".to_string(),
         stream_def,
         app_ctx,
@@ -354,7 +346,7 @@ fn test_synchronous_mode_ordering_guarantee() {
 fn test_junction_factory_auto_selection() {
     let (app_ctx, stream_def) = setup_test_context();
 
-    // Low throughput - should select standard
+    // Low throughput - still creates junction successfully
     let low_config = JunctionConfig::new("LowThroughput".to_string())
         .with_expected_throughput(500)
         .with_subscriber_count(1);
@@ -363,12 +355,13 @@ fn test_junction_factory_auto_selection() {
         StreamJunctionFactory::create(low_config, stream_def.clone(), app_ctx.clone(), None)
             .unwrap();
 
-    assert!(
-        !low_junction.is_optimized(),
-        "Low throughput should use standard junction"
+    assert_eq!(
+        low_junction.lock().unwrap().stream_id,
+        "LowThroughput",
+        "Junction created successfully"
     );
 
-    // High throughput - should select optimized
+    // High throughput - should also create junction successfully
     let high_config = JunctionConfig::new("HighThroughput".to_string())
         .with_expected_throughput(200000)
         .with_subscriber_count(5)
@@ -377,66 +370,22 @@ fn test_junction_factory_auto_selection() {
     let high_junction =
         StreamJunctionFactory::create(high_config, stream_def, app_ctx, None).unwrap();
 
-    assert!(
-        high_junction.is_optimized(),
-        "High throughput should use optimized junction"
+    assert_eq!(
+        high_junction.lock().unwrap().stream_id,
+        "HighThroughput",
+        "High throughput junction created successfully"
     );
 }
 
-#[test]
-fn test_optimized_vs_standard_performance() {
-    let (app_ctx, stream_def) = setup_test_context();
-    let num_events = 50000;
-    let num_threads = 4;
-
-    // Test standard junction
-    let standard_junction = StreamJunctionFactory::create_standard_junction(
-        JunctionConfig::new("StandardJunction".to_string()).with_buffer_size(8192),
-        stream_def.clone(),
-        app_ctx.clone(),
-        None,
-    )
-    .unwrap();
-
-    let standard_result =
-        JunctionBenchmark::benchmark_throughput(&standard_junction, num_events, num_threads)
-            .unwrap();
-
-    standard_result.print();
-
-    // Test optimized junction
-    let optimized_junction = StreamJunctionFactory::create_optimized_junction(
-        JunctionConfig::new("OptimizedJunction".to_string()).with_buffer_size(8192),
-        stream_def,
-        app_ctx,
-        None,
-    )
-    .unwrap();
-
-    let optimized_result =
-        JunctionBenchmark::benchmark_throughput(&optimized_junction, num_events, num_threads)
-            .unwrap();
-
-    optimized_result.print();
-
-    // Optimized should be significantly faster
-    let improvement_ratio = optimized_result.throughput / standard_result.throughput;
-    println!("Performance improvement: {:.2}x", improvement_ratio);
-
-    // We expect at least 2x improvement, but depending on system it could be much higher
-    assert!(
-        improvement_ratio > 1.5,
-        "Optimized junction should be at least 1.5x faster, got {:.2}x",
-        improvement_ratio
-    );
-}
+// Note: test_optimized_vs_standard_performance removed
+// Standard implementation no longer exists - all junctions now use high-performance implementation
 
 #[test]
 fn test_concurrent_publishers_optimized_junction() {
     let (app_ctx, stream_def) = setup_test_context();
 
     let junction = Arc::new(Mutex::new(
-        OptimizedStreamJunction::new(
+        StreamJunction::new(
             "ConcurrentTest".to_string(),
             stream_def,
             app_ctx,
@@ -530,7 +479,7 @@ fn test_junction_backpressure_handling() {
     let (app_ctx, stream_def) = setup_test_context();
 
     // Create junction with small buffer to trigger backpressure
-    let junction = OptimizedStreamJunction::new(
+    let junction = StreamJunction::new(
         "BackpressureTest".to_string(),
         stream_def,
         app_ctx,
@@ -587,7 +536,7 @@ fn test_junction_backpressure_handling() {
 fn test_junction_metrics_accuracy() {
     let (app_ctx, stream_def) = setup_test_context();
 
-    let junction = OptimizedStreamJunction::new(
+    let junction = StreamJunction::new(
         "MetricsTest".to_string(),
         stream_def,
         app_ctx,

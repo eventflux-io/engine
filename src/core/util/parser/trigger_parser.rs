@@ -2,11 +2,11 @@
 
 // eventflux_rust/src/core/util/parser/trigger_parser.rs
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::core::config::eventflux_app_context::EventFluxAppContext;
 use crate::core::eventflux_app_runtime_builder::EventFluxAppRuntimeBuilder;
-use crate::core::stream::stream_junction::StreamJunction;
+use crate::core::stream::junction_factory::{JunctionConfig, StreamJunctionFactory};
 use crate::core::trigger::TriggerRuntime;
 use crate::query_api::constants::TRIGGERED_TIME;
 use crate::query_api::definition::{AttributeType, StreamDefinition, TriggerDefinition};
@@ -24,14 +24,19 @@ impl TriggerParser {
                 .attribute(TRIGGERED_TIME.to_string(), AttributeType::LONG),
         );
         builder.add_stream_definition(Arc::clone(&stream_def));
-        let junction = Arc::new(Mutex::new(StreamJunction::new(
-            definition.id.clone(),
+
+        let junction_config = JunctionConfig::new(definition.id.clone())
+            .with_buffer_size(eventflux_app_context.buffer_size as usize)
+            .with_async(false); // Triggers use synchronous mode
+
+        let junction = StreamJunctionFactory::create(
+            junction_config,
             Arc::clone(&stream_def),
             Arc::clone(eventflux_app_context),
-            eventflux_app_context.buffer_size as usize,
-            false,
             None,
-        )));
+        )
+        .map_err(|e| format!("Failed to create trigger junction: {}", e))?;
+
         builder.add_stream_junction(definition.id.clone(), Arc::clone(&junction));
 
         let scheduler = eventflux_app_context.get_scheduler().unwrap_or_else(|| {

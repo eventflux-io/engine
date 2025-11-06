@@ -105,7 +105,7 @@ fn setup_junction(
         1024,
         async_mode,
         None,
-    )));
+    ).unwrap()));
     let rec1 = Arc::new(Mutex::new(Vec::new()));
     let rec2 = Arc::new(Mutex::new(Vec::new()));
     let p1 = Arc::new(Mutex::new(RecordingProcessor {
@@ -116,6 +116,9 @@ fn setup_junction(
     }));
     junction.lock().unwrap().subscribe(p1);
     junction.lock().unwrap().subscribe(p2);
+    if async_mode {
+        junction.lock().unwrap().start_processing().expect("Failed to start async processing");
+    }
     (junction, rec1, rec2)
 }
 

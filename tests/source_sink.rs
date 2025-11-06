@@ -32,10 +32,10 @@ fn timer_source_to_log_sink() {
         "FooStream".to_string(),
         Arc::clone(&stream_def),
         Arc::clone(&app_ctx),
-        16,
+        64,
         false,
         None,
-    )));
+    ).unwrap()));
 
     let publisher = junction.lock().unwrap().construct_publisher();
     let input_handler = Arc::new(Mutex::new(InputHandler::new(

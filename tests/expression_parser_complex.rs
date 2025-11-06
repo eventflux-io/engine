@@ -325,7 +325,7 @@ fn test_join_query_parsing() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
     junctions.insert(
@@ -338,7 +338,7 @@ fn test_join_query_parsing() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
     junctions.insert(
@@ -351,7 +351,7 @@ fn test_join_query_parsing() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
 
@@ -433,7 +433,7 @@ fn test_pattern_query_parsing() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
     junctions.insert(
@@ -446,7 +446,7 @@ fn test_pattern_query_parsing() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
     junctions.insert(
@@ -459,7 +459,7 @@ fn test_pattern_query_parsing() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
 
@@ -520,7 +520,7 @@ fn test_table_in_expression_query() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
     junctions.insert(
@@ -533,7 +533,7 @@ fn test_table_in_expression_query() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
     let mut table_defs = HashMap::new();
@@ -570,7 +570,7 @@ fn test_join_query_parsing_from_string() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
     junctions.insert(
@@ -583,7 +583,7 @@ fn test_join_query_parsing_from_string() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
     junctions.insert(
@@ -596,7 +596,7 @@ fn test_join_query_parsing_from_string() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
     let res = QueryParser::parse_query(
@@ -629,7 +629,7 @@ fn test_pattern_query_parsing_from_string() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
     junctions.insert(
@@ -642,7 +642,7 @@ fn test_pattern_query_parsing_from_string() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
     junctions.insert(
@@ -655,7 +655,7 @@ fn test_pattern_query_parsing_from_string() {
                 1024,
                 false,
                 None,
-            ),
+            ).unwrap(),
         )),
     );
     let res = QueryParser::parse_query(

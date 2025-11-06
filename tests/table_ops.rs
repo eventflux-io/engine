@@ -244,7 +244,7 @@ fn test_query_parser_with_table_actions() {
             1024,
             false,
             None,
-        ))),
+        ).unwrap())),
     );
 
     let mut table_defs = HashMap::new();

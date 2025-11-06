@@ -226,7 +226,7 @@ fn setup_query_env(
         1024,
         false,
         None,
-    )));
+    ).unwrap()));
     let out_j = Arc::new(Mutex::new(StreamJunction::new(
         "Out".to_string(),
         Arc::clone(&out_def),
@@ -234,7 +234,7 @@ fn setup_query_env(
         1024,
         false,
         None,
-    )));
+    ).unwrap()));
 
     let mut map = HashMap::new();
     map.insert("Input".to_string(), in_j);

@@ -1,26 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! StreamJunction Factory for Performance-Optimized Event Routing
+//! StreamJunction Factory for Event Routing
 //!
-//! Provides intelligent selection between original crossbeam_channel-based
-//! implementation and new high-performance crossbeam pipeline-based implementation.
+//! Provides configuration and creation of high-performance StreamJunctions
+//! using crossbeam pipeline-based implementation.
 
 use crate::core::config::eventflux_app_context::EventFluxAppContext;
-use crate::core::stream::{OptimizedStreamJunction, StreamJunction};
+use crate::core::stream::StreamJunction;
 use crate::query_api::definition::StreamDefinition;
 use std::sync::{Arc, Mutex};
-
-/// Performance optimization levels for StreamJunction selection
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum PerformanceLevel {
-    /// Use original crossbeam_channel implementation
-    Standard,
-    /// Use optimized crossbeam pipeline implementation  
-    HighPerformance,
-    /// Automatically select based on workload characteristics
-    #[default]
-    Auto,
-}
 
 /// Configuration for StreamJunction creation
 #[derive(Debug, Clone)]
@@ -28,7 +16,6 @@ pub struct JunctionConfig {
     pub stream_id: String,
     pub buffer_size: usize,
     pub is_async: bool,
-    pub performance_level: PerformanceLevel,
     pub expected_throughput: Option<u64>, // events/second
     pub subscriber_count: Option<usize>,
 }
@@ -50,7 +37,6 @@ impl JunctionConfig {
             stream_id,
             buffer_size: 4096,
             is_async: false, // DEFAULT: Synchronous to guarantee event ordering
-            performance_level: PerformanceLevel::Auto,
             expected_throughput: None,
             subscriber_count: None,
         }
@@ -98,12 +84,6 @@ impl JunctionConfig {
         self
     }
 
-    /// Set performance level
-    pub fn with_performance_level(mut self, level: PerformanceLevel) -> Self {
-        self.performance_level = level;
-        self
-    }
-
     /// Set expected throughput hint
     pub fn with_expected_throughput(mut self, throughput: u64) -> Self {
         self.expected_throughput = Some(throughput);
@@ -117,82 +97,32 @@ impl JunctionConfig {
     }
 }
 
-/// High-level junction types for different use cases
-pub enum JunctionType {
-    /// Original implementation for compatibility
-    Standard(Arc<Mutex<StreamJunction>>),
-    /// Optimized implementation for high performance
-    Optimized(Arc<Mutex<OptimizedStreamJunction>>),
-}
-
-impl JunctionType {
-    /// Get stream ID regardless of implementation
-    pub fn stream_id(&self) -> String {
-        match self {
-            JunctionType::Standard(junction) => junction.lock().unwrap().stream_id.clone(),
-            JunctionType::Optimized(junction) => junction.lock().unwrap().stream_id.clone(),
-        }
-    }
-
-    /// Get total events processed
-    pub fn total_events(&self) -> Option<u64> {
-        match self {
-            JunctionType::Standard(junction) => junction.lock().unwrap().total_events(),
-            JunctionType::Optimized(junction) => junction.lock().unwrap().total_events(),
-        }
-    }
-
-    /// Get average latency in nanoseconds
-    pub fn average_latency_ns(&self) -> Option<u64> {
-        match self {
-            JunctionType::Standard(junction) => junction.lock().unwrap().average_latency_ns(),
-            JunctionType::Optimized(junction) => junction.lock().unwrap().average_latency_ns(),
-        }
-    }
-
-    /// Check if junction is using optimized implementation
-    pub fn is_optimized(&self) -> bool {
-        matches!(self, JunctionType::Optimized(_))
-    }
-}
-
-/// Factory for creating StreamJunctions with automatic optimization
+/// Factory for creating StreamJunctions
 pub struct StreamJunctionFactory;
 
 impl StreamJunctionFactory {
-    /// Create a StreamJunction with automatic optimization selection
+    /// Create a StreamJunction with the given configuration
     pub fn create(
         config: JunctionConfig,
         stream_definition: Arc<StreamDefinition>,
         eventflux_app_context: Arc<EventFluxAppContext>,
         fault_stream_junction: Option<Arc<Mutex<StreamJunction>>>,
-    ) -> Result<JunctionType, String> {
-        let should_optimize = Self::should_use_optimized_junction(&config, &eventflux_app_context);
-
-        if should_optimize {
-            Self::create_optimized_junction(
-                config,
-                stream_definition,
-                eventflux_app_context,
-                fault_stream_junction,
-            )
-        } else {
-            Self::create_standard_junction(
-                config,
-                stream_definition,
-                eventflux_app_context,
-                fault_stream_junction,
-            )
-        }
+    ) -> Result<Arc<Mutex<StreamJunction>>, String> {
+        Self::create_junction(
+            config,
+            stream_definition,
+            eventflux_app_context,
+            fault_stream_junction,
+        )
     }
 
-    /// Create the standard crossbeam_channel-based junction
-    pub fn create_standard_junction(
+    /// Create a StreamJunction (internal implementation)
+    pub fn create_junction(
         config: JunctionConfig,
         stream_definition: Arc<StreamDefinition>,
         eventflux_app_context: Arc<EventFluxAppContext>,
         fault_stream_junction: Option<Arc<Mutex<StreamJunction>>>,
-    ) -> Result<JunctionType, String> {
+    ) -> Result<Arc<Mutex<StreamJunction>>, String> {
         let junction = StreamJunction::new(
             config.stream_id,
             stream_definition,
@@ -200,87 +130,9 @@ impl StreamJunctionFactory {
             config.buffer_size,
             config.is_async,
             fault_stream_junction,
-        );
-
-        Ok(JunctionType::Standard(Arc::new(Mutex::new(junction))))
-    }
-
-    /// Create the optimized crossbeam pipeline-based junction
-    pub fn create_optimized_junction(
-        config: JunctionConfig,
-        stream_definition: Arc<StreamDefinition>,
-        eventflux_app_context: Arc<EventFluxAppContext>,
-        _fault_stream_junction: Option<Arc<Mutex<StreamJunction>>>,
-    ) -> Result<JunctionType, String> {
-        // For now, we'll keep fault junction as None for the optimized implementation
-        // In a full implementation, we'd want to create an optimized fault junction
-        let optimized_fault_junction = None;
-
-        let junction = OptimizedStreamJunction::new(
-            config.stream_id,
-            stream_definition,
-            eventflux_app_context,
-            config.buffer_size,
-            config.is_async,
-            optimized_fault_junction,
         )?;
 
-        Ok(JunctionType::Optimized(Arc::new(Mutex::new(junction))))
-    }
-
-    /// Determine if optimized junction should be used
-    fn should_use_optimized_junction(
-        config: &JunctionConfig,
-        eventflux_app_context: &EventFluxAppContext,
-    ) -> bool {
-        match config.performance_level {
-            PerformanceLevel::Standard => false,
-            PerformanceLevel::HighPerformance => true,
-            PerformanceLevel::Auto => Self::auto_select_optimization(config, eventflux_app_context),
-        }
-    }
-
-    /// Automatic selection logic based on workload characteristics
-    fn auto_select_optimization(
-        config: &JunctionConfig,
-        _eventflux_app_context: &EventFluxAppContext,
-    ) -> bool {
-        let mut score = 0;
-
-        // High throughput workloads benefit from optimization
-        if let Some(throughput) = config.expected_throughput {
-            if throughput > 100000 {
-                // >100K events/sec
-                score += 3;
-            } else if throughput > 10000 {
-                // >10K events/sec
-                score += 1;
-            }
-        }
-
-        // Multiple subscribers benefit from optimization
-        if let Some(subscribers) = config.subscriber_count {
-            if subscribers > 5 {
-                score += 2;
-            } else if subscribers > 2 {
-                score += 1;
-            }
-        }
-
-        // Large buffers suggest high-throughput scenarios
-        if config.buffer_size > 8192 {
-            score += 2;
-        } else if config.buffer_size > 4096 {
-            score += 1;
-        }
-
-        // Async mode benefits more from optimization
-        if config.is_async {
-            score += 1;
-        }
-
-        // Use optimized version if score suggests high-performance needs
-        score >= 3
+        Ok(Arc::new(Mutex::new(junction)))
     }
 
     /// Create a junction with performance hints
@@ -290,7 +142,7 @@ impl StreamJunctionFactory {
         eventflux_app_context: Arc<EventFluxAppContext>,
         expected_throughput: Option<u64>,
         subscriber_count: Option<usize>,
-    ) -> Result<JunctionType, String> {
+    ) -> Result<Arc<Mutex<StreamJunction>>, String> {
         let config = JunctionConfig::new(stream_id)
             .with_expected_throughput(expected_throughput.unwrap_or(0))
             .with_subscriber_count(subscriber_count.unwrap_or(1));
@@ -304,11 +156,10 @@ impl StreamJunctionFactory {
         stream_definition: Arc<StreamDefinition>,
         eventflux_app_context: Arc<EventFluxAppContext>,
         buffer_size: usize,
-    ) -> Result<JunctionType, String> {
+    ) -> Result<Arc<Mutex<StreamJunction>>, String> {
         let config = JunctionConfig::new(stream_id)
             .with_buffer_size(buffer_size)
-            .with_async(true)
-            .with_performance_level(PerformanceLevel::HighPerformance);
+            .with_async(true);
 
         Self::create(config, stream_definition, eventflux_app_context, None)
     }
@@ -320,7 +171,7 @@ pub struct JunctionBenchmark;
 impl JunctionBenchmark {
     /// Run a simple throughput benchmark
     pub fn benchmark_throughput(
-        junction: &JunctionType,
+        junction: &Arc<Mutex<StreamJunction>>,
         num_events: usize,
         num_threads: usize,
     ) -> Result<BenchmarkResult, String> {
@@ -333,33 +184,17 @@ impl JunctionBenchmark {
 
         for thread_id in 0..num_threads {
             let events_per_thread = num_events / num_threads;
+            let junction_clone = Arc::clone(junction);
 
-            match junction {
-                JunctionType::Standard(junction) => {
-                    let junction_clone = Arc::clone(junction);
-                    handles.push(thread::spawn(move || {
-                        for i in 0..events_per_thread {
-                            let event = Event::new_with_data(
-                                i as i64,
-                                vec![AttributeValue::Int(thread_id as i32 * 1000 + i as i32)],
-                            );
-                            junction_clone.lock().unwrap().send_event(event);
-                        }
-                    }));
+            handles.push(thread::spawn(move || {
+                for i in 0..events_per_thread {
+                    let event = Event::new_with_data(
+                        i as i64,
+                        vec![AttributeValue::Int(thread_id as i32 * 1000 + i as i32)],
+                    );
+                    let _ = junction_clone.lock().unwrap().send_event(event);
                 }
-                JunctionType::Optimized(junction) => {
-                    let junction_clone = Arc::clone(junction);
-                    handles.push(thread::spawn(move || {
-                        for i in 0..events_per_thread {
-                            let event = Event::new_with_data(
-                                i as i64,
-                                vec![AttributeValue::Int(thread_id as i32 * 1000 + i as i32)],
-                            );
-                            let _ = junction_clone.lock().unwrap().send_event(event);
-                        }
-                    }));
-                }
-            }
+            }));
         }
 
         for handle in handles {
@@ -373,12 +208,7 @@ impl JunctionBenchmark {
             events_sent: num_events,
             duration,
             throughput,
-            implementation: if junction.is_optimized() {
-                "Optimized"
-            } else {
-                "Standard"
-            }
-            .to_string(),
+            implementation: "StreamJunction".to_string(),
         })
     }
 }
@@ -430,58 +260,16 @@ mod tests {
     }
 
     #[test]
-    fn test_auto_selection_low_throughput() {
+    fn test_create_with_config() {
         let config = JunctionConfig::new("TestStream".to_string())
-            .with_expected_throughput(1000) // Low throughput
-            .with_subscriber_count(1);
-
-        let context = create_test_context();
-        let should_optimize =
-            StreamJunctionFactory::should_use_optimized_junction(&config, &context);
-
-        // Low throughput should use standard implementation
-        assert!(!should_optimize);
-    }
-
-    #[test]
-    fn test_auto_selection_high_throughput() {
-        let config = JunctionConfig::new("TestStream".to_string())
-            .with_expected_throughput(200000) // High throughput
-            .with_subscriber_count(3) // Multiple subscribers
-            .with_buffer_size(16384); // Large buffer
-
-        let context = create_test_context();
-        let should_optimize =
-            StreamJunctionFactory::should_use_optimized_junction(&config, &context);
-
-        // High throughput should use optimized implementation
-        assert!(should_optimize);
-    }
-
-    #[test]
-    fn test_force_standard_implementation() {
-        let config = JunctionConfig::new("TestStream".to_string())
-            .with_expected_throughput(500000) // Would normally trigger optimization
-            .with_performance_level(PerformanceLevel::Standard); // But force standard
+            .with_expected_throughput(100)
+            .with_buffer_size(4096);
 
         let context = create_test_context();
         let stream_def = create_test_stream_definition();
 
         let junction = StreamJunctionFactory::create(config, stream_def, context, None).unwrap();
-        assert!(!junction.is_optimized());
-    }
-
-    #[test]
-    fn test_force_optimized_implementation() {
-        let config = JunctionConfig::new("TestStream".to_string())
-            .with_expected_throughput(100) // Low throughput
-            .with_performance_level(PerformanceLevel::HighPerformance); // But force optimized
-
-        let context = create_test_context();
-        let stream_def = create_test_stream_definition();
-
-        let junction = StreamJunctionFactory::create(config, stream_def, context, None).unwrap();
-        assert!(junction.is_optimized());
+        assert_eq!(junction.lock().unwrap().stream_id, "TestStream");
     }
 
     #[test]
@@ -497,8 +285,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(junction.is_optimized());
-        assert_eq!(junction.stream_id(), "HighPerfStream");
+        assert_eq!(junction.lock().unwrap().stream_id, "HighPerfStream");
     }
 
     #[test]
@@ -506,7 +293,7 @@ mod tests {
         let context = create_test_context();
         let stream_def = create_test_stream_definition();
 
-        // High throughput hint should trigger optimization
+        // High throughput hint should create junction successfully
         let junction = StreamJunctionFactory::create_with_hints(
             "HintedStream".to_string(),
             stream_def,
@@ -516,6 +303,6 @@ mod tests {
         )
         .unwrap();
 
-        assert!(junction.is_optimized());
+        assert_eq!(junction.lock().unwrap().stream_id, "HintedStream");
     }
 }

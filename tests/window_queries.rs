@@ -54,7 +54,7 @@ fn setup_context() -> (
         1024,
         false,
         None,
-    )));
+    ).unwrap()));
     let out_junction = Arc::new(Mutex::new(StreamJunction::new(
         "OutStream".to_string(),
         Arc::clone(&out_def),
@@ -62,7 +62,7 @@ fn setup_context() -> (
         1024,
         false,
         None,
-    )));
+    ).unwrap()));
 
     let mut map = HashMap::new();
     map.insert("InputStream".to_string(), in_junction);
