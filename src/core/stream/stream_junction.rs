@@ -438,19 +438,40 @@ impl StreamJunction {
                     events.push(event);
                 } else {
                     // Fallback: extract data from individual StreamEvents in the StateEvent
+                    // CRITICAL: Each slot can contain a linked list of StreamEvents via `next` pointers
+                    // (e.g., from count/sequence quantifiers like e1[2] or e1{2,5})
+                    // We must traverse the entire chain, not just the head
                     for stream_event_opt in &state_event.stream_events {
-                        if let Some(ref stream_event) = stream_event_opt {
-                            let data = stream_event
-                                .output_data
-                                .as_ref()
-                                .unwrap_or(&stream_event.before_window_data)
-                                .clone();
-                            let mut event = Event::new_with_data(stream_event.timestamp, data);
-                            event.is_expired = matches!(
-                                state_event.event_type,
-                                crate::core::event::complex_event::ComplexEventType::Expired
-                            );
-                            events.push(event);
+                        if let Some(stream_event_arc) = stream_event_opt {
+                            // Traverse the chain of StreamEvents at this position
+                            // stream_event_arc is &Arc<StreamEvent>, *stream_event_arc is Arc<StreamEvent> (via Deref)
+                            // which derefs to StreamEvent, so &*stream_event_arc gives &StreamEvent
+                            let stream_event_ref: &crate::core::event::stream::StreamEvent = &*stream_event_arc;
+                            let mut current_in_chain: Option<&dyn crate::core::event::ComplexEvent> =
+                                Some(stream_event_ref);
+
+                            while let Some(current) = current_in_chain {
+                                // Try to downcast to StreamEvent
+                                if let Some(se) = current.as_any().downcast_ref::<crate::core::event::stream::StreamEvent>() {
+                                    let data = se
+                                        .output_data
+                                        .as_ref()
+                                        .unwrap_or(&se.before_window_data)
+                                        .clone();
+                                    let mut event = Event::new_with_data(se.timestamp, data);
+                                    event.is_expired = matches!(
+                                        state_event.event_type,
+                                        crate::core::event::complex_event::ComplexEventType::Expired
+                                    );
+                                    events.push(event);
+
+                                    // Move to next in chain
+                                    current_in_chain = se.next.as_ref().map(|b| b.as_ref());
+                                } else {
+                                    // Not a StreamEvent, stop traversing this chain
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
