@@ -201,6 +201,79 @@ impl StreamJunction {
         Ok(junction)
     }
 
+    /// Create a new StreamJunction with a custom executor (primarily for testing)
+    #[cfg(test)]
+    pub fn new_with_executor(
+        stream_id: String,
+        stream_definition: Arc<StreamDefinition>,
+        eventflux_app_context: Arc<EventFluxAppContext>,
+        buffer_size: usize,
+        is_async: bool,
+        fault_stream_junction: Option<Arc<Mutex<StreamJunction>>>,
+        executor_service: Arc<ExecutorService>,
+    ) -> Result<Self, String> {
+        // Configure pipeline based on async mode and performance requirements
+        let backpressure_strategy = if is_async {
+            BackpressureStrategy::ExponentialBackoff { max_delay_ms: 1000 }
+        } else {
+            BackpressureStrategy::Block
+        };
+
+        let pipeline_config = PipelineConfig {
+            capacity: buffer_size,
+            backpressure: backpressure_strategy,
+            use_object_pool: true,
+            consumer_threads: if is_async {
+                (num_cpus::get() / 2).max(1)
+            } else {
+                1
+            },
+            batch_size: 64,
+            enable_metrics: eventflux_app_context.get_root_metrics_level()
+                != crate::core::config::eventflux_app_context::MetricsLevelPlaceholder::OFF,
+        };
+
+        let event_pipeline = Arc::new(
+            PipelineBuilder::new()
+                .with_capacity(pipeline_config.capacity)
+                .with_backpressure(pipeline_config.backpressure)
+                .with_object_pool(pipeline_config.use_object_pool)
+                .with_consumer_threads(pipeline_config.consumer_threads)
+                .with_batch_size(pipeline_config.batch_size)
+                .with_metrics(pipeline_config.enable_metrics)
+                .build()?,
+        );
+
+        let event_pool = Arc::new(EventPool::new(buffer_size * 2));
+
+        let junction = Self {
+            stream_id,
+            stream_definition,
+            eventflux_app_context,
+            event_pipeline,
+            _event_pool: event_pool,
+            subscribers: Arc::new(Mutex::new(Vec::new())),
+            is_async,
+            buffer_size,
+            on_error_action: OnErrorAction::default(),
+            started: Arc::new(AtomicBool::new(false)),
+            shutdown: Arc::new(AtomicBool::new(false)),
+            fault_stream_junction,
+            events_processed: Arc::new(CachePadded::new(AtomicU64::new(0))),
+            events_dropped: Arc::new(CachePadded::new(AtomicU64::new(0))),
+            processing_errors: Arc::new(CachePadded::new(AtomicU64::new(0))),
+            executor_service,
+        };
+
+        // Automatically start async consumer if in async mode
+        if is_async {
+            junction.start_async_consumer()?;
+            junction.started.store(true, Ordering::Release);
+        }
+
+        Ok(junction)
+    }
+
     /// Get the stream definition
     pub fn get_stream_definition(&self) -> Arc<StreamDefinition> {
         Arc::clone(&self.stream_definition)
@@ -464,6 +537,10 @@ impl StreamJunction {
         let executor_service = Arc::clone(&self.executor_service);
         let stream_id = self.stream_id.clone();
 
+        // CRITICAL: Detect single-threaded executor to avoid starvation deadlock
+        // If executor has only 1 thread, consumer occupies it and subscriber tasks never run
+        let is_single_threaded = executor_service.pool_size() == 1;
+
         // Start a dedicated consumer thread that processes events from the pipeline
         let executor_for_main = Arc::clone(&executor_service);
         executor_for_main.execute(move || {
@@ -491,28 +568,43 @@ impl StreamJunction {
                     return Ok(());
                 }
 
-                // Process for each subscriber - dispatch events efficiently
+                // Process for each subscriber
                 for subscriber in subs.iter() {
                     // Clone event for each subscriber
                     let event_for_sub = Some(crate::core::event::complex_event::clone_event_chain(
                         boxed_event.as_ref(),
                     ));
 
-                    // Process asynchronously to avoid blocking the pipeline consumer
-                    let subscriber_clone = Arc::clone(subscriber);
-                    let stream_id_clone = stream_id.clone();
-                    let executor_clone = Arc::clone(&executor_service);
-                    let error_counter_clone = Arc::clone(&error_counter);
+                    if is_single_threaded {
+                        // CRITICAL: Run inline on single-threaded executor to avoid starvation
+                        // If we dispatch to executor, consumer occupies the only thread and
+                        // subscriber tasks never execute, causing pipeline to fill and drop events
+                        match subscriber.lock() {
+                            Ok(processor) => {
+                                processor.process(event_for_sub);
+                            }
+                            Err(_) => {
+                                error_counter.fetch_add(1, Ordering::Relaxed);
+                                eprintln!("[{}] Failed to lock subscriber processor", stream_id);
+                            }
+                        }
+                    } else {
+                        // Multi-threaded: dispatch asynchronously to avoid blocking consumer
+                        let subscriber_clone = Arc::clone(subscriber);
+                        let stream_id_clone = stream_id.clone();
+                        let executor_clone = Arc::clone(&executor_service);
+                        let error_counter_clone = Arc::clone(&error_counter);
 
-                    executor_clone.execute(move || match subscriber_clone.lock() {
-                        Ok(processor) => {
-                            processor.process(event_for_sub);
-                        }
-                        Err(_) => {
-                            error_counter_clone.fetch_add(1, Ordering::Relaxed);
-                            eprintln!("[{stream_id_clone}] Failed to lock subscriber processor");
-                        }
-                    });
+                        executor_clone.execute(move || match subscriber_clone.lock() {
+                            Ok(processor) => {
+                                processor.process(event_for_sub);
+                            }
+                            Err(_) => {
+                                error_counter_clone.fetch_add(1, Ordering::Relaxed);
+                                eprintln!("[{stream_id_clone}] Failed to lock subscriber processor");
+                            }
+                        });
+                    }
                 }
 
                 events_processed.fetch_add(1, Ordering::Relaxed);
@@ -1167,6 +1259,84 @@ mod tests {
         assert!(
             metrics.events_dropped > 0,
             "Should have dropped events due to small buffer"
+        );
+    }
+
+    #[test]
+    fn test_single_threaded_executor_no_starvation() {
+        // REGRESSION TEST: Single-threaded executor must not starve subscribers
+        // Bug: Consumer and subscribers share same executor - if only 1 thread, consumer
+        // occupies it and subscriber tasks never execute, causing pipeline to fill
+        // Fix: Run subscribers inline when pool_size == 1
+
+        let ctx = Arc::new(EventFluxContext::new());
+        let app = Arc::new(EventFluxApp::new("TestApp".to_string()));
+        let app_ctx = Arc::new(EventFluxAppContext::new(
+            Arc::clone(&ctx),
+            "Test".to_string(),
+            Arc::clone(&app),
+            String::new(),
+        ));
+
+        let stream_def = Arc::new(
+            StreamDefinition::new("TestStream".to_string())
+                .attribute("value".to_string(), AttrType::INT),
+        );
+
+        // CRITICAL: Create single-threaded executor to reproduce starvation bug
+        let single_thread_executor = Arc::new(crate::core::util::executor_service::ExecutorService::new(
+            "single-thread-test",
+            1, // Only 1 thread - will cause starvation if not handled correctly
+        ));
+
+        let junction = Arc::new(Mutex::new(
+            StreamJunction::new_with_executor(
+                "TestStream".to_string(),
+                stream_def,
+                app_ctx,
+                4096,
+                true, // Async junction
+                None,
+                single_thread_executor,
+            )
+            .unwrap(),
+        ));
+
+        // Create processor that captures events
+        let processor = Arc::new(Mutex::new(TestProcessor::new("test".to_string())));
+        junction.lock().unwrap().subscribe(processor.clone());
+
+        // Send events - these should be processed even with single-threaded executor
+        let events: Vec<_> = (0..100)
+            .map(|i| Event::new_with_data(1000 + i, vec![AttributeValue::Int(i as i32)]))
+            .collect();
+
+        junction.lock().unwrap().send_events(events).unwrap();
+
+        // Wait for async processing
+        thread::sleep(Duration::from_millis(500));
+
+        // CRITICAL ASSERTION: Events must be received despite single-threaded executor
+        // If fix is broken, consumer starves subscribers and no events are processed
+        let received_events = processor.lock().unwrap().get_events();
+        assert_eq!(
+            received_events.len(),
+            100,
+            "Single-threaded executor must not starve subscribers! \
+             Expected 100 events processed, got {}. \
+             Bug: Consumer occupies the only thread and subscriber tasks never execute.",
+            received_events.len()
+        );
+
+        // Verify metrics show all events processed (no drops)
+        let metrics = junction.lock().unwrap().get_performance_metrics();
+        assert_eq!(
+            metrics.events_processed, 100,
+            "All events should be processed on single-threaded executor"
+        );
+        assert_eq!(
+            metrics.events_dropped, 0,
+            "No events should be dropped due to starvation"
         );
     }
 }
