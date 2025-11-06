@@ -109,6 +109,8 @@ mod tests {
 
     #[test]
     fn test_concurrent_access() {
+        use std::time::Duration;
+
         let state = Arc::new(ProcessorSharedState::new());
         let state1 = state.clone();
         let state2 = state.clone();
@@ -117,6 +119,7 @@ mod tests {
         let t1 = thread::spawn(move || {
             for _ in 0..1000 {
                 state1.mark_state_changed();
+                thread::sleep(Duration::from_micros(10)); // Give thread 2 time to observe
             }
         });
 
@@ -128,6 +131,7 @@ mod tests {
                     saw_changed = true;
                     state2.reset_state_changed();
                 }
+                thread::sleep(Duration::from_micros(10)); // Give thread 1 time to mark
             }
             saw_changed
         });
