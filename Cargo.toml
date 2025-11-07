@@ -66,6 +66,11 @@ tempfile = "3"
 custom_dyn_ext = { path = "tests/custom_dyn_ext" }
 serial_test = "3.0"
 tokio = { version = "1", features = ["full", "test-util"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "lock_contention_bench"
+harness = false
 
 [features]
 default = []
