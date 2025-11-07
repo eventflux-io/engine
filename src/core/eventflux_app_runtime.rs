@@ -448,55 +448,80 @@ impl EventFluxAppRuntime {
         }
     }
 
-    pub fn start(&self) {
+    /// Start the EventFlux application runtime
+    ///
+    /// Attempts to auto-attach configured sources, sinks, and tables, then starts
+    /// all components. Errors are logged for debugging and accumulated for reporting.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Runtime started successfully (all attachments succeeded)
+    /// * `Err(EventFluxError)` - One or more attachment or startup failures occurred
+    ///
+    /// # Error Handling
+    ///
+    /// This method logs all errors as they occur for immediate debugging feedback,
+    /// then returns an aggregated error if any operations failed. This allows callers
+    /// to detect startup failures while still providing detailed logs.
+    ///
+    /// Partial success is possible (e.g., some sources attach, others fail). The
+    /// returned error will contain details about all failures.
+    pub fn start(&self) -> Result<(), crate::core::exception::EventFluxError> {
+        use crate::core::exception::EventFluxError;
+
+        let mut all_errors = Vec::new();
+
         // Auto-attach sources and sinks from configuration (if available)
         if let Some(app_config) = &self.eventflux_app_context.app_config {
             // Auto-attach sources - idempotent operation with error accumulation
             match self.auto_attach_sources_from_config(app_config) {
                 Ok(sources) => {
                     if !sources.is_empty() {
-                        println!(
-                            "[EventFluxAppRuntime] Successfully attached {} source(s): {}",
+                        log::info!(
+                            "Successfully attached {} source(s): {}",
                             sources.len(),
                             sources.join(", ")
                         );
                     }
                 }
                 Err(errors) => {
-                    eprintln!(
-                        "[EventFluxAppRuntime] Failed to auto-attach sources ({} error(s)):",
+                    log::error!(
+                        "Failed to auto-attach sources ({} error(s)):",
                         errors.len()
                     );
                     for (i, e) in errors.iter().enumerate() {
-                        eprintln!("  {}. {}", i + 1, e);
+                        log::error!("  {}. {}", i + 1, e);
                     }
+                    all_errors.extend(errors);
                 }
             }
 
             // Auto-attach sinks - idempotent operation
             if let Err(e) = self.auto_attach_sinks_from_config(app_config) {
-                eprintln!("[EventFluxAppRuntime] Failed to auto-attach sinks: {}", e);
+                log::error!("Failed to auto-attach sinks: {}", e);
+                all_errors.push(EventFluxError::app_runtime(e));
             }
 
             // Auto-attach tables - idempotent operation with error accumulation
             match self.auto_attach_tables_from_config(app_config) {
                 Ok(tables) => {
                     if !tables.is_empty() {
-                        println!(
-                            "[EventFluxAppRuntime] Successfully attached {} table(s): {}",
+                        log::info!(
+                            "Successfully attached {} table(s): {}",
                             tables.len(),
                             tables.join(", ")
                         );
                     }
                 }
                 Err(errors) => {
-                    eprintln!(
-                        "[EventFluxAppRuntime] Failed to auto-attach tables ({} error(s)):",
+                    log::error!(
+                        "Failed to auto-attach tables ({} error(s)):",
                         errors.len()
                     );
                     for (idx, err) in errors.iter().enumerate() {
-                        eprintln!("  {}. {}", idx + 1, err);
+                        log::error!("  {}. {}", idx + 1, err);
                     }
+                    all_errors.extend(errors);
                 }
             }
         }
@@ -505,32 +530,34 @@ impl EventFluxAppRuntime {
         match self.auto_attach_from_sql_definitions() {
             Ok((sources, sinks)) => {
                 if !sources.is_empty() || !sinks.is_empty() {
-                    println!(
-                        "[EventFluxAppRuntime] Auto-attached from SQL: {} source(s), {} sink(s)",
+                    log::info!(
+                        "Auto-attached from SQL: {} source(s), {} sink(s)",
                         sources.len(),
                         sinks.len()
                     );
                 }
             }
             Err(errors) => {
-                eprintln!(
-                    "[EventFluxAppRuntime] Failed to auto-attach from SQL ({} error(s)):",
+                log::error!(
+                    "Failed to auto-attach from SQL ({} error(s)):",
                     errors.len()
                 );
                 for (i, e) in errors.iter().enumerate() {
-                    eprintln!("  {}. {}", i + 1, e);
+                    log::error!("  {}. {}", i + 1, e);
                 }
+                all_errors.extend(errors);
             }
         }
 
         // Start all registered sources (idempotent - no-op if already started)
         if let Err(e) = self.start_all_sources() {
-            eprintln!("[EventFluxAppRuntime] Failed to start sources: {}", e);
+            log::error!("Failed to start sources: {}", e);
+            all_errors.push(EventFluxError::app_runtime(e));
         }
 
         if self.scheduler.is_some() {
             // placeholder: scheduler is kept alive by self
-            println!(
+            log::info!(
                 "Scheduler initialized for EventFluxAppRuntime '{}'",
                 self.name
             );
@@ -541,7 +568,27 @@ impl EventFluxAppRuntime {
         for pr in &self.partition_runtimes {
             pr.start();
         }
-        println!("EventFluxAppRuntime '{}' started", self.name);
+
+        // Check if any errors occurred during startup
+        if !all_errors.is_empty() {
+            log::error!(
+                "EventFluxAppRuntime '{}' started with {} error(s)",
+                self.name,
+                all_errors.len()
+            );
+            return Err(EventFluxError::app_runtime(format!(
+                "Runtime startup encountered {} error(s): {}",
+                all_errors.len(),
+                all_errors
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )));
+        }
+
+        log::info!("EventFluxAppRuntime '{}' started successfully", self.name);
+        Ok(())
     }
 
     pub fn shutdown(&self) {
@@ -562,11 +609,19 @@ impl EventFluxAppRuntime {
             qr.flush();
         }
         // Persisted revisions are retained after shutdown for potential restoration
-        println!("EventFluxAppRuntime '{}' shutdown", self.name);
+        log::info!("EventFluxAppRuntime '{}' shutdown", self.name);
     }
 
     /// Persist the current snapshot using the configured SnapshotService.
-    pub fn persist(&self) -> Result<String, String> {
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(PersistReport)` - Persistence completed with details about successes/failures
+    /// * `Err(String)` - Critical failure (no snapshot service or persistence store)
+    ///
+    /// Callers should check the returned `PersistReport.failure_count` to detect
+    /// partial failures where some components failed to persist.
+    pub fn persist(&self) -> Result<crate::core::persistence::PersistReport, String> {
         let service = self
             .eventflux_app_context
             .get_snapshot_service()
@@ -727,7 +782,7 @@ impl EventFluxAppRuntime {
                             attached_sources.push(stream_id.clone());
                         }
                         Err(e) => {
-                            eprintln!(
+                            log::error!(
                                 "[EventFluxAppRuntime] Failed to attach SQL source '{}': {}",
                                 stream_id, e
                             );
@@ -740,7 +795,7 @@ impl EventFluxAppRuntime {
                         attached_sinks.push(stream_id.clone());
                     }
                     Err(e) => {
-                        eprintln!(
+                        log::error!(
                             "[EventFluxAppRuntime] Failed to attach SQL sink '{}': {}",
                             stream_id, e
                         );
@@ -768,7 +823,7 @@ impl EventFluxAppRuntime {
             Err(errors)
         } else {
             // Partial success - log warning but don't fail
-            eprintln!(
+            log::error!(
                 "[EventFluxAppRuntime] Partial SQL attachment: {} source(s) + {} sink(s) succeeded, {} failed",
                 attached_sources.len(),
                 attached_sinks.len(),
@@ -778,16 +833,99 @@ impl EventFluxAppRuntime {
         }
     }
 
+    /// Common helper for attaching source streams
+    ///
+    /// This method contains the shared logic between YAML and SQL source attachment.
+    /// It performs the actual source creation, handler registration, and startup.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_name` - Name of the stream to attach
+    /// * `stream_type_config` - Already-constructed StreamTypeConfig
+    /// * `context_label` - Label for error messages ("YAML", "SQL", etc.)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Source successfully attached and started
+    /// * `Err(EventFluxError)` - Detailed error with context
+    fn attach_source_common(
+        &self,
+        stream_name: &str,
+        stream_type_config: &crate::core::config::stream_config::StreamTypeConfig,
+        context_label: &str,
+    ) -> Result<(), crate::core::exception::EventFluxError> {
+        use crate::core::exception::EventFluxError;
+        use crate::core::stream::handler::SourceStreamHandler;
+        use crate::core::stream::stream_initializer::{initialize_stream, InitializedStream};
+
+        // Check if handler already registered (idempotent operation)
+        if let Some(existing_handler) = self.get_source_handler(stream_name) {
+            // Handler already exists - just ensure it's started
+            existing_handler.start()?;
+            return Ok(());
+        }
+
+        // Use stream_initializer to create source with mapper
+        let initialized = initialize_stream(
+            &self.eventflux_app_context.eventflux_context,
+            stream_type_config,
+        )
+        .map_err(|e| {
+            EventFluxError::app_creation(format!(
+                "Failed to initialize {} source '{}': {}",
+                context_label, stream_name, e
+            ))
+        })?;
+
+        // Extract source and mapper from initialized stream
+        let (source, mapper) = match initialized {
+            InitializedStream::Source(init_source) => {
+                (init_source.source, Some(init_source.mapper))
+            }
+            _ => {
+                return Err(EventFluxError::app_creation(format!(
+                    "Expected source stream initialization for {} stream '{}', got different stream type",
+                    context_label, stream_name
+                )))
+            }
+        };
+
+        // Get or create InputHandler for this stream
+        let input_handler = self
+            .input_manager
+            .construct_input_handler(stream_name)
+            .map_err(|e| {
+                EventFluxError::app_creation(format!(
+                    "Failed to construct InputHandler for {} source stream '{}': {}",
+                    context_label, stream_name, e
+                ))
+            })?;
+
+        // Create SourceStreamHandler
+        let handler = Arc::new(SourceStreamHandler::new(
+            source,
+            mapper,
+            input_handler,
+            stream_name.to_string(),
+        ));
+
+        // Register handler in runtime
+        self.register_source_handler(stream_name.to_string(), Arc::clone(&handler));
+
+        // Start the source
+        handler.start().map_err(|e| {
+            EventFluxError::app_runtime(format!(
+                "Failed to start {} source '{}': {}",
+                context_label, stream_name, e
+            ))
+        })?;
+
+        Ok(())
+    }
+
     /// Attach a single source stream from SQL WITH configuration
     ///
-    /// Similar to attach_single_source() but uses SQL WITH config directly instead
-    /// of converting from YAML SourceConfig.
-    ///
-    /// # Key Differences from YAML Version
-    ///
-    /// - No extract_connection_config() needed (FlatConfig.properties is already HashMap)
-    /// - Direct access to all WITH properties
-    /// - Simpler error context (from SQL, not YAML)
+    /// Converts SQL WITH configuration to StreamTypeConfig and delegates to common helper.
     ///
     /// # Arguments
     ///
@@ -805,15 +943,6 @@ impl EventFluxAppRuntime {
     ) -> Result<(), crate::core::exception::EventFluxError> {
         use crate::core::config::stream_config::{StreamType, StreamTypeConfig};
         use crate::core::exception::EventFluxError;
-        use crate::core::stream::handler::SourceStreamHandler;
-        use crate::core::stream::stream_initializer::{initialize_stream, InitializedStream};
-
-        // Check if handler already registered (idempotent operation)
-        if let Some(existing_handler) = self.get_source_handler(stream_name) {
-            // Handler already exists - just ensure it's started
-            existing_handler.start()?;
-            return Ok(());
-        }
 
         // Extract required properties from SQL WITH configuration
         let extension = with_config
@@ -845,60 +974,10 @@ impl EventFluxAppRuntime {
             ))
         })?;
 
-        // Use stream_initializer to create source with mapper (existing infrastructure)
-        let initialized = initialize_stream(
-            &self.eventflux_app_context.eventflux_context,
-            &stream_type_config,
-        )
-        .map_err(|e| {
-            EventFluxError::app_creation(format!(
-                "Failed to initialize SQL source '{}' (extension={}, format={:?}): {}",
-                stream_name, extension, format, e
-            ))
-        })?;
+        // Delegate to common helper for actual attachment
+        self.attach_source_common(stream_name, &stream_type_config, "SQL")?;
 
-        // Extract source and mapper from initialized stream
-        let (source, mapper) = match initialized {
-            InitializedStream::Source(init_source) => (init_source.source, Some(init_source.mapper)),
-            _ => {
-                return Err(EventFluxError::app_creation(format!(
-                    "Expected source stream initialization for SQL stream '{}', got different stream type",
-                    stream_name
-                )))
-            }
-        };
-
-        // Get or create InputHandler for this stream
-        let input_handler = self
-            .input_manager
-            .construct_input_handler(stream_name)
-            .map_err(|e| {
-                EventFluxError::app_creation(format!(
-                    "Failed to construct InputHandler for SQL source stream '{}': {}",
-                    stream_name, e
-                ))
-            })?;
-
-        // Create SourceStreamHandler
-        let handler = Arc::new(SourceStreamHandler::new(
-            source,
-            mapper,
-            input_handler,
-            stream_name.to_string(),
-        ));
-
-        // Register handler in runtime
-        self.register_source_handler(stream_name.to_string(), Arc::clone(&handler));
-
-        // Start the source
-        handler.start().map_err(|e| {
-            EventFluxError::app_runtime(format!(
-                "Failed to start SQL source '{}' (extension={}): {}",
-                stream_name, extension, e
-            ))
-        })?;
-
-        println!(
+        log::info!(
             "[EventFluxAppRuntime] Auto-attached SQL source '{}' (extension={}, format={:?})",
             stream_name, extension, format
         );
@@ -1000,7 +1079,7 @@ impl EventFluxAppRuntime {
         // Uses existing attach_sink_to_junction which properly converts Sink to StreamCallback
         self.attach_sink_to_junction(stream_name, Arc::clone(&handler))?;
 
-        println!(
+        log::info!(
             "[EventFluxAppRuntime] Auto-attached SQL sink '{}' (extension={}, format={:?})",
             stream_name, extension, format
         );
@@ -1057,13 +1136,13 @@ impl EventFluxAppRuntime {
                 match self.attach_single_source(stream_name, source_config) {
                     Ok(()) => {
                         successes.push(stream_name.clone());
-                        println!(
+                        log::info!(
                             "[EventFluxAppRuntime] Successfully attached source '{}' to stream '{}'",
                             source_config.source_type, stream_name
                         );
                     }
                     Err(e) => {
-                        eprintln!(
+                        log::error!(
                             "[EventFluxAppRuntime] Failed to attach source '{}' to stream '{}': {}",
                             source_config.source_type, stream_name, e
                         );
@@ -1081,7 +1160,7 @@ impl EventFluxAppRuntime {
             Err(errors)
         } else {
             // Partial success - log warning but don't fail
-            eprintln!(
+            log::error!(
                 "[EventFluxAppRuntime] Partial source attachment: {} succeeded, {} failed",
                 successes.len(),
                 errors.len()
@@ -1092,7 +1171,7 @@ impl EventFluxAppRuntime {
 
     /// Attach a single source stream handler
     ///
-    /// Separated into its own method for clarity and error handling.
+    /// Converts YAML SourceConfig to StreamTypeConfig and delegates to common helper.
     /// All errors are properly typed as EventFluxError with context.
     fn attach_single_source(
         &self,
@@ -1101,17 +1180,8 @@ impl EventFluxAppRuntime {
     ) -> Result<(), crate::core::exception::EventFluxError> {
         use crate::core::config::stream_config::{StreamType, StreamTypeConfig};
         use crate::core::exception::EventFluxError;
-        use crate::core::stream::handler::SourceStreamHandler;
-        use crate::core::stream::stream_initializer::{initialize_stream, InitializedStream};
 
-        // Check if handler already registered (idempotent operation)
-        if let Some(existing_handler) = self.get_source_handler(stream_name) {
-            // Handler already exists - just ensure it's started
-            existing_handler.start()?;
-            return Ok(());
-        }
-
-        // 1. Convert SourceConfig to StreamTypeConfig
+        // Convert SourceConfig to StreamTypeConfig
         let properties = self
             .extract_connection_config(&source_config.connection)
             .map_err(|e| {
@@ -1134,62 +1204,8 @@ impl EventFluxAppRuntime {
             ))
         })?;
 
-        // 2. Use stream_initializer to create source with mapper
-        let initialized = initialize_stream(
-            &self.eventflux_app_context.eventflux_context,
-            &stream_type_config,
-        )
-        .map_err(|e| {
-            EventFluxError::app_creation(format!(
-                "Failed to initialize source '{}' (type={}, format={:?}): {}",
-                stream_name, source_config.source_type, source_config.format, e
-            ))
-        })?;
-
-        // 3. Extract source and mapper from initialized stream
-        let (source, mapper) = match initialized {
-            InitializedStream::Source(init_source) => {
-                (init_source.source, Some(init_source.mapper))
-            }
-            _ => {
-                return Err(EventFluxError::app_creation(format!(
-                    "Expected source stream initialization for '{}', got different stream type",
-                    stream_name
-                )))
-            }
-        };
-
-        // 4. Get or create InputHandler for this stream
-        let input_handler = self
-            .input_manager
-            .construct_input_handler(stream_name)
-            .map_err(|e| {
-                EventFluxError::app_creation(format!(
-                    "Failed to construct InputHandler for source stream '{}': {}",
-                    stream_name, e
-                ))
-            })?;
-
-        // 5. Create SourceStreamHandler
-        let handler = Arc::new(SourceStreamHandler::new(
-            source,
-            mapper,
-            input_handler,
-            stream_name.to_string(),
-        ));
-
-        // 6. Register handler in runtime
-        self.register_source_handler(stream_name.to_string(), Arc::clone(&handler));
-
-        // 7. Start the source
-        handler.start().map_err(|e| {
-            EventFluxError::app_runtime(format!(
-                "Failed to start source '{}' (type={}): {}",
-                stream_name, source_config.source_type, e
-            ))
-        })?;
-
-        Ok(())
+        // Delegate to common helper for actual attachment
+        self.attach_source_common(stream_name, &stream_type_config, "YAML")
     }
 
     /// Extract connection configuration from serde_yaml::Value into HashMap
@@ -1291,7 +1307,7 @@ impl EventFluxAppRuntime {
                 // Attach the sink to the stream
                 self.add_callback(stream_name, sink)?;
 
-                println!(
+                log::info!(
                     "[EventFluxAppRuntime] Auto-attached sink '{}' to stream '{}'",
                     sink_config.sink_type, stream_name
                 );
@@ -1337,13 +1353,13 @@ impl EventFluxAppRuntime {
                 match self.attach_single_table(table_name, table_config) {
                     Ok(()) => {
                         successes.push(table_name.clone());
-                        println!(
+                        log::info!(
                             "[EventFluxAppRuntime] Successfully attached table '{}' (extension={})",
                             table_name, table_config.store.store_type
                         );
                     }
                     Err(e) => {
-                        eprintln!(
+                        log::error!(
                             "[EventFluxAppRuntime] Failed to attach table '{}': {}",
                             table_name, e
                         );
@@ -1361,7 +1377,7 @@ impl EventFluxAppRuntime {
             Err(errors)
         } else {
             // Partial success - log warning but don't fail
-            eprintln!(
+            log::error!(
                 "[EventFluxAppRuntime] Partial table attachment: {} succeeded, {} failed",
                 successes.len(),
                 errors.len()
