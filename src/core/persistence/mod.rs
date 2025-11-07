@@ -19,7 +19,7 @@ pub use self::persistence_store::{
     FilePersistenceStore, InMemoryPersistenceStore, IncrementalPersistenceStore, PersistenceStore,
     RedisPersistenceStore, SqlitePersistenceStore,
 };
-pub use self::snapshot_service::SnapshotService;
+pub use self::snapshot_service::{PersistReport, SnapshotService};
 
 // Enhanced state management exports
 pub use self::state_holder::{

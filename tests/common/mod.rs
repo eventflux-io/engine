@@ -616,7 +616,10 @@ impl AppRunner {
     /// # Returns
     /// Revision ID that can be used with `restore_revision()`
     pub fn persist(&self) -> String {
-        self.runtime.persist().expect("persist")
+        self.runtime
+            .persist()
+            .expect("persist failed")
+            .revision
     }
 
     /// Restore runtime state from a specific revision.

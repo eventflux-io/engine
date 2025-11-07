@@ -143,7 +143,7 @@ impl EventFluxManager {
             eventflux_app_str_opt.clone(),
             app_config,
         )?);
-        runtime.start();
+        runtime.start().map_err(|e| e.to_string())?;
 
         self.eventflux_app_runtime_map
             .lock()
@@ -434,12 +434,21 @@ impl EventFluxManager {
             Arc::clone(&self.eventflux_context),
             eventflux_app_str_opt,
         )?;
-        temp_runtime.start(); // This would internally build the plan, run initializations
+        temp_runtime.start().map_err(|e| e.to_string())?; // This would internally build the plan, run initializations
         temp_runtime.shutdown(); // Clean up
         Ok(())
     }
 
     // --- Persistence ---
+    /// Persist an EventFlux application's state
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(revision_id)` - All components persisted successfully
+    /// * `Err(String)` - Critical failure or partial persistence failure
+    ///
+    /// This method returns an error if any components failed to persist, making
+    /// it clear to callers that the persistence was incomplete.
     pub fn persist_app(&self, app_name: &str) -> Result<String, String> {
         let map = self
             .eventflux_app_runtime_map
@@ -448,7 +457,23 @@ impl EventFluxManager {
         let rt = map
             .get(app_name)
             .ok_or_else(|| format!("EventFluxApp '{app_name}' not found"))?;
-        rt.persist()
+        let report = rt.persist()?;
+
+        // Return error if there were any failures
+        if report.failure_count > 0 {
+            return Err(format!(
+                "Partial persistence failure: {} component(s) failed to persist (revision: {}). Failed: {}",
+                report.failure_count,
+                report.revision,
+                report.failed_components
+                    .iter()
+                    .map(|(id, _)| id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+
+        Ok(report.revision)
     }
 
     pub fn restore_app_revision(&self, app_name: &str, revision: &str) -> Result<(), String> {
@@ -462,14 +487,49 @@ impl EventFluxManager {
         rt.restore_revision(revision)
     }
 
+    /// Persist all running EventFlux applications
+    ///
+    /// Attempts to persist each application, logging any failures.
+    /// Does not stop on first failure - continues to persist remaining applications.
     pub fn persist_all(&self) {
-        for runtime in self
+        let app_names: Vec<String> = self
             .eventflux_app_runtime_map
             .lock()
             .expect("Mutex poisoned")
-            .values()
-        {
-            let _ = runtime.persist();
+            .keys()
+            .cloned()
+            .collect();
+
+        for app_name in app_names {
+            if let Some(runtime) = self
+                .eventflux_app_runtime_map
+                .lock()
+                .expect("Mutex poisoned")
+                .get(&app_name)
+                .cloned()
+            {
+                match runtime.persist() {
+                    Ok(report) => {
+                        if report.failure_count > 0 {
+                            log::warn!(
+                                "App '{}': Partial persistence - {} succeeded, {} failed",
+                                app_name,
+                                report.success_count,
+                                report.failure_count
+                            );
+                        } else {
+                            log::info!(
+                                "App '{}': Persisted successfully (revision: {})",
+                                app_name,
+                                report.revision
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("App '{}': Failed to persist - {}", app_name, e);
+                    }
+                }
+            }
         }
     }
 
