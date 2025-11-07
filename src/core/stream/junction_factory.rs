@@ -123,16 +123,77 @@ impl StreamJunctionFactory {
         eventflux_app_context: Arc<EventFluxAppContext>,
         fault_stream_junction: Option<Arc<Mutex<StreamJunction>>>,
     ) -> Result<Arc<Mutex<StreamJunction>>, String> {
-        let junction = StreamJunction::new(
+        // Apply performance hints to calculate optimal buffer size
+        let buffer_size = Self::calculate_buffer_size(&config);
+
+        let mut junction = StreamJunction::new(
             config.stream_id,
             stream_definition,
             eventflux_app_context,
-            config.buffer_size,
+            buffer_size,
             config.is_async,
             fault_stream_junction,
         )?;
 
+        // Pre-allocate subscriber capacity based on hint
+        if let Some(subscriber_count) = config.subscriber_count {
+            junction.reserve_subscriber_capacity(subscriber_count);
+        }
+
         Ok(Arc::new(Mutex::new(junction)))
+    }
+
+    /// Calculate optimal buffer size based on performance hints
+    ///
+    /// Uses the formula: buffer_size = expected_throughput * subscriber_count * 0.1
+    /// This provides approximately 100ms of buffering at the expected throughput rate.
+    ///
+    /// # Heuristic
+    /// - If throughput is 100K events/sec and 4 subscribers: 100000 * 4 * 0.1 = 40K buffer
+    /// - Ensures sufficient buffering for burst traffic while avoiding excessive memory use
+    /// - Falls back to explicit buffer_size if hints not provided
+    fn calculate_buffer_size(config: &JunctionConfig) -> usize {
+        match (config.expected_throughput, config.subscriber_count) {
+            (Some(throughput), Some(subscribers)) if throughput > 0 && subscribers > 0 => {
+                // Calculate based on heuristic: 100ms buffer at expected rate
+                let calculated = (throughput as f64 * subscribers as f64 * 0.1) as usize;
+
+                // Ensure power of 2 for optimal performance (crossbeam ArrayQueue requirement)
+                let mut buffer_size = calculated.next_power_of_two();
+
+                // Clamp to reasonable limits: min 64, max 1M
+                buffer_size = buffer_size.clamp(64, 1_048_576);
+
+                log::debug!(
+                    "[{}] Calculated buffer size {} from hints (throughput: {}/sec, subscribers: {})",
+                    config.stream_id,
+                    buffer_size,
+                    throughput,
+                    subscribers
+                );
+
+                buffer_size
+            }
+            (Some(throughput), None) if throughput > 0 => {
+                // Only throughput hint - assume 1 subscriber
+                let calculated = (throughput as f64 * 0.1) as usize;
+                let mut buffer_size = calculated.next_power_of_two();
+                buffer_size = buffer_size.clamp(64, 1_048_576);
+
+                log::debug!(
+                    "[{}] Calculated buffer size {} from throughput hint: {}/sec",
+                    config.stream_id,
+                    buffer_size,
+                    throughput
+                );
+
+                buffer_size
+            }
+            _ => {
+                // No hints or invalid - use explicit buffer_size
+                config.buffer_size
+            }
+        }
     }
 
     /// Create a junction with performance hints
@@ -304,5 +365,72 @@ mod tests {
         .unwrap();
 
         assert_eq!(junction.lock().unwrap().stream_id, "HintedStream");
+    }
+
+    #[test]
+    fn test_buffer_size_calculation_with_hints() {
+        // Test heuristic: buffer_size = throughput * subscribers * 0.1
+
+        // Test case 1: 100K events/sec, 4 subscribers
+        // Expected: 100000 * 4 * 0.1 = 40000 → next_power_of_two = 65536
+        let config1 = JunctionConfig::new("test1".to_string())
+            .with_expected_throughput(100_000)
+            .with_subscriber_count(4);
+        let buffer1 = StreamJunctionFactory::calculate_buffer_size(&config1);
+        assert_eq!(buffer1, 65536, "100K throughput with 4 subscribers should use 64K buffer");
+
+        // Test case 2: 10K events/sec, 2 subscribers
+        // Expected: 10000 * 2 * 0.1 = 2000 → next_power_of_two = 2048
+        let config2 = JunctionConfig::new("test2".to_string())
+            .with_expected_throughput(10_000)
+            .with_subscriber_count(2);
+        let buffer2 = StreamJunctionFactory::calculate_buffer_size(&config2);
+        assert_eq!(buffer2, 2048, "10K throughput with 2 subscribers should use 2K buffer");
+
+        // Test case 3: Only throughput hint (no subscriber count)
+        // Expected: 50000 * 0.1 = 5000 → next_power_of_two = 8192
+        let config3 = JunctionConfig::new("test3".to_string())
+            .with_expected_throughput(50_000);
+        let buffer3 = StreamJunctionFactory::calculate_buffer_size(&config3);
+        assert_eq!(buffer3, 8192, "50K throughput with no subscriber hint should use 8K buffer");
+
+        // Test case 4: No hints - should use explicit buffer_size
+        let config4 = JunctionConfig::new("test4".to_string())
+            .with_buffer_size(4096);
+        let buffer4 = StreamJunctionFactory::calculate_buffer_size(&config4);
+        assert_eq!(buffer4, 4096, "No hints should use explicit buffer_size");
+
+        // Test case 5: Very low throughput - should clamp to minimum 64
+        let config5 = JunctionConfig::new("test5".to_string())
+            .with_expected_throughput(10)
+            .with_subscriber_count(1);
+        let buffer5 = StreamJunctionFactory::calculate_buffer_size(&config5);
+        assert_eq!(buffer5, 64, "Very low throughput should clamp to minimum 64");
+
+        // Test case 6: Very high throughput - should clamp to maximum 1M
+        let config6 = JunctionConfig::new("test6".to_string())
+            .with_expected_throughput(100_000_000)
+            .with_subscriber_count(100);
+        let buffer6 = StreamJunctionFactory::calculate_buffer_size(&config6);
+        assert_eq!(buffer6, 1_048_576, "Very high throughput should clamp to maximum 1M");
+    }
+
+    #[test]
+    fn test_subscriber_capacity_reservation() {
+        let context = create_test_context();
+        let stream_def = create_test_stream_definition();
+
+        // Create junction with subscriber count hint
+        let config = JunctionConfig::new("ReservedStream".to_string())
+            .with_subscriber_count(10)
+            .with_buffer_size(4096);
+
+        let junction = StreamJunctionFactory::create(config, stream_def, context, None).unwrap();
+
+        // Verify the junction was created (capacity reservation doesn't expose public API)
+        assert_eq!(junction.lock().unwrap().stream_id, "ReservedStream");
+
+        // Note: The actual capacity is internal to Vec, but the reservation prevents
+        // reallocation when adding up to 10 subscribers
     }
 }
