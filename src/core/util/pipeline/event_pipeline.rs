@@ -23,7 +23,16 @@ pub struct PipelineConfig {
     pub backpressure: BackpressureStrategy,
     /// Enable object pooling for zero-allocation processing
     pub use_object_pool: bool,
-    /// Number of consumer threads
+    /// Number of consumer threads for parallel event consumption
+    ///
+    /// Controls how many concurrent consumers will poll events from the pipeline.
+    /// Multiple consumers enable work-stealing for higher throughput.
+    ///
+    /// - `1` (default for sync mode): Single-threaded, sequential processing
+    /// - `N` (default for async mode): N parallel consumers competing for events
+    ///
+    /// **Important**: This setting is read by StreamJunction to spawn N consumer threads.
+    /// All consumers share the same lock-free queue, naturally load-balancing via competition.
     pub consumer_threads: usize,
     /// Batch size for consumer processing
     pub batch_size: usize,

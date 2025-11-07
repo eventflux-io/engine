@@ -23,7 +23,7 @@ use crossbeam::utils::CachePadded;
 use std::fmt::Debug;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, RwLock,
 };
 
 /// Error handling strategies for StreamJunction
@@ -48,7 +48,10 @@ pub struct StreamJunction {
     _event_pool: Arc<EventPool>, // Reserved for future object pooling optimizations
 
     // Subscriber management
-    subscribers: Arc<Mutex<Vec<Arc<Mutex<dyn Processor>>>>>,
+    // OPTIMIZATION: RwLock for read-heavy subscriber access pattern
+    // - Read: Every event (millions/sec) - can be concurrent with RwLock
+    // - Write: Only on subscribe/unsubscribe (rare) - exclusive access
+    subscribers: Arc<RwLock<Vec<Arc<Mutex<dyn Processor>>>>>,
 
     // Configuration
     is_async: bool,
@@ -79,7 +82,7 @@ impl Debug for StreamJunction {
             .field("buffer_size", &self.buffer_size)
             .field(
                 "subscribers_count",
-                &self.subscribers.lock().expect("Mutex poisoned").len(),
+                &self.subscribers.read().expect("RwLock poisoned").len(),
             )
             .field("started", &self.started.load(Ordering::Relaxed))
             .field(
@@ -178,7 +181,7 @@ impl StreamJunction {
             eventflux_app_context,
             event_pipeline,
             _event_pool: event_pool,
-            subscribers: Arc::new(Mutex::new(Vec::new())),
+            subscribers: Arc::new(RwLock::new(Vec::new())),
             is_async,
             buffer_size,
             on_error_action: OnErrorAction::default(),
@@ -252,7 +255,7 @@ impl StreamJunction {
             eventflux_app_context,
             event_pipeline,
             _event_pool: event_pool,
-            subscribers: Arc::new(Mutex::new(Vec::new())),
+            subscribers: Arc::new(RwLock::new(Vec::new())),
             is_async,
             buffer_size,
             on_error_action: OnErrorAction::default(),
@@ -288,7 +291,7 @@ impl StreamJunction {
 
     /// Subscribe a processor to receive events
     pub fn subscribe(&self, processor: Arc<Mutex<dyn Processor>>) {
-        let mut subs = self.subscribers.lock().expect("Mutex poisoned");
+        let mut subs = self.subscribers.write().expect("RwLock poisoned");
         if !subs.iter().any(|p| Arc::ptr_eq(p, &processor)) {
             subs.push(processor);
         }
@@ -296,8 +299,25 @@ impl StreamJunction {
 
     /// Unsubscribe a processor from receiving events
     pub fn unsubscribe(&self, processor: &Arc<Mutex<dyn Processor>>) {
-        let mut subs = self.subscribers.lock().expect("Mutex poisoned");
+        let mut subs = self.subscribers.write().expect("RwLock poisoned");
         subs.retain(|p| !Arc::ptr_eq(p, processor));
+    }
+
+    /// Reserve capacity for expected subscribers
+    ///
+    /// Pre-allocates vector capacity based on the subscriber_count hint from JunctionConfig.
+    /// This avoids reallocation overhead when subscribers are added dynamically.
+    ///
+    /// # Arguments
+    /// * `capacity` - Expected number of subscribers to reserve space for
+    pub fn reserve_subscriber_capacity(&mut self, capacity: usize) {
+        let mut subs = self.subscribers.write().expect("RwLock poisoned");
+        subs.reserve(capacity);
+        log::debug!(
+            "[{}] Reserved subscriber capacity for {} processors",
+            self.stream_id,
+            capacity
+        );
     }
 
     /// Set error handling action
@@ -575,89 +595,104 @@ impl StreamJunction {
         // If executor has only 1 thread, consumer occupies it and subscriber tasks never run
         let is_single_threaded = executor_service.pool_size() == 1;
 
-        // Start a dedicated consumer thread that processes events from the pipeline
-        let executor_for_main = Arc::clone(&executor_service);
-        executor_for_main.execute(move || {
-            // Clone variables needed after the consumer closure
-            let stream_id_for_completion = stream_id.clone();
-            let error_counter_for_completion = Arc::clone(&error_counter);
+        // Get consumer thread count from pipeline config
+        let consumer_threads = self.event_pipeline.config().consumer_threads;
 
-            // Use the pipeline's consume method with a proper handler
-            let result = pipeline.consume(move |event, _sequence| {
-                let boxed_event = Box::new(event);
+        // Start N dedicated consumer threads that process events from the pipeline
+        // This enables parallel consumption for higher throughput
+        for consumer_id in 0..consumer_threads {
+            let subscribers_clone = Arc::clone(&subscribers);
+            let pipeline_clone = Arc::clone(&pipeline);
+            let error_counter_clone = Arc::clone(&error_counter);
+            let events_processed_clone = Arc::clone(&events_processed);
+            let executor_service_clone = Arc::clone(&executor_service);
+            let stream_id_clone = stream_id.clone();
+            let executor_for_consumer = Arc::clone(&executor_service);
 
-                // Get current subscribers - minimize lock time
-                let subs_guard = match subscribers.lock() {
-                    Ok(guard) => guard,
-                    Err(_) => {
-                        error_counter.fetch_add(1, Ordering::Relaxed);
-                        return Err("Subscribers mutex poisoned".to_string());
-                    }
-                };
-                let subs: Vec<_> = subs_guard.iter().map(Arc::clone).collect();
-                drop(subs_guard);
+            executor_for_consumer.execute(move || {
+                // Clone variables needed after the consumer closure
+                let stream_id_for_completion = stream_id_clone.clone();
+                let error_counter_for_completion = Arc::clone(&error_counter_clone);
 
-                if subs.is_empty() {
-                    events_processed.fetch_add(1, Ordering::Relaxed);
-                    return Ok(());
-                }
+                // Use the pipeline's consume method with a proper handler
+                let result = pipeline_clone.consume(move |event, _sequence| {
+                    let boxed_event = Box::new(event);
 
-                // Process for each subscriber
-                for subscriber in subs.iter() {
-                    // Clone event for each subscriber
-                    let event_for_sub = Some(crate::core::event::complex_event::clone_event_chain(
-                        boxed_event.as_ref(),
-                    ));
-
-                    if is_single_threaded {
-                        // CRITICAL: Run inline on single-threaded executor to avoid starvation
-                        // If we dispatch to executor, consumer occupies the only thread and
-                        // subscriber tasks never execute, causing pipeline to fill and drop events
-                        match subscriber.lock() {
-                            Ok(processor) => {
-                                processor.process(event_for_sub);
-                            }
-                            Err(_) => {
-                                error_counter.fetch_add(1, Ordering::Relaxed);
-                                eprintln!("[{}] Failed to lock subscriber processor", stream_id);
-                            }
+                    // Get current subscribers - read lock allows concurrent access
+                    // OPTIMIZATION: Multiple consumer threads can read simultaneously
+                    let subs_guard = match subscribers_clone.read() {
+                        Ok(guard) => guard,
+                        Err(_) => {
+                            error_counter_clone.fetch_add(1, Ordering::Relaxed);
+                            return Err("Subscribers RwLock poisoned".to_string());
                         }
-                    } else {
-                        // Multi-threaded: dispatch asynchronously to avoid blocking consumer
-                        let subscriber_clone = Arc::clone(subscriber);
-                        let stream_id_clone = stream_id.clone();
-                        let executor_clone = Arc::clone(&executor_service);
-                        let error_counter_clone = Arc::clone(&error_counter);
+                    };
+                    let subs: Vec<_> = subs_guard.iter().map(Arc::clone).collect();
+                    drop(subs_guard);
 
-                        executor_clone.execute(move || match subscriber_clone.lock() {
-                            Ok(processor) => {
-                                processor.process(event_for_sub);
+                    if subs.is_empty() {
+                        events_processed_clone.fetch_add(1, Ordering::Relaxed);
+                        return Ok(());
+                    }
+
+                    // Process for each subscriber
+                    for subscriber in subs.iter() {
+                        // Clone event for each subscriber
+                        let event_for_sub = Some(crate::core::event::complex_event::clone_event_chain(
+                            boxed_event.as_ref(),
+                        ));
+
+                        if is_single_threaded {
+                            // CRITICAL: Run inline on single-threaded executor to avoid starvation
+                            // If we dispatch to executor, consumer occupies the only thread and
+                            // subscriber tasks never execute, causing pipeline to fill and drop events
+                            match subscriber.lock() {
+                                Ok(processor) => {
+                                    processor.process(event_for_sub);
+                                }
+                                Err(_) => {
+                                    error_counter_clone.fetch_add(1, Ordering::Relaxed);
+                                    log::error!("[{}] Consumer {} failed to lock subscriber processor", stream_id_clone, consumer_id);
+                                }
                             }
-                            Err(_) => {
-                                error_counter_clone.fetch_add(1, Ordering::Relaxed);
-                                eprintln!("[{stream_id_clone}] Failed to lock subscriber processor");
-                            }
-                        });
+                        } else {
+                            // Multi-threaded: dispatch asynchronously to avoid blocking consumer
+                            let subscriber_clone = Arc::clone(subscriber);
+                            let stream_id_clone2 = stream_id_clone.clone();
+                            let executor_clone = Arc::clone(&executor_service_clone);
+                            let error_counter_clone2 = Arc::clone(&error_counter_clone);
+
+                            executor_clone.execute(move || match subscriber_clone.lock() {
+                                Ok(processor) => {
+                                    processor.process(event_for_sub);
+                                }
+                                Err(_) => {
+                                    error_counter_clone2.fetch_add(1, Ordering::Relaxed);
+                                    log::error!("[{stream_id_clone2}] Failed to lock subscriber processor");
+                                }
+                            });
+                        }
+                    }
+
+                    events_processed_clone.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                });
+
+                // Handle consumer completion
+                match result {
+                    Ok(processed_count) => {
+                        log::info!(
+                            "[{stream_id_for_completion}] Consumer {} completed after processing {processed_count} events",
+                            consumer_id
+                        );
+                    }
+                    Err(e) => {
+                        error_counter_for_completion.fetch_add(1, Ordering::Relaxed);
+                        log::error!("[{stream_id_for_completion}] Consumer {} error: {e}", consumer_id);
                     }
                 }
-
-                events_processed.fetch_add(1, Ordering::Relaxed);
-                Ok(())
             });
-
-            // Handle consumer completion
-            match result {
-                Ok(processed_count) => {
-                    println!(
-                        "[{stream_id_for_completion}] Consumer completed after processing {processed_count} events"
-                    );
-                }
-                Err(e) => {
-                    error_counter_for_completion.fetch_add(1, Ordering::Relaxed);
-                    eprintln!("[{stream_id_for_completion}] Consumer error: {e}");
-                }
-            }
-        });
+        }
 
         Ok(())
     }
@@ -667,7 +702,7 @@ impl StreamJunction {
         &self,
         event: Box<dyn ComplexEvent>,
     ) -> Result<(), EventFluxError> {
-        let subs_guard = self.subscribers.lock().expect("Mutex poisoned");
+        let subs_guard = self.subscribers.read().expect("RwLock poisoned");
         let subs: Vec<_> = subs_guard.iter().map(Arc::clone).collect();
         drop(subs_guard);
 
@@ -756,7 +791,7 @@ impl StreamJunction {
     fn handle_backpressure_error(&self, message: &str) {
         match self.on_error_action {
             OnErrorAction::LOG => {
-                eprintln!("[{}] Backpressure: {}", self.stream_id, message);
+                log::warn!("[{}] Backpressure: {}", self.stream_id, message);
             }
             OnErrorAction::DROP => {
                 // Silently drop
@@ -775,7 +810,7 @@ impl StreamJunction {
                     );
                     let _ = fault_junction.lock().unwrap().send_event(error_event);
                 } else {
-                    eprintln!(
+                    log::warn!(
                         "[{}] Fault stream not configured: {}",
                         self.stream_id, message
                     );
@@ -792,7 +827,7 @@ impl StreamJunction {
                     };
                     store.store(&self.stream_id, error);
                 } else {
-                    eprintln!(
+                    log::warn!(
                         "[{}] Error store not configured: {}",
                         self.stream_id, message
                     );
@@ -811,7 +846,7 @@ impl StreamJunction {
             events_dropped: self.events_dropped.load(Ordering::Relaxed),
             processing_errors: self.processing_errors.load(Ordering::Relaxed),
             pipeline_metrics,
-            subscriber_count: self.subscribers.lock().expect("Mutex poisoned").len(),
+            subscriber_count: self.subscribers.read().expect("RwLock poisoned").len(),
             is_async: self.is_async,
             buffer_utilization: self.event_pipeline.utilization(),
             remaining_capacity: self.event_pipeline.remaining_capacity(),
@@ -1177,7 +1212,36 @@ mod tests {
 
     #[test]
     fn test_junction_backpressure() {
-        let (junction, _processor) = setup_junction(true);
+        // Create junction with smaller buffer to guarantee backpressure
+        let eventflux_context = Arc::new(EventFluxContext::new());
+        let app = Arc::new(crate::query_api::eventflux_app::EventFluxApp::new(
+            "TestApp".to_string(),
+        ));
+        let app_ctx = Arc::new(EventFluxAppContext::new(
+            Arc::clone(&eventflux_context),
+            "TestApp".to_string(),
+            Arc::clone(&app),
+            String::new(),
+        ));
+
+        let stream_def = Arc::new(
+            StreamDefinition::new("TestStream".to_string())
+                .attribute("id".to_string(), AttrType::INT),
+        );
+
+        // Use minimal buffer (64) to guarantee overflow
+        let junction = StreamJunction::new(
+            "TestStream".to_string(),
+            stream_def,
+            app_ctx,
+            64, // Minimal buffer to ensure backpressure
+            true,
+            None,
+        )
+        .unwrap();
+
+        let processor = Arc::new(Mutex::new(TestProcessor::new("TestProcessor".to_string())));
+        junction.subscribe(processor.clone() as Arc<Mutex<dyn Processor>>);
 
         junction.start_processing().unwrap();
 
@@ -1195,7 +1259,7 @@ mod tests {
         let metrics = junction.get_performance_metrics();
         println!("Junction metrics: {:?}", metrics);
 
-        // Some events should be dropped due to backpressure
+        // With small buffer, some events should definitely be dropped due to backpressure
         assert!(metrics.events_dropped > 0 || dropped > 0);
     }
 
