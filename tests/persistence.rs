@@ -121,7 +121,7 @@ async fn test_runtime_persist_restore() {
             }),
         )
         .unwrap();
-    runtime.start();
+    runtime.start().expect("Failed to start runtime");
 
     let handler = runtime.get_input_handler("InStream").unwrap();
     handler
