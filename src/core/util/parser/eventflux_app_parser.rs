@@ -29,10 +29,18 @@ pub struct EventFluxAppParser;
 impl EventFluxAppParser {
     // Corresponds to EventFluxAppParser.parse(EventFluxApp eventfluxApp, String eventfluxAppString, EventFluxContext eventfluxContext)
     // The eventfluxAppString is already in EventFluxAppContext. EventFluxContext is also in EventFluxAppContext.
+    /// Parse EventFlux application and build runtime components
+    ///
+    /// This method orchestrates the parsing of all application components in the correct order:
+    /// 1. Stream definitions and junctions
+    /// 2. Table definitions
+    /// 3. Window definitions
+    /// 4. Aggregation definitions
+    /// 5. Execution elements (queries, partitions, triggers)
     pub fn parse_eventflux_app_runtime_builder(
-        api_eventflux_app: &ApiEventFluxApp, // This is from query_api
-        eventflux_app_context: Arc<EventFluxAppContext>, // This is from core::config
-        application_config: Option<ApplicationConfig>, // Optional application configuration
+        api_eventflux_app: &ApiEventFluxApp,
+        eventflux_app_context: Arc<EventFluxAppContext>,
+        application_config: Option<ApplicationConfig>,
     ) -> Result<EventFluxAppRuntimeBuilder, String> {
         let mut builder = EventFluxAppRuntimeBuilder::new(
             eventflux_app_context.clone(),
@@ -44,7 +52,48 @@ impl EventFluxAppParser {
             .get_eventflux_context()
             .get_default_async_mode();
 
-        // 1. Define Stream Definitions and create StreamJunctions
+        // Process components in dependency order
+        Self::process_stream_definitions(
+            api_eventflux_app,
+            &mut builder,
+            &eventflux_app_context,
+            default_stream_async,
+        )?;
+
+        Self::process_table_definitions(
+            api_eventflux_app,
+            &mut builder,
+            &eventflux_app_context,
+        )?;
+
+        Self::process_window_definitions(
+            api_eventflux_app,
+            &mut builder,
+            &eventflux_app_context,
+        )?;
+
+        Self::process_aggregation_definitions(
+            api_eventflux_app,
+            &mut builder,
+            &eventflux_app_context,
+        )?;
+
+        Self::process_execution_elements(
+            api_eventflux_app,
+            &mut builder,
+            &eventflux_app_context,
+        )?;
+
+        Ok(builder)
+    }
+
+    /// Process stream definitions and create StreamJunctions
+    fn process_stream_definitions(
+        api_eventflux_app: &ApiEventFluxApp,
+        builder: &mut EventFluxAppRuntimeBuilder,
+        eventflux_app_context: &Arc<EventFluxAppContext>,
+        default_stream_async: bool,
+    ) -> Result<(), String> {
         for (stream_id, stream_def_arc) in &api_eventflux_app.stream_definition_map {
             builder.add_stream_definition(Arc::clone(stream_def_arc));
 
@@ -134,7 +183,15 @@ impl EventFluxAppParser {
             builder.add_stream_junction(stream_id.clone(), stream_junction);
         }
 
-        // TableDefinitions
+        Ok(())
+    }
+
+    /// Process table definitions and create table instances
+    fn process_table_definitions(
+        api_eventflux_app: &ApiEventFluxApp,
+        builder: &mut EventFluxAppRuntimeBuilder,
+        eventflux_app_context: &Arc<EventFluxAppContext>,
+    ) -> Result<(), String> {
         for (table_id, table_def) in &api_eventflux_app.table_definition_map {
             builder.add_table_definition(Arc::clone(table_def));
 
@@ -210,20 +267,28 @@ impl EventFluxAppParser {
             );
         }
 
-        // WindowDefinitions
+        Ok(())
+    }
+
+    /// Process window definitions and create window runtimes
+    fn process_window_definitions(
+        api_eventflux_app: &ApiEventFluxApp,
+        builder: &mut EventFluxAppRuntimeBuilder,
+        eventflux_app_context: &Arc<EventFluxAppContext>,
+    ) -> Result<(), String> {
         for (window_id, window_def) in &api_eventflux_app.window_definition_map {
             builder.add_window_definition(Arc::clone(window_def));
             let mut runtime = WindowRuntime::new(Arc::clone(window_def));
             if let Some(handler) = &window_def.window_handler {
                 let qctx = Arc::new(EventFluxQueryContext::new(
-                    Arc::clone(&eventflux_app_context),
+                    Arc::clone(eventflux_app_context),
                     format!("__window_{window_id}"),
                     None,
                 ));
                 // Create minimal parse context for legacy WindowDefinition path
                 let empty_parse_ctx =
                     crate::core::util::parser::expression_parser::ExpressionParserContext {
-                        eventflux_app_context: Arc::clone(&eventflux_app_context),
+                        eventflux_app_context: Arc::clone(eventflux_app_context),
                         eventflux_query_context: Arc::clone(&qctx),
                         stream_meta_map: std::collections::HashMap::new(),
                         table_meta_map: std::collections::HashMap::new(),
@@ -237,7 +302,7 @@ impl EventFluxAppParser {
                 if let Ok(proc) =
                     crate::core::query::processor::stream::window::create_window_processor(
                         handler,
-                        Arc::clone(&eventflux_app_context),
+                        Arc::clone(eventflux_app_context),
                         Arc::clone(&qctx),
                         &empty_parse_ctx,
                     )
@@ -248,7 +313,20 @@ impl EventFluxAppParser {
             builder.add_window(window_id.clone(), Arc::new(Mutex::new(runtime)));
         }
 
-        // AggregationDefinitions
+        // Initialize Windows after all are created
+        for win_rt in builder.window_map.values() {
+            win_rt.lock().unwrap().initialize();
+        }
+
+        Ok(())
+    }
+
+    /// Process aggregation definitions and wire up input processors
+    fn process_aggregation_definitions(
+        api_eventflux_app: &ApiEventFluxApp,
+        builder: &mut EventFluxAppRuntimeBuilder,
+        eventflux_app_context: &Arc<EventFluxAppContext>,
+    ) -> Result<(), String> {
         for (agg_id, agg_def) in &api_eventflux_app.aggregation_definition_map {
             builder.add_aggregation_definition(Arc::clone(agg_def));
             let runtime = Arc::new(Mutex::new(
@@ -260,14 +338,14 @@ impl EventFluxAppParser {
                 let input_id = stream.get_stream_id_str().to_string();
                 if let Some(junction) = builder.stream_junction_map.get(&input_id) {
                     let qctx = Arc::new(EventFluxQueryContext::new(
-                        Arc::clone(&eventflux_app_context),
+                        Arc::clone(eventflux_app_context),
                         format!("__aggregation_{agg_id}"),
                         None,
                     ));
                     let proc = Arc::new(Mutex::new(
                         crate::core::aggregation::AggregationInputProcessor::new(
                             Arc::clone(&runtime),
-                            Arc::clone(&eventflux_app_context),
+                            Arc::clone(eventflux_app_context),
                             Arc::clone(&qctx),
                         ),
                     ));
@@ -276,12 +354,16 @@ impl EventFluxAppParser {
             }
         }
 
-        // Initialize Windows after tables and streams are ready
-        for win_rt in builder.window_map.values() {
-            win_rt.lock().unwrap().initialize();
-        }
+        Ok(())
+    }
 
-        // 2. Parse Execution Elements (Queries, Partitions)
+    /// Process execution elements (queries and partitions) and triggers
+    fn process_execution_elements(
+        api_eventflux_app: &ApiEventFluxApp,
+        builder: &mut EventFluxAppRuntimeBuilder,
+        eventflux_app_context: &Arc<EventFluxAppContext>,
+    ) -> Result<(), String> {
+        // Parse Execution Elements (Queries, Partitions)
         for exec_element in &api_eventflux_app.execution_element_list {
             match exec_element {
                 ApiExecutionElement::Query(api_query) => {
@@ -289,7 +371,7 @@ impl EventFluxAppParser {
                     // from the builder to resolve references.
                     let query_runtime = QueryParser::parse_query(
                         api_query,
-                        &eventflux_app_context,
+                        eventflux_app_context,
                         &builder.stream_junction_map,
                         &builder.table_definition_map,
                         &builder.aggregation_map,
@@ -300,20 +382,21 @@ impl EventFluxAppParser {
                 }
                 ApiExecutionElement::Partition(api_partition) => {
                     let part_rt = PartitionParser::parse(
-                        &mut builder,
+                        builder,
                         api_partition,
-                        &eventflux_app_context,
+                        eventflux_app_context,
                     )?;
                     builder.add_partition_runtime(Arc::new(part_rt));
                 }
             }
         }
 
+        // Process triggers
         for trig_def in api_eventflux_app.trigger_definition_map.values() {
-            let runtime = TriggerParser::parse(&mut builder, trig_def, &eventflux_app_context)?;
+            let runtime = TriggerParser::parse(builder, trig_def, eventflux_app_context)?;
             builder.add_trigger_runtime(Arc::new(runtime));
         }
 
-        Ok(builder)
+        Ok(())
     }
 }
