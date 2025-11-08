@@ -143,7 +143,14 @@ impl EventFluxManager {
             eventflux_app_str_opt.clone(),
             app_config,
         )?);
-        runtime.start().map_err(|e| e.to_string())?;
+
+        // Start the runtime and clean up on failure to prevent resource leaks
+        if let Err(e) = runtime.start() {
+            // Clean up any partially started components (sources, sinks, triggers, partitions)
+            // to prevent thread leaks and inconsistent state
+            runtime.shutdown();
+            return Err(e.to_string());
+        }
 
         self.eventflux_app_runtime_map
             .lock()
