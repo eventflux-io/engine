@@ -143,11 +143,15 @@ impl EventFluxAppRuntime {
         let thread_barrier = Arc::new(crate::core::util::thread_barrier::ThreadBarrier::new());
         ctx.set_thread_barrier(thread_barrier);
 
+        // Create scheduler with dedicated thread pool (separate from event processing)
+        // This prevents scheduler sleep operations from blocking event processing threads
+        // Thread pool size: Configurable via EVENTFLUX_EXECUTOR_THREADS or num_cpus::get()
         let scheduler = if let Some(exec) = ctx.get_scheduled_executor_service() {
             Arc::new(crate::core::util::Scheduler::new(Arc::clone(
                 &exec.executor,
             )))
         } else {
+            // Create dedicated scheduler executor (separate from event processing)
             Arc::new(crate::core::util::Scheduler::new(Arc::new(
                 crate::core::util::ExecutorService::default(),
             )))
