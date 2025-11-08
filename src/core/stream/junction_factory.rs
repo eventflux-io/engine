@@ -145,46 +145,57 @@ impl StreamJunctionFactory {
 
     /// Calculate optimal buffer size based on performance hints
     ///
-    /// Uses the formula: buffer_size = expected_throughput * subscriber_count * 0.1
+    /// Uses the formula: buffer_size = max(1, expected_throughput * subscriber_count * 0.1)
     /// This provides approximately 100ms of buffering at the expected throughput rate.
     ///
     /// # Heuristic
     /// - If throughput is 100K events/sec and 4 subscribers: 100000 * 4 * 0.1 = 40K buffer
     /// - Ensures sufficient buffering for burst traffic while avoiding excessive memory use
     /// - Falls back to explicit buffer_size if hints not provided
+    ///
+    /// # Safety
+    /// - Ensures calculated value is at least 1 to prevent panic in next_power_of_two()
+    /// - Handles edge cases where throughput * subscribers < 10 (which would round to 0)
     fn calculate_buffer_size(config: &JunctionConfig) -> usize {
         match (config.expected_throughput, config.subscriber_count) {
             (Some(throughput), Some(subscribers)) if throughput > 0 && subscribers > 0 => {
                 // Calculate based on heuristic: 100ms buffer at expected rate
-                let calculated = (throughput as f64 * subscribers as f64 * 0.1) as usize;
+                // SAFETY: Ensure at least 1 to prevent panic in next_power_of_two()
+                // For very low throughput (e.g., 1-9 events/sec), 0.1 multiplication
+                // would round down to 0 when cast to usize, causing a panic.
+                let calculated = ((throughput as f64 * subscribers as f64 * 0.1) as usize).max(1);
 
                 // Ensure power of 2 for optimal performance (crossbeam ArrayQueue requirement)
+                // next_power_of_two() panics on 0, so we ensure calculated >= 1 above
                 let mut buffer_size = calculated.next_power_of_two();
 
                 // Clamp to reasonable limits: min 64, max 1M
                 buffer_size = buffer_size.clamp(64, 1_048_576);
 
                 log::debug!(
-                    "[{}] Calculated buffer size {} from hints (throughput: {}/sec, subscribers: {})",
+                    "[{}] Calculated buffer size {} from hints (throughput: {}/sec, subscribers: {}, raw: {})",
                     config.stream_id,
                     buffer_size,
                     throughput,
-                    subscribers
+                    subscribers,
+                    calculated
                 );
 
                 buffer_size
             }
             (Some(throughput), None) if throughput > 0 => {
                 // Only throughput hint - assume 1 subscriber
-                let calculated = (throughput as f64 * 0.1) as usize;
+                // SAFETY: Ensure at least 1 to prevent panic in next_power_of_two()
+                let calculated = ((throughput as f64 * 0.1) as usize).max(1);
                 let mut buffer_size = calculated.next_power_of_two();
                 buffer_size = buffer_size.clamp(64, 1_048_576);
 
                 log::debug!(
-                    "[{}] Calculated buffer size {} from throughput hint: {}/sec",
+                    "[{}] Calculated buffer size {} from throughput hint: {}/sec (raw: {})",
                     config.stream_id,
                     buffer_size,
-                    throughput
+                    throughput,
+                    calculated
                 );
 
                 buffer_size
@@ -432,5 +443,125 @@ mod tests {
 
         // Note: The actual capacity is internal to Vec, but the reservation prevents
         // reallocation when adding up to 10 subscribers
+    }
+
+    #[test]
+    fn test_buffer_size_calculation_edge_cases() {
+        // CRITICAL: Test edge cases that would cause panic before the fix
+        // These tests verify the .max(1) fix prevents next_power_of_two() panic on 0
+
+        // Test case 1: throughput=1, subscribers=1
+        // Calculation: 1 * 1 * 0.1 = 0.1 → 0 (usize) → max(1) = 1 → next_power_of_two() = 1 → clamp(64) = 64
+        let config1 = JunctionConfig::new("test1".to_string())
+            .with_expected_throughput(1)
+            .with_subscriber_count(1);
+        let buffer1 = StreamJunctionFactory::calculate_buffer_size(&config1);
+        assert_eq!(buffer1, 64, "throughput=1, subscribers=1 should not panic and should use min buffer 64");
+
+        // Test case 2: throughput=5, subscribers=1
+        // Calculation: 5 * 1 * 0.1 = 0.5 → 0 (usize) → max(1) = 1 → next_power_of_two() = 1 → clamp(64) = 64
+        let config2 = JunctionConfig::new("test2".to_string())
+            .with_expected_throughput(5)
+            .with_subscriber_count(1);
+        let buffer2 = StreamJunctionFactory::calculate_buffer_size(&config2);
+        assert_eq!(buffer2, 64, "throughput=5, subscribers=1 should not panic and should use min buffer 64");
+
+        // Test case 3: throughput=1, subscribers=5
+        // Calculation: 1 * 5 * 0.1 = 0.5 → 0 (usize) → max(1) = 1 → next_power_of_two() = 1 → clamp(64) = 64
+        let config3 = JunctionConfig::new("test3".to_string())
+            .with_expected_throughput(1)
+            .with_subscriber_count(5);
+        let buffer3 = StreamJunctionFactory::calculate_buffer_size(&config3);
+        assert_eq!(buffer3, 64, "throughput=1, subscribers=5 should not panic and should use min buffer 64");
+
+        // Test case 4: throughput=9, subscribers=1 (edge case just below 10)
+        // Calculation: 9 * 1 * 0.1 = 0.9 → 0 (usize) → max(1) = 1 → next_power_of_two() = 1 → clamp(64) = 64
+        let config4 = JunctionConfig::new("test4".to_string())
+            .with_expected_throughput(9)
+            .with_subscriber_count(1);
+        let buffer4 = StreamJunctionFactory::calculate_buffer_size(&config4);
+        assert_eq!(buffer4, 64, "throughput=9, subscribers=1 should not panic and should use min buffer 64");
+
+        // Test case 5: throughput=10, subscribers=1 (first value that doesn't round to 0)
+        // Calculation: 10 * 1 * 0.1 = 1.0 → 1 (usize) → max(1) = 1 → next_power_of_two() = 1 → clamp(64) = 64
+        let config5 = JunctionConfig::new("test5".to_string())
+            .with_expected_throughput(10)
+            .with_subscriber_count(1);
+        let buffer5 = StreamJunctionFactory::calculate_buffer_size(&config5);
+        assert_eq!(buffer5, 64, "throughput=10, subscribers=1 should use min buffer 64");
+
+        // Test case 6: throughput=100, subscribers=1 (should calculate meaningful buffer)
+        // Calculation: 100 * 1 * 0.1 = 10.0 → 10 (usize) → max(1) = 10 → next_power_of_two() = 16 → clamp(64) = 64
+        let config6 = JunctionConfig::new("test6".to_string())
+            .with_expected_throughput(100)
+            .with_subscriber_count(1);
+        let buffer6 = StreamJunctionFactory::calculate_buffer_size(&config6);
+        assert_eq!(buffer6, 64, "throughput=100, subscribers=1 should use min buffer 64");
+
+        // Test case 7: throughput=1000, subscribers=1 (should calculate meaningful buffer)
+        // Calculation: 1000 * 1 * 0.1 = 100.0 → 100 (usize) → max(1) = 100 → next_power_of_two() = 128
+        let config7 = JunctionConfig::new("test7".to_string())
+            .with_expected_throughput(1000)
+            .with_subscriber_count(1);
+        let buffer7 = StreamJunctionFactory::calculate_buffer_size(&config7);
+        assert_eq!(buffer7, 128, "throughput=1000, subscribers=1 should use 128 buffer");
+    }
+
+    #[test]
+    fn test_buffer_size_calculation_throughput_only_edge_cases() {
+        // CRITICAL: Test throughput-only branch edge cases
+
+        // Test case 1: throughput=1, no subscribers
+        // Calculation: 1 * 0.1 = 0.1 → 0 (usize) → max(1) = 1 → next_power_of_two() = 1 → clamp(64) = 64
+        let config1 = JunctionConfig::new("test1".to_string())
+            .with_expected_throughput(1);
+        let buffer1 = StreamJunctionFactory::calculate_buffer_size(&config1);
+        assert_eq!(buffer1, 64, "throughput=1 (no subscribers) should not panic and should use min buffer 64");
+
+        // Test case 2: throughput=5, no subscribers
+        // Calculation: 5 * 0.1 = 0.5 → 0 (usize) → max(1) = 1 → next_power_of_two() = 1 → clamp(64) = 64
+        let config2 = JunctionConfig::new("test2".to_string())
+            .with_expected_throughput(5);
+        let buffer2 = StreamJunctionFactory::calculate_buffer_size(&config2);
+        assert_eq!(buffer2, 64, "throughput=5 (no subscribers) should not panic and should use min buffer 64");
+
+        // Test case 3: throughput=9, no subscribers (edge case just below 10)
+        // Calculation: 9 * 0.1 = 0.9 → 0 (usize) → max(1) = 1 → next_power_of_two() = 1 → clamp(64) = 64
+        let config3 = JunctionConfig::new("test3".to_string())
+            .with_expected_throughput(9);
+        let buffer3 = StreamJunctionFactory::calculate_buffer_size(&config3);
+        assert_eq!(buffer3, 64, "throughput=9 (no subscribers) should not panic and should use min buffer 64");
+
+        // Test case 4: throughput=10, no subscribers (first value that doesn't round to 0)
+        // Calculation: 10 * 0.1 = 1.0 → 1 (usize) → max(1) = 1 → next_power_of_two() = 1 → clamp(64) = 64
+        let config4 = JunctionConfig::new("test4".to_string())
+            .with_expected_throughput(10);
+        let buffer4 = StreamJunctionFactory::calculate_buffer_size(&config4);
+        assert_eq!(buffer4, 64, "throughput=10 (no subscribers) should use min buffer 64");
+
+        // Test case 5: throughput=1000, no subscribers
+        // Calculation: 1000 * 0.1 = 100.0 → 100 (usize) → max(1) = 100 → next_power_of_two() = 128
+        let config5 = JunctionConfig::new("test5".to_string())
+            .with_expected_throughput(1000);
+        let buffer5 = StreamJunctionFactory::calculate_buffer_size(&config5);
+        assert_eq!(buffer5, 128, "throughput=1000 (no subscribers) should use 128 buffer");
+    }
+
+    #[test]
+    fn test_junction_creation_with_very_low_throughput() {
+        // Integration test: Verify junction creation doesn't panic with low throughput
+        let context = create_test_context();
+        let stream_def = create_test_stream_definition();
+
+        // This would have panicked before the fix
+        let config = JunctionConfig::new("LowThroughputStream".to_string())
+            .with_expected_throughput(1)
+            .with_subscriber_count(1);
+
+        let result = StreamJunctionFactory::create(config, stream_def, context, None);
+        assert!(result.is_ok(), "Junction creation with throughput=1, subscribers=1 should succeed");
+
+        let junction = result.unwrap();
+        assert_eq!(junction.lock().unwrap().stream_id, "LowThroughputStream");
     }
 }
