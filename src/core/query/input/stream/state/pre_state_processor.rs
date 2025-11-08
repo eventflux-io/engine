@@ -2,7 +2,6 @@
 
 // eventflux_rust/src/core/query/input/stream/state/pre_state_processor.rs
 // Core pattern matching interface for state processors
-// Reference: io.siddhi.core.query.input.stream.state.PreStateProcessor
 
 use crate::core::event::complex_event::ComplexEvent;
 use crate::core::event::state::state_event::StateEvent;

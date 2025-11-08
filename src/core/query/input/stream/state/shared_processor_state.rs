@@ -7,15 +7,15 @@
 //!
 //! ## Design Rationale
 //!
-//! In Java Siddhi, PostStateProcessor directly calls PreStateProcessor.stateChanged()
-//! using ReentrantLock. In Rust, this causes deadlock because:
+//! PostStateProcessor needs to notify PreStateProcessor of state changes without
+//! causing deadlock. Direct method calls would require:
 //! 1. PreStateProcessor is already locked during event processing
 //! 2. PostStateProcessor needs to lock it to call methods
 //! 3. Rust Mutex is not reentrant → deadlock
 //!
 //! Solution: Share atomic state that both can access without locking each other.
 //!
-//! ## Benefits over Java approach:
+//! ## Benefits:
 //! - Lock-free: No contention, faster
 //! - No deadlock possibility
 //! - Cache-friendly atomic operations

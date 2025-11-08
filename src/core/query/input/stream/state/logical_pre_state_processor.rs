@@ -2,7 +2,6 @@
 
 // eventflux_rust/src/core/query/input/stream/state/logical_pre_state_processor.rs
 // LogicalPreStateProcessor for AND/OR pattern matching
-// Reference: io.siddhi.core.query.input.stream.state.LogicalPreStateProcessor
 
 use crate::core::config::eventflux_app_context::EventFluxAppContext;
 use crate::core::config::eventflux_query_context::EventFluxQueryContext;
@@ -69,8 +68,6 @@ pub enum LogicalType {
 /// - If yes: skip this StateEvent (OR already satisfied)
 /// - If no: process normally
 /// ```
-///
-/// **Reference**: Java Siddhi LogicalPreStateProcessor extends StreamPreStateProcessor
 pub struct LogicalPreStateProcessor {
     /// The underlying StreamPreStateProcessor for basic pattern matching
     base_processor: StreamPreStateProcessor,

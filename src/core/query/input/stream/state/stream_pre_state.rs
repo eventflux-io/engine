@@ -2,7 +2,6 @@
 
 // eventflux_rust/src/core/query/input/stream/state/stream_pre_state.rs
 // Three-list state management for pattern processing
-// Reference: io.siddhi.core.query.input.stream.state.StreamPreState
 
 use crate::core::event::complex_event::ComplexEvent;
 use crate::core::event::state::state_event::StateEvent;

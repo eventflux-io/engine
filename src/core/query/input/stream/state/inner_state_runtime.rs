@@ -2,7 +2,6 @@
 
 // eventflux_rust/src/core/query/input/stream/state/inner_state_runtime.rs
 // InnerStateRuntime trait for managing PreStateProcessor lifecycle
-// Reference: io.siddhi.core.query.input.stream.state.runtime.InnerStateRuntime
 
 use crate::core::query::input::stream::state::post_state_processor::PostStateProcessor;
 use crate::core::query::input::stream::state::pre_state_processor::PreStateProcessor;
@@ -17,8 +16,6 @@ use std::sync::{Arc, Mutex};
 /// - `init()` - Initialize the processor chain (called once at startup)
 /// - `reset()` - Reset all state (calls resetState() on first processor)
 /// - `update()` - Update state after event processing (calls updateState() on first processor)
-///
-/// **Java Reference**: `io.siddhi.core.query.input.stream.state.runtime.InnerStateRuntime`
 pub trait InnerStateRuntime: Debug + Send {
     /// Get the first PreStateProcessor in the chain
     fn get_first_processor(&self) -> Option<Arc<Mutex<dyn PreStateProcessor>>>;

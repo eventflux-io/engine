@@ -2,7 +2,6 @@
 
 // eventflux_rust/src/core/query/input/stream/state/stream_post_state_processor.rs
 // StreamPostStateProcessor implementation for handling successful pattern matches
-// Reference: io.siddhi.core.query.input.stream.state.StreamPostStateProcessor
 
 use crate::core::event::complex_event::ComplexEvent;
 use crate::core::event::state::state_event::StateEvent;
@@ -55,8 +54,6 @@ use std::sync::{Arc, Mutex};
 /// - Uses Arc<Mutex<>> for shared ownership of processors (thread-safe)
 /// - Defensive cloning to avoid borrow conflicts
 /// - isEventReturned tracks if event was sent to output (optimization)
-///
-/// **Reference**: Java Siddhi StreamPostStateProcessor
 pub struct StreamPostStateProcessor {
     /// State ID this PostStateProcessor is associated with
     state_id: usize,

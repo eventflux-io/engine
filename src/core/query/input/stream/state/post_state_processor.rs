@@ -2,7 +2,6 @@
 
 // eventflux_rust/src/core/query/input/stream/state/post_state_processor.rs
 // PostStateProcessor trait for pattern match handling
-// Reference: io.siddhi.core.query.input.stream.state.PostStateProcessor
 
 use crate::core::event::complex_event::ComplexEvent;
 use crate::core::query::input::stream::state::pre_state_processor::PreStateProcessor;
@@ -39,8 +38,6 @@ use std::sync::{Arc, Mutex};
 /// - Set timestamp from matched StreamEvent
 /// - Notify PreStateProcessor that state changed
 /// - Track if event was returned for optimization
-///
-/// **Reference**: Java Siddhi PostStateProcessor interface
 pub trait PostStateProcessor: Debug + Send + Sync {
     /// Process an incoming event chunk (matched StateEvent from PreStateProcessor)
     ///

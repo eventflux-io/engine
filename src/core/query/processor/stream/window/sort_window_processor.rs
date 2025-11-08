@@ -182,7 +182,6 @@ impl SortWindowProcessor {
             .map_err(|e| format!("Failed to parse sort attribute: {}", e))?;
 
             // CRITICAL VALIDATION: Only accept Variable expressions (attributes), not constants or complex expressions
-            // This matches Java Siddhi behavior (line 123-124 in Java)
             if !executor.is_variable_executor() {
                 return Err(format!(
                     "Sort window requires variable expressions (stream attributes), not constants or complex expressions. \
@@ -206,7 +205,6 @@ impl SortWindowProcessor {
                             false
                         } else {
                             // STRICT VALIDATION: Reject invalid order strings
-                            // This matches Java Siddhi behavior (line 140-142 in Java)
                             return Err(format!(
                                 "Sort window order parameter must be 'asc' or 'desc', found: '{}'. \
                                 Valid usage: WINDOW('sort', size, attribute, 'asc') or WINDOW('sort', size, attribute, 'desc')",
@@ -246,8 +244,7 @@ impl SortWindowProcessor {
 
         // Add the new event to the buffer
         // Note: We store Arc references for efficiency. Events are immutable in EventFlux,
-        // so sharing via Arc is safe. Java Siddhi clones events before storing, but in Rust
-        // the Arc approach is more idiomatic and equally correct for immutable data.
+        // so sharing via Arc is safe and more idiomatic than cloning.
         sorted_buffer.push(Arc::clone(&event));
 
         let mut result = Vec::new();
@@ -268,7 +265,6 @@ impl SortWindowProcessor {
                 expired_stream_event.set_event_type(ComplexEventType::Expired);
 
                 // CRITICAL: Update timestamp on expired event to current time
-                // This matches Java Siddhi behavior (line 174 in Java)
                 // Required for downstream processors that depend on event ordering by timestamp
                 expired_stream_event.set_timestamp(event.timestamp);
 

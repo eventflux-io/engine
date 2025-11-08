@@ -2,7 +2,6 @@
 
 // eventflux_rust/src/core/query/input/stream/state/state_stream_runtime.rs
 // StateStreamRuntime - manages InnerStateRuntime lifecycle
-// Reference: io.siddhi.core.query.input.stream.state.StateStreamRuntime
 
 use crate::core::query::input::stream::state::inner_state_runtime::InnerStateRuntime;
 use crate::core::query::input::stream::state::pre_state_processor::PreStateProcessor;
@@ -20,8 +19,6 @@ use std::sync::{Arc, Mutex};
 /// **Usage in Receivers**:
 /// - **PatternReceiver**: Calls expireEvents() then updateState() directly on processors
 /// - **SequenceReceiver**: Calls expireEvents() on processors, then stateStreamRuntime.resetAndUpdate()
-///
-/// **Java Reference**: `io.siddhi.core.query.input.stream.state.StateStreamRuntime`
 #[derive(Debug)]
 pub struct StateStreamRuntime {
     /// The inner state runtime managing processor chains
@@ -63,8 +60,6 @@ impl StateStreamRuntime {
     /// **Flow**:
     /// 1. reset() - Clears all pending events and state
     /// 2. update() - Processes any new pending events
-    ///
-    /// **Java Reference**: `StateStreamRuntime.resetAndUpdate()`
     pub fn reset_and_update(&mut self) {
         if let Ok(mut guard) = self.inner_state_runtime.lock() {
             guard.reset();
@@ -79,8 +74,6 @@ impl StateStreamRuntime {
     /// **Flow**:
     /// 1. init() - Initialize the InnerStateRuntime
     /// 2. Notify all startup processors (if they support PartitionCreationListener)
-    ///
-    /// **Java Reference**: `StateStreamRuntime.initPartition()`
     pub fn init_partition(&mut self) {
         // Initialize the inner state runtime
         if let Ok(mut guard) = self.inner_state_runtime.lock() {

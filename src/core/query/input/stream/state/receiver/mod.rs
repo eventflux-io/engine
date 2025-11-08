@@ -2,7 +2,6 @@
 
 // eventflux_rust/src/core/query/input/stream/state/receiver/mod.rs
 // Stream receivers for Pattern and Sequence processing
-// Reference: io.siddhi.core.query.input.stream.state.receiver
 
 pub mod pattern_stream_receiver;
 pub mod sequence_stream_receiver;

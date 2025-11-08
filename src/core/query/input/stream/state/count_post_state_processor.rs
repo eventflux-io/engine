@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // count_post_state_processor.rs - Count quantifier validation and coordination
-// Reference: io.siddhi.core.query.input.stream.state.CountPostStateProcessor
 
 use super::post_state_processor::PostStateProcessor;
 use super::pre_state_processor::PreStateProcessor;
@@ -17,8 +16,6 @@ use std::sync::{Arc, Mutex};
 /// 2. Set success_condition on PreStateProcessor if count >= min_count
 /// 3. Mark state_changed if count == max_count (can't add more)
 /// 4. Forward to next processors if count is valid
-///
-/// **Java Reference**: io.siddhi.core.query.input.stream.state.CountPostStateProcessor
 pub struct CountPostStateProcessor {
     /// Minimum count required (set by CountPreStateProcessor)
     min_count: usize,
