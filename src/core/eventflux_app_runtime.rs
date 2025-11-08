@@ -24,6 +24,24 @@ use uuid::Uuid;
 
 use std::collections::HashMap;
 
+/// Adapter to share sink Arc between handler lifecycle and junction callbacks
+///
+/// This ensures the SAME sink instance receives both lifecycle calls (start/stop)
+/// and event callbacks (receive_events), preventing the bug where cloning creates two
+/// separate sink instances.
+#[derive(Debug)]
+struct SinkCallbackAdapter {
+    sink: Arc<Mutex<Box<dyn crate::core::stream::output::sink::Sink>>>,
+}
+
+impl crate::core::stream::output::stream_callback::StreamCallback for SinkCallbackAdapter {
+    fn receive_events(&self, events: &[crate::core::event::event::Event]) {
+        // Forward to the shared sink instance
+        // Sink trait extends StreamCallback, so it has receive_events
+        self.sink.lock().unwrap().receive_events(events)
+    }
+}
+
 /// Manages the runtime lifecycle of a single EventFlux Application.
 #[derive(Debug)] // Default removed, construction via new() -> Result
 pub struct EventFluxAppRuntime {
@@ -394,20 +412,22 @@ impl EventFluxAppRuntime {
             None,
         ));
 
-        // Get the underlying sink from the handler
-        // Since Sink extends StreamCallback, we can convert directly
-        let sink = handler.sink();
+        // Get the underlying sink Arc from the handler
+        // CRITICAL FIX: Use adapter to share the SAME Arc instead of cloning the sink
+        // This ensures lifecycle calls (start/stop) and event callbacks (receive)
+        // operate on the SAME sink instance, fixing the bug where SQL sinks never started
+        let sink_arc = handler.sink(); // Arc<Mutex<Box<dyn Sink>>>
 
-        // Lock and clone the inner Box<dyn Sink>
-        let sink_guard = sink.lock().expect("Sink Mutex poisoned");
-        let sink_clone = sink_guard.clone_box();
-        drop(sink_guard); // Release lock
+        // Create adapter that shares the Arc (refcount increases, but same underlying sink)
+        let adapter = SinkCallbackAdapter {
+            sink: Arc::clone(&sink_arc),
+        };
 
-        // Box<dyn Sink> can be upcast to Box<dyn StreamCallback> because Sink: StreamCallback
-        let sink_as_callback: Box<dyn StreamCallback> = sink_clone;
+        // Wrap adapter as Box<dyn StreamCallback>
+        let callback_box: Box<dyn StreamCallback> = Box::new(adapter);
 
         // Wrap in Arc<Mutex<>> as expected by CallbackProcessor
-        let sink_callback_arc = Arc::new(Mutex::new(sink_as_callback));
+        let sink_callback_arc = Arc::new(Mutex::new(callback_box));
 
         // Wrap in a CallbackProcessor and subscribe to junction
         let callback_processor = Arc::new(Mutex::new(CallbackProcessor::new(
@@ -1261,35 +1281,89 @@ impl EventFluxAppRuntime {
     }
 
     /// Auto-attach sinks from configuration
+    ///
+    /// CRITICAL FIX: Uses stream_initializer with EventFluxContext's registered factories
+    /// instead of creating a fresh SinkFactoryRegistry that only has built-in sinks.
+    /// This allows custom/extension sinks to be auto-attached from YAML/TOML configuration.
     fn auto_attach_sinks_from_config(&self, app_config: &ApplicationConfig) -> Result<(), String> {
-        use crate::core::config::ProcessorConfigReader;
-        use crate::core::stream::output::sink::SinkFactoryRegistry;
-
-        // Create a ProcessorConfigReader with the application configuration
-        let config_reader = Arc::new(ProcessorConfigReader::new(
-            Some(app_config.clone()),
-            None, // Global config would be passed here if available
-        ));
-
-        // Create a sink factory registry
-        let registry = SinkFactoryRegistry::new();
+        use crate::core::config::stream_config::{StreamType, StreamTypeConfig};
+        use crate::core::exception::EventFluxError;
+        use crate::core::stream::handler::SinkStreamHandler;
+        use crate::core::stream::stream_initializer::{initialize_stream, InitializedStream};
 
         // Iterate through all configured streams
         for (stream_name, stream_config) in &app_config.streams {
             // Check if this stream has a sink configuration
             if let Some(ref sink_config) = stream_config.sink {
-                // Create the sink using the factory
-                let sink = registry.create_sink(
-                    sink_config,
-                    Some(Arc::clone(&config_reader)),
-                    stream_name,
-                )?;
+                // Check if sink handler already registered (idempotent operation)
+                if self.get_sink_handler(stream_name).is_some() {
+                    continue;
+                }
 
-                // Attach the sink to the stream
-                self.add_callback(stream_name, sink)?;
+                // Convert SinkConfig to StreamTypeConfig (similar to sources)
+                let properties = self
+                    .extract_connection_config(&sink_config.connection)
+                    .map_err(|e| {
+                        format!(
+                            "Invalid connection config for sink stream '{}': {}",
+                            stream_name, e
+                        )
+                    })?;
+
+                let stream_type_config = StreamTypeConfig::new(
+                    StreamType::Sink,
+                    Some(sink_config.sink_type.clone()),
+                    sink_config.format.clone(),
+                    properties,
+                )
+                .map_err(|e| {
+                    format!(
+                        "Invalid StreamTypeConfig for sink '{}' (type={}): {}",
+                        stream_name, sink_config.sink_type, e
+                    )
+                })?;
+
+                // Use stream_initializer to create sink with mapper
+                // This properly uses EventFluxContext's registered factories!
+                let initialized = initialize_stream(
+                    &self.eventflux_app_context.eventflux_context,
+                    &stream_type_config,
+                )
+                .map_err(|e| {
+                    format!(
+                        "Failed to initialize YAML sink '{}' (type={}): {}",
+                        stream_name, sink_config.sink_type, e
+                    )
+                })?;
+
+                // Extract sink and mapper from initialized stream
+                let (sink, mapper) = match initialized {
+                    InitializedStream::Sink(init_sink) => {
+                        (init_sink.sink, Some(init_sink.mapper))
+                    }
+                    _ => {
+                        return Err(format!(
+                            "Expected sink stream initialization for YAML stream '{}', got different stream type",
+                            stream_name
+                        ))
+                    }
+                };
+
+                // Create SinkStreamHandler
+                let handler = Arc::new(SinkStreamHandler::new(
+                    sink,
+                    mapper,
+                    stream_name.to_string(),
+                ));
+
+                // Register handler in runtime
+                self.register_sink_handler(stream_name.to_string(), Arc::clone(&handler));
+
+                // Attach sink to junction for event delivery
+                self.attach_sink_to_junction(stream_name, Arc::clone(&handler))?;
 
                 log::info!(
-                    "[EventFluxAppRuntime] Auto-attached sink '{}' to stream '{}'",
+                    "[EventFluxAppRuntime] Auto-attached YAML sink '{}' to stream '{}'",
                     sink_config.sink_type, stream_name
                 );
             }
