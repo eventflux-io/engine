@@ -772,15 +772,14 @@ impl StreamJunction {
     }
 
     /// Convert Event to StreamEvent
+    ///
+    /// PERFORMANCE: Uses StreamEvent::new_with_data to avoid unnecessary cloning.
+    /// Data is moved to before_window_data (no clone). Processors set output_data
+    /// when they transform the event.
     fn event_to_stream_event(event: Event) -> StreamEvent {
-        let data = event.data;
-        let is_expired = event.is_expired;
-        let mut stream_event = StreamEvent::new(event.timestamp, data.len(), 0, 0);
-        stream_event.before_window_data = data.clone();
-        // Set output_data to ensure the data is preserved through the callback chain
-        stream_event.output_data = Some(data);
+        let mut stream_event = StreamEvent::new_with_data(event.timestamp, event.data);
         // Preserve expired status
-        if is_expired {
+        if event.is_expired {
             stream_event.event_type = crate::core::event::complex_event::ComplexEventType::Expired;
         }
         stream_event
