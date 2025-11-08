@@ -4,6 +4,39 @@ pub mod log_sink;
 pub mod sink_factory;
 pub mod sink_trait;
 
+use crate::core::event::event::Event;
+use crate::core::exception::EventFluxError;
+use crate::core::stream::output::mapper::SinkMapper;
+use crate::core::stream::output::stream_callback::StreamCallback;
+use std::sync::{Arc, Mutex};
+
 pub use log_sink::LogSink;
 pub use sink_factory::{create_sink_from_stream_config, SinkFactoryRegistry};
 pub use sink_trait::Sink;
+
+/// Adapter that connects the new Sink architecture (publish bytes) with old StreamCallback interface
+///
+/// This adapter implements the clean architecture flow:
+/// ```text
+/// Events → SinkMapper::map() → Vec<u8> → Sink::publish() → External System
+/// ```
+///
+/// The adapter receives Events via StreamCallback, uses the mapper to format them into bytes,
+/// and delivers the bytes to the Sink for transport.
+#[derive(Debug)]
+pub struct SinkCallbackAdapter {
+    pub sink: Arc<Mutex<Box<dyn Sink>>>,
+    pub mapper: Arc<Mutex<Box<dyn SinkMapper>>>,
+}
+
+impl StreamCallback for SinkCallbackAdapter {
+    fn receive_events(&self, events: &[Event]) {
+        // Transform Events → bytes via mapper
+        let payload = self.mapper.lock().unwrap().map(events);
+
+        // Publish bytes to sink
+        if let Err(e) = self.sink.lock().unwrap().publish(&payload) {
+            log::error!("Sink publish failed: {}", e);
+        }
+    }
+}

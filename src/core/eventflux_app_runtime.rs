@@ -13,6 +13,7 @@ use crate::core::query::output::callback_processor::CallbackProcessor; // To be 
 use crate::core::query::query_runtime::QueryRuntime;
 use crate::core::stream::input::input_handler::InputHandler;
 use crate::core::stream::input::input_manager::InputManager;
+use crate::core::stream::output::sink::SinkCallbackAdapter;
 use crate::core::stream::output::stream_callback::StreamCallback; // The trait
 use crate::core::stream::stream_junction::StreamJunction;
 use crate::core::trigger::TriggerRuntime;
@@ -23,34 +24,6 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use std::collections::HashMap;
-
-/// Adapter to share sink Arc between handler lifecycle and junction callbacks
-///
-/// This ensures the SAME sink instance receives both lifecycle calls (start/stop)
-/// and event callbacks (receive_events), preventing the bug where cloning creates two
-/// separate sink instances.
-///
-/// CRITICAL: Also applies the mapper transformation before forwarding to sink.
-/// Without this, configured formats (JSON, CSV, etc.) would be ignored.
-#[derive(Debug)]
-struct SinkCallbackAdapter {
-    sink: Arc<Mutex<Box<dyn crate::core::stream::output::sink::Sink>>>,
-    mapper: Option<Arc<Mutex<Box<dyn crate::core::stream::output::mapper::SinkMapper>>>>,
-}
-
-impl crate::core::stream::output::stream_callback::StreamCallback for SinkCallbackAdapter {
-    fn receive_events(&self, events: &[crate::core::event::event::Event]) {
-        // TODO: Apply mapper transformation if configured
-        // Current architecture unclear: SinkMapper produces Vec<u8> but Sink expects Events.
-        // Need to determine correct integration pattern for mapper usage.
-        if self.mapper.is_some() {
-            log::warn!("Sink mapper configured but not yet integrated into event pipeline");
-        }
-
-        // Forward events directly to sink for now
-        self.sink.lock().unwrap().receive_events(events);
-    }
-}
 
 /// Manages the runtime lifecycle of a single EventFlux Application.
 #[derive(Debug)] // Default removed, construction via new() -> Result
@@ -432,14 +405,19 @@ impl EventFluxAppRuntime {
         // operate on the SAME sink instance, fixing the bug where SQL sinks never started
         let sink_arc = handler.sink(); // Arc<Mutex<Box<dyn Sink>>>
 
-        // Get mapper from handler if configured
-        let mapper_opt = handler.mapper(); // Option<Arc<Mutex<Box<dyn SinkMapper>>>>
+        // Get mapper from handler (custom format) or use PassthroughMapper (binary default)
+        let mapper = handler.mapper().unwrap_or_else(|| {
+            // No format specified - use efficient binary passthrough for debug sinks
+            Arc::new(Mutex::new(Box::new(
+                crate::core::stream::output::mapper::PassthroughMapper::new()
+            ) as Box<dyn crate::core::stream::output::mapper::SinkMapper>))
+        });
 
-        // Create adapter that shares the Arc (refcount increases, but same underlying sink)
-        // Also includes mapper to transform events before forwarding to sink
+        // Create adapter with sink and mapper
+        // Flow: Events → mapper.map() → bytes → sink.publish()
         let adapter = SinkCallbackAdapter {
             sink: Arc::clone(&sink_arc),
-            mapper: mapper_opt,
+            mapper,
         };
 
         // Wrap adapter as Box<dyn StreamCallback>

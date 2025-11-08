@@ -26,12 +26,13 @@
 //! let source = TimerSource::from_properties(&properties, None, "TimerStream")?;
 //! ```
 
-use super::Source;
+use super::{Source, SourceCallback};
 use crate::core::error::source_support::{ErrorConfigBuilder, SourceErrorContext};
 use crate::core::event::event::Event;
 use crate::core::event::value::AttributeValue;
 use crate::core::exception::EventFluxError;
 use crate::core::stream::input::input_handler::InputHandler;
+use crate::core::stream::input::mapper::PassthroughMapper;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{
@@ -179,7 +180,7 @@ impl Clone for TimerSource {
 }
 
 impl Source for TimerSource {
-    fn start(&mut self, handler: Arc<Mutex<InputHandler>>) {
+    fn start(&mut self, callback: Arc<dyn SourceCallback>) {
         let running = self.running.clone();
         running.store(true, Ordering::SeqCst);
         let interval = self.interval_ms;
@@ -218,25 +219,39 @@ impl Source for TimerSource {
                 // Process event or handle error
                 match error_result {
                     Ok(_) => {
-                        // Success case - send event
-                        if let Ok(h) = handler.lock() {
-                            if let Err(e) = h.send_single_event(event.clone()) {
-                                // Convert String error to EventFluxError
-                                let send_error = EventFluxError::SendError { message: e };
-                                // Handle send error with error context
+                        // Success case - serialize event to bytes and deliver via callback
+                        match PassthroughMapper::serialize(&[event.clone()]) {
+                            Ok(bytes) => {
+                                if let Err(e) = callback.on_data(&bytes) {
+                                    // Handle send error with error context
+                                    if let Some(ctx) = &mut error_ctx {
+                                        if !ctx.handle_error(Some(&event), &e) {
+                                            // Stop source on unrecoverable error
+                                            break;
+                                        }
+                                    } else {
+                                        // No error handling configured - log and continue
+                                        eprintln!("Timer source callback error: {}", e);
+                                    }
+                                } else {
+                                    // Event sent successfully - reset error counter
+                                    if let Some(ctx) = &mut error_ctx {
+                                        ctx.reset_errors();
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                // Serialization error
+                                let serialize_error = EventFluxError::app_runtime(format!(
+                                    "Failed to serialize timer event: {}",
+                                    e
+                                ));
                                 if let Some(ctx) = &mut error_ctx {
-                                    if !ctx.handle_error(Some(&event), &send_error) {
-                                        // Stop source on unrecoverable error
+                                    if !ctx.handle_error(Some(&event), &serialize_error) {
                                         break;
                                     }
                                 } else {
-                                    // No error handling configured - log and continue
-                                    eprintln!("Timer source error: {}", send_error);
-                                }
-                            } else {
-                                // Event sent successfully - reset error counter
-                                if let Some(ctx) = &mut error_ctx {
-                                    ctx.reset_errors();
+                                    eprintln!("Timer source serialization error: {}", e);
                                 }
                             }
                         }

@@ -91,13 +91,11 @@ struct KafkaSource {
 }
 
 impl Source for KafkaSource {
-    fn start(
-        &mut self,
-        _handler: std::sync::Arc<
-            std::sync::Mutex<crate::core::stream::input::input_handler::InputHandler>,
-        >,
-    ) {
-        // Placeholder: actual implementation would start Kafka consumer
+    fn start(&mut self, _callback: std::sync::Arc<dyn crate::core::stream::input::source::SourceCallback>) {
+        // Placeholder: actual implementation would:
+        // 1. Read bytes from Kafka
+        // 2. Call callback.on_data(bytes)
+        // 3. Callback handles parsing via SourceMapper
     }
 
     fn stop(&mut self) {
@@ -222,13 +220,18 @@ struct HttpSink {
     _method: String,
 }
 
-impl crate::core::stream::output::stream_callback::StreamCallback for HttpSink {
-    fn receive_events(&self, _events: &[Event]) {
-        // Placeholder: actual implementation would send HTTP request
-    }
-}
-
 impl Sink for HttpSink {
+    fn publish(&self, _payload: &[u8]) -> Result<(), EventFluxError> {
+        // Placeholder: actual implementation would send HTTP request
+        // Example:
+        // let client = reqwest::blocking::Client::new();
+        // client.post(&self._url)
+        //     .body(payload.to_vec())
+        //     .header("Content-Type", "application/json")
+        //     .send()?;
+        Ok(())
+    }
+
     fn clone_box(&self) -> Box<dyn Sink> {
         Box::new(HttpSink {
             _url: self._url.clone(),

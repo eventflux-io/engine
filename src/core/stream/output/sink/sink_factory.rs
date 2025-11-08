@@ -5,10 +5,11 @@
 //! Provides automatic sink creation from configuration
 
 use crate::core::config::{types::application_config::SinkConfig, ProcessorConfigReader};
-use crate::core::stream::output::sink::{LogSink, Sink};
+use crate::core::stream::output::sink::{LogSink, Sink, SinkCallbackAdapter};
+use crate::core::stream::output::mapper::{PassthroughMapper, SinkMapper};
 use crate::core::stream::output::stream_callback::StreamCallback;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Registry for sink factories
 pub struct SinkFactoryRegistry {
@@ -75,7 +76,13 @@ impl SinkFactoryTrait for LogSinkFactory {
         // Create LogSink with configuration support
         let log_sink = LogSink::new_with_config(config_reader, sink_name.to_string());
 
-        Ok(Box::new(log_sink))
+        // Wrap in adapter with PassthroughMapper for binary serialization
+        let adapter = SinkCallbackAdapter {
+            sink: Arc::new(Mutex::new(Box::new(log_sink))),
+            mapper: Arc::new(Mutex::new(Box::new(PassthroughMapper::new()))),
+        };
+
+        Ok(Box::new(adapter))
     }
 }
 
