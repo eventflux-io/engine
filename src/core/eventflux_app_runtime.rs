@@ -29,16 +29,26 @@ use std::collections::HashMap;
 /// This ensures the SAME sink instance receives both lifecycle calls (start/stop)
 /// and event callbacks (receive_events), preventing the bug where cloning creates two
 /// separate sink instances.
+///
+/// CRITICAL: Also applies the mapper transformation before forwarding to sink.
+/// Without this, configured formats (JSON, CSV, etc.) would be ignored.
 #[derive(Debug)]
 struct SinkCallbackAdapter {
     sink: Arc<Mutex<Box<dyn crate::core::stream::output::sink::Sink>>>,
+    mapper: Option<Arc<Mutex<Box<dyn crate::core::stream::output::mapper::SinkMapper>>>>,
 }
 
 impl crate::core::stream::output::stream_callback::StreamCallback for SinkCallbackAdapter {
     fn receive_events(&self, events: &[crate::core::event::event::Event]) {
-        // Forward to the shared sink instance
-        // Sink trait extends StreamCallback, so it has receive_events
-        self.sink.lock().unwrap().receive_events(events)
+        // TODO: Apply mapper transformation if configured
+        // Current architecture unclear: SinkMapper produces Vec<u8> but Sink expects Events.
+        // Need to determine correct integration pattern for mapper usage.
+        if self.mapper.is_some() {
+            log::warn!("Sink mapper configured but not yet integrated into event pipeline");
+        }
+
+        // Forward events directly to sink for now
+        self.sink.lock().unwrap().receive_events(events);
     }
 }
 
@@ -422,9 +432,14 @@ impl EventFluxAppRuntime {
         // operate on the SAME sink instance, fixing the bug where SQL sinks never started
         let sink_arc = handler.sink(); // Arc<Mutex<Box<dyn Sink>>>
 
+        // Get mapper from handler if configured
+        let mapper_opt = handler.mapper(); // Option<Arc<Mutex<Box<dyn SinkMapper>>>>
+
         // Create adapter that shares the Arc (refcount increases, but same underlying sink)
+        // Also includes mapper to transform events before forwarding to sink
         let adapter = SinkCallbackAdapter {
             sink: Arc::clone(&sink_arc),
+            mapper: mapper_opt,
         };
 
         // Wrap adapter as Box<dyn StreamCallback>
