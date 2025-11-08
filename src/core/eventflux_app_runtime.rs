@@ -815,20 +815,10 @@ impl EventFluxAppRuntime {
             }
         }
 
-        // Return results based on what happened
-        if errors.is_empty() {
-            Ok((attached_sources, attached_sinks))
-        } else if attached_sources.is_empty() && attached_sinks.is_empty() {
-            // All failed
+        // Fail fast - no partial success allowed
+        if !errors.is_empty() {
             Err(errors)
         } else {
-            // Partial success - log warning but don't fail
-            log::error!(
-                "[EventFluxAppRuntime] Partial SQL attachment: {} source(s) + {} sink(s) succeeded, {} failed",
-                attached_sources.len(),
-                attached_sinks.len(),
-                errors.len()
-            );
             Ok((attached_sources, attached_sinks))
         }
     }
@@ -1152,19 +1142,10 @@ impl EventFluxAppRuntime {
             }
         }
 
-        // Return results based on what happened
-        if errors.is_empty() {
-            Ok(successes)
-        } else if successes.is_empty() {
-            // All failed
+        // Fail fast - no partial success allowed
+        if !errors.is_empty() {
             Err(errors)
         } else {
-            // Partial success - log warning but don't fail
-            log::error!(
-                "[EventFluxAppRuntime] Partial source attachment: {} succeeded, {} failed",
-                successes.len(),
-                errors.len()
-            );
             Ok(successes)
         }
     }
@@ -1369,19 +1350,10 @@ impl EventFluxAppRuntime {
             }
         }
 
-        // Return results based on what happened
-        if errors.is_empty() {
-            Ok(successes)
-        } else if successes.is_empty() {
-            // All failed
+        // Fail fast - no partial success allowed
+        if !errors.is_empty() {
             Err(errors)
         } else {
-            // Partial success - log warning but don't fail
-            log::error!(
-                "[EventFluxAppRuntime] Partial table attachment: {} succeeded, {} failed",
-                successes.len(),
-                errors.len()
-            );
             Ok(successes)
         }
     }
