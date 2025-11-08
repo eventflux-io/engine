@@ -58,7 +58,7 @@ impl StreamCallback for LogSink {
     fn receive_events(&self, events: &[Event]) {
         let prefix = self.get_prefix();
         for e in events {
-            println!("{} {e:?}", prefix);
+            log::info!("{} {e:?}", prefix);
             self.events.lock().unwrap().push(e.clone());
         }
     }

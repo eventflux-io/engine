@@ -77,8 +77,14 @@ impl EventFluxAppParser {
                 }
             }
 
-            // Create fault stream if needed (currently not supported via SQL WITH)
-            let create_fault_stream = false;
+            // Create fault stream if requested via SQL WITH fault.stream='true'
+            let create_fault_stream = stream_def_arc
+                .with_config
+                .as_ref()
+                .and_then(|cfg| cfg.get("fault.stream"))
+                .map(|val| val.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+
             if create_fault_stream {
                 let mut fault_def = ApiStreamDefinition::new(format!(
                     "{}{}",

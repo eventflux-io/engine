@@ -49,7 +49,7 @@ impl Scheduler {
         self.executor.execute(move || {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .expect("System clock before Unix epoch - check system time configuration")
                 .as_millis() as i64;
             let delay = if timestamp > now { timestamp - now } else { 0 } as u64;
             std::thread::sleep(Duration::from_millis(delay));
@@ -66,7 +66,7 @@ impl Scheduler {
         self.executor.execute(move || {
             let mut next = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .expect("System clock before Unix epoch - check system time configuration")
                 .as_millis() as i64
                 + period_ms;
             let mut count = 0usize;
@@ -78,7 +78,7 @@ impl Scheduler {
                 }
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .expect("System clock before Unix epoch - check system time configuration")
                     .as_millis() as i64;
                 if next > now {
                     std::thread::sleep(Duration::from_millis((next - now) as u64));
@@ -107,7 +107,7 @@ impl Scheduler {
                 let ts = datetime.timestamp_millis();
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .expect("System clock before Unix epoch - check system time configuration")
                     .as_millis() as i64;
                 if ts > now {
                     std::thread::sleep(Duration::from_millis((ts - now) as u64));
