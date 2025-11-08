@@ -441,9 +441,14 @@ impl EventFluxManager {
             Arc::clone(&self.eventflux_context),
             eventflux_app_str_opt,
         )?;
-        temp_runtime.start().map_err(|e| e.to_string())?; // This would internally build the plan, run initializations
-        temp_runtime.shutdown(); // Clean up
-        Ok(())
+
+        // Capture the result but always shutdown to prevent resource leaks
+        let result = temp_runtime.start().map_err(|e| e.to_string());
+
+        // Always clean up, even if start() failed (may have partial components running)
+        temp_runtime.shutdown();
+
+        result
     }
 
     // --- Persistence ---
