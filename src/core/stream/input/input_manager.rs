@@ -51,22 +51,34 @@ impl InputManager {
         &self,
         stream_id: &str,
     ) -> Result<Arc<Mutex<InputHandler>>, String> {
+        // Check if handler already exists (idempotent operation)
+        // This prevents duplicate processor registration in InputDistributor
+        if let Some(existing_handler) = self.input_handlers.lock().unwrap().get(stream_id) {
+            return Ok(Arc::clone(existing_handler));
+        }
+
         let junction = self
             .stream_junction_map
             .get(stream_id)
             .ok_or_else(|| format!("StreamJunction '{stream_id}' not found"))?
             .clone();
         let publisher = StreamJunction::construct_publisher(junction);
+
+        // Add processor to distributor ONLY if creating new handler
         self.input_distributor
             .lock()
             .map_err(|_| "distributor mutex".to_string())?
             .add_input_processor(Arc::new(Mutex::new(publisher.clone())));
+
+        // Use current map length as stream index (consistent across all handlers)
+        let stream_index = self.input_handlers.lock().unwrap().len();
         let handler = Arc::new(Mutex::new(InputHandler::new(
             stream_id.to_string(),
-            self.input_handlers.lock().unwrap().len(),
+            stream_index,
             self.input_entry_valve.clone(),
             Arc::clone(&self.eventflux_app_context),
         )));
+
         self.input_handlers
             .lock()
             .unwrap()

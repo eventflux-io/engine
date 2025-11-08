@@ -42,7 +42,7 @@ fn test_snapshot_service_persist_restore() {
     let mut service = SnapshotService::new("app1".to_string());
     service.persistence_store = Some(store.clone());
     service.set_state(b"state1".to_vec());
-    let rev = service.persist().unwrap();
+    let rev = service.persist().unwrap().revision;
     service.set_state(b"changed".to_vec());
     service.restore_revision(&rev).unwrap();
     assert_eq!(service.snapshot(), b"state1".to_vec());
@@ -121,7 +121,7 @@ async fn test_runtime_persist_restore() {
             }),
         )
         .unwrap();
-    runtime.start();
+    runtime.start().expect("Failed to start runtime");
 
     let handler = runtime.get_input_handler("InStream").unwrap();
     handler

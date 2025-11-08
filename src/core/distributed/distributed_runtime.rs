@@ -101,8 +101,12 @@ impl DistributedRuntime {
             *state = RuntimeState::Starting;
         }
 
-        // Start core runtime
-        self.core_runtime.start();
+        // Start core runtime and propagate errors
+        self.core_runtime.start().map_err(|e| {
+            DistributedError::ConfigurationError {
+                message: format!("Failed to start core runtime: {}", e),
+            }
+        })?;
 
         // Register queries with processing engine
         for (query_id, query_runtime) in self.core_runtime.query_runtimes.iter().enumerate() {

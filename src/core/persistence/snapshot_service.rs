@@ -10,6 +10,21 @@ use crate::core::util::{from_bytes, to_bytes};
 
 use super::persistence_store::PersistenceStore;
 
+/// Report of a persistence operation
+#[derive(Debug, Clone)]
+pub struct PersistReport {
+    /// Revision ID that was created
+    pub revision: String,
+    /// Number of components successfully persisted
+    pub success_count: usize,
+    /// Number of components that failed to persist
+    pub failure_count: usize,
+    /// Component IDs that succeeded
+    pub succeeded_components: Vec<String>,
+    /// Component IDs and error messages that failed
+    pub failed_components: Vec<(String, String)>,
+}
+
 /// Basic snapshot service keeping arbitrary state bytes.
 #[derive(Default)]
 pub struct SnapshotService {
@@ -59,22 +74,46 @@ impl SnapshotService {
     }
 
     /// Persist the current state via the configured store.
-    pub fn persist(&self) -> Result<String, String> {
+    ///
+    /// Attempts to serialize and persist all registered state holders. Errors are
+    /// collected and reported rather than causing immediate failure, allowing
+    /// callers to handle partial failures appropriately.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(PersistReport)` - Persistence completed (possibly with some failures)
+    ///   - Contains revision ID, success/failure counts, and component details
+    ///   - Caller should check `failure_count` to detect partial failures
+    /// * `Err(String)` - Critical failure (no persistence store, serialization error)
+    ///
+    /// # Error Handling
+    ///
+    /// Individual component serialization failures are logged and accumulated in the
+    /// report. The operation continues to attempt persisting remaining components.
+    /// Only critical failures (e.g., no persistence store) cause immediate error return.
+    pub fn persist(&self) -> Result<PersistReport, String> {
         let mut holders = HashMap::new();
+        let mut succeeded_components = Vec::new();
+        let mut failed_components = Vec::new();
+
         let hints = crate::core::persistence::SerializationHints::default();
         for (id, holder) in self.state_holders.lock().unwrap().iter() {
-            println!("Persisting state for component: {}", id);
+            log::info!("Persisting state for component: {}", id);
             match holder.lock().unwrap().serialize_state(&hints) {
                 Ok(snapshot) => {
                     holders.insert(id.clone(), snapshot);
-                    println!("Successfully persisted state for: {}", id);
+                    succeeded_components.push(id.clone());
+                    log::info!("Successfully persisted state for: {}", id);
                 }
                 Err(e) => {
-                    eprintln!("Failed to serialize state for {id}: {e:?}");
+                    let error_msg = format!("{:?}", e);
+                    log::error!("Failed to serialize state for {id}: {error_msg}");
+                    failed_components.push((id.clone(), error_msg));
                     continue;
                 }
             }
         }
+
         let snapshot = SnapshotData {
             main: self.snapshot(),
             holders,
@@ -86,7 +125,24 @@ impl SnapshotService {
             .ok_or("No persistence store")?;
         let revision = Utc::now().timestamp_millis().to_string();
         store.save(&self.eventflux_app_id, &revision, &data);
-        Ok(revision)
+
+        let report = PersistReport {
+            revision: revision.clone(),
+            success_count: succeeded_components.len(),
+            failure_count: failed_components.len(),
+            succeeded_components,
+            failed_components,
+        };
+
+        if report.failure_count > 0 {
+            log::warn!(
+                "Partial persistence success: {} succeeded, {} failed",
+                report.success_count,
+                report.failure_count
+            );
+        }
+
+        Ok(report)
     }
 
     /// Load the given revision from the store and set as current state.
@@ -99,18 +155,18 @@ impl SnapshotService {
             let snap: SnapshotData = from_bytes(&data).map_err(|e| e.to_string())?;
             self.set_state(snap.main);
             for (id, snapshot) in snap.holders {
-                println!("Restoring state for component: {}", id);
+                log::info!("Restoring state for component: {}", id);
                 if let Some(holder) = self.state_holders.lock().unwrap().get(&id) {
                     // Use the full snapshot with all metadata (compression, checksum, version, etc.)
                     match holder.lock().unwrap().deserialize_state(&snapshot) {
-                        Ok(_) => println!("Successfully restored state for: {}", id),
+                        Ok(_) => log::info!("Successfully restored state for: {}", id),
                         Err(e) => {
-                            eprintln!("Failed to restore state for {id}: {e:?}");
-                            eprintln!("Component ID: {}, Error details: {}", id, e);
+                            log::error!("Failed to restore state for {id}: {e:?}");
+                            log::error!("Component ID: {}, Error details: {}", id, e);
                         }
                     }
                 } else {
-                    println!("No state holder found for component: {}", id);
+                    log::info!("No state holder found for component: {}", id);
                 }
             }
             Ok(())

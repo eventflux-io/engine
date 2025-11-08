@@ -298,17 +298,18 @@ async fn test_sql_with_unregistered_extension() {
         SELECT value FROM KafkaStream;
     "#;
 
-    // Runtime creation succeeds
+    // Runtime creation should FAIL when using unregistered extension
+    // With A1 fix (error propagation), start() errors bubble up to create_eventflux_app_runtime_from_string
     let runtime_result = manager.create_eventflux_app_runtime_from_string(sql).await;
-    assert!(runtime_result.is_ok());
+    assert!(runtime_result.is_err());
 
-    let runtime = runtime_result.unwrap();
-    runtime.start();
-
-    // Source should NOT be attached (factory not found)
-    assert!(runtime.get_source_handler("KafkaStream").is_none());
-
-    runtime.shutdown();
+    // Verify error message indicates the unregistered extension
+    let err_msg = runtime_result.unwrap_err();
+    assert!(
+        err_msg.contains("kafka") && (err_msg.contains("not found") || err_msg.contains("extension")),
+        "Error message should mention kafka extension not found, got: {}",
+        err_msg
+    );
 }
 
 /// Test 6: SQL WITH with YAML Configuration Loaded

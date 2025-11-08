@@ -51,6 +51,10 @@ impl InputHandler {
         &self.stream_id
     }
 
+    pub fn get_stream_index(&self) -> usize {
+        self.stream_index
+    }
+
     fn ensure_processor(&self) -> Result<Arc<Mutex<dyn InputProcessor>>, String> {
         self.input_processor
             .as_ref()
