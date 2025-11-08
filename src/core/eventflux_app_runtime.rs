@@ -446,12 +446,27 @@ impl EventFluxAppRuntime {
 
     /// Start all registered source handlers
     pub fn start_all_sources(&self) -> Result<(), String> {
+        let mut errors = Vec::new();
+
+        // Attempt to start all sources, accumulating errors
         for handler in self.source_handlers.read().unwrap().values() {
-            handler
-                .start()
-                .map_err(|e| format!("Failed to start source '{}': {}", handler.stream_id(), e))?;
+            if let Err(e) = handler.start() {
+                let error_msg = format!("Failed to start source '{}': {}", handler.stream_id(), e);
+                log::error!("[EventFluxAppRuntime] {}", error_msg);
+                errors.push(error_msg);
+            }
         }
-        Ok(())
+
+        // Fail fast - no partial success allowed
+        if !errors.is_empty() {
+            Err(format!(
+                "Failed to start {} source(s): {}",
+                errors.len(),
+                errors.join("; ")
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     /// Stop all registered source handlers
