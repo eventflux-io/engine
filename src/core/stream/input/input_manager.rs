@@ -51,12 +51,19 @@ impl InputManager {
         &self,
         stream_id: &str,
     ) -> Result<Arc<Mutex<InputHandler>>, String> {
+        // Lock input_handlers for entire operation to prevent race conditions
+        // This ensures atomic check-and-create behavior preventing:
+        // - Duplicate publisher registration in InputDistributor
+        // - Inconsistent stream_index values
+        // - Concurrent overwrites of the same handler
+        let mut handlers = self.input_handlers.lock().unwrap();
+
         // Check if handler already exists (idempotent operation)
-        // This prevents duplicate processor registration in InputDistributor
-        if let Some(existing_handler) = self.input_handlers.lock().unwrap().get(stream_id) {
+        if let Some(existing_handler) = handlers.get(stream_id) {
             return Ok(Arc::clone(existing_handler));
         }
 
+        // Create junction and publisher while holding lock
         let junction = self
             .stream_junction_map
             .get(stream_id)
@@ -65,13 +72,14 @@ impl InputManager {
         let publisher = StreamJunction::construct_publisher(junction);
 
         // Add processor to distributor ONLY if creating new handler
+        // Lock ordering: input_handlers → input_distributor (always acquire in this order)
         self.input_distributor
             .lock()
             .map_err(|_| "distributor mutex".to_string())?
             .add_input_processor(Arc::new(Mutex::new(publisher.clone())));
 
-        // Use current map length as stream index (consistent across all handlers)
-        let stream_index = self.input_handlers.lock().unwrap().len();
+        // Use current map length as stream index (consistent - lock still held)
+        let stream_index = handlers.len();
         let handler = Arc::new(Mutex::new(InputHandler::new(
             stream_id.to_string(),
             stream_index,
@@ -79,10 +87,8 @@ impl InputManager {
             Arc::clone(&self.eventflux_app_context),
         )));
 
-        self.input_handlers
-            .lock()
-            .unwrap()
-            .insert(stream_id.to_string(), Arc::clone(&handler));
+        // Insert handler and return (lock still held until end of scope)
+        handlers.insert(stream_id.to_string(), Arc::clone(&handler));
         Ok(handler)
     }
 
