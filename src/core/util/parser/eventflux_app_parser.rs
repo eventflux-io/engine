@@ -161,15 +161,24 @@ impl EventFluxAppParser {
                     )?)
                 }
                 // Built-in cache table
-                else if t_type == "cache" {
+                else if t_type == "cache" || t_type == "inMemory" {
                     Arc::new(crate::core::table::InMemoryTable::new())
                 } else {
-                    // Unknown extension type - default to InMemoryTable
-                    Arc::new(crate::core::table::InMemoryTable::new())
+                    // Unknown extension type - error instead of silent fallback
+                    return Err(format!(
+                        "Unknown table extension '{}' for table '{}'. Available extensions: registered factories, 'jdbc', 'cache', 'inMemory'. \
+                         Check for typos or register the extension factory.",
+                        t_type, table_id
+                    ));
                 }
             } else {
-                // No extension specified - default to InMemoryTable
-                Arc::new(crate::core::table::InMemoryTable::new())
+                // No extension specified - error instead of silent fallback
+                return Err(format!(
+                    "Table '{}' requires explicit extension specification for durability safety. \
+                     Use SQL WITH (extension='<type>') or register in configuration. \
+                     Available types: 'jdbc', 'cache', 'inMemory', or custom registered extensions.",
+                    table_id
+                ));
             };
 
             eventflux_app_context
