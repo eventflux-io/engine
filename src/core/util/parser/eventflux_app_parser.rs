@@ -102,9 +102,20 @@ impl EventFluxAppParser {
             }
 
             // Create StreamJunction with async configuration from SQL WITH or YAML
-            let junction_config = JunctionConfig::new(stream_id.clone())
+            // Preserve all tuning hints collected from WITH clause
+            let mut junction_config = JunctionConfig::new(stream_id.clone())
                 .with_buffer_size(config.buffer_size)
                 .with_async(config.is_async);
+
+            // Preserve expected_throughput hint if set (from async.workers)
+            if let Some(throughput) = config.expected_throughput {
+                junction_config = junction_config.with_expected_throughput(throughput);
+            }
+
+            // Preserve subscriber_count hint if set
+            if let Some(count) = config.subscriber_count {
+                junction_config = junction_config.with_subscriber_count(count);
+            }
 
             let stream_junction = StreamJunctionFactory::create(
                 junction_config,
