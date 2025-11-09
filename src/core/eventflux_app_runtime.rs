@@ -473,6 +473,34 @@ impl EventFluxAppRuntime {
         }
     }
 
+    /// Start all registered sink handlers
+    pub fn start_all_sinks(&self) -> Result<(), String> {
+        let mut errors = Vec::new();
+
+        // Attempt to start all sinks, accumulating errors
+        for handler in self.sink_handlers.read().unwrap().values() {
+            handler.start();
+            // Note: SinkStreamHandler::start() is infallible (no Result),
+            // but we check is_running() to verify it started
+            if !handler.is_running() {
+                let error_msg = format!("Failed to start sink '{}'", handler.stream_id());
+                log::error!("[EventFluxAppRuntime] {}", error_msg);
+                errors.push(error_msg);
+            }
+        }
+
+        // Fail fast - no partial success allowed
+        if !errors.is_empty() {
+            Err(format!(
+                "Failed to start {} sink(s): {}",
+                errors.len(),
+                errors.join("; ")
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
     /// Stop all registered sink handlers
     pub fn stop_all_sinks(&self) {
         for handler in self.sink_handlers.read().unwrap().values() {
@@ -584,6 +612,12 @@ impl EventFluxAppRuntime {
         // Start all registered sources (idempotent - no-op if already started)
         if let Err(e) = self.start_all_sources() {
             log::error!("Failed to start sources: {}", e);
+            all_errors.push(EventFluxError::app_runtime(e));
+        }
+
+        // Start all registered sinks (idempotent - no-op if already started)
+        if let Err(e) = self.start_all_sinks() {
+            log::error!("Failed to start sinks: {}", e);
             all_errors.push(EventFluxError::app_runtime(e));
         }
 
