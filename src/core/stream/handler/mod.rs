@@ -21,8 +21,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::core::exception::EventFluxError;
 use crate::core::stream::input::input_handler::InputHandler;
-use crate::core::stream::input::mapper::SourceMapper;
-use crate::core::stream::input::source::Source;
+use crate::core::stream::input::mapper::{PassthroughMapper, SourceMapper};
+use crate::core::stream::input::source::{Source, SourceCallbackAdapter};
 use crate::core::stream::output::mapper::SinkMapper;
 use crate::core::stream::output::sink::Sink;
 
@@ -79,11 +79,20 @@ impl SourceStreamHandler {
             return Ok(());
         }
 
-        // Start the source
-        self.source
-            .lock()
-            .unwrap()
-            .start(Arc::clone(&self.input_handler));
+        // Get mapper from handler (custom format) or use PassthroughMapper (binary default)
+        let mapper = self.mapper.clone().unwrap_or_else(|| {
+            // No format specified - use efficient binary passthrough
+            Arc::new(Mutex::new(Box::new(PassthroughMapper::new()) as Box<dyn SourceMapper>))
+        });
+
+        // Create adapter: Source → bytes → SourceCallback → SourceMapper → Events → InputHandler
+        let callback = Arc::new(SourceCallbackAdapter::new(
+            mapper,
+            Arc::clone(&self.input_handler),
+        ));
+
+        // Start the source with callback
+        self.source.lock().unwrap().start(callback);
         Ok(())
     }
 

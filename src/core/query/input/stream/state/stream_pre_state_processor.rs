@@ -2,7 +2,6 @@
 
 // eventflux_rust/src/core/query/input/stream/state/stream_pre_state_processor.rs
 // Base implementation of PreStateProcessor for single stream patterns
-// Reference: io.siddhi.core.query.input.stream.state.StreamPreStateProcessor
 
 use super::post_state_processor::PostStateProcessor;
 use super::pre_state_processor::PreStateProcessor;

@@ -5,7 +5,11 @@ use eventflux_rust::core::config::eventflux_context::EventFluxContext;
 use eventflux_rust::core::config::eventflux_query_context::EventFluxQueryContext;
 use eventflux_rust::core::query::output::callback_processor::CallbackProcessor;
 use eventflux_rust::core::stream::input::input_handler::InputHandler;
-use eventflux_rust::core::stream::output::{LogSink, Sink, StreamCallback};
+use eventflux_rust::core::stream::input::mapper::PassthroughMapper as SourcePassthroughMapper;
+use eventflux_rust::core::stream::input::source::SourceCallbackAdapter;
+use eventflux_rust::core::stream::output::mapper::PassthroughMapper as SinkPassthroughMapper;
+use eventflux_rust::core::stream::output::sink::{LogSink, SinkCallbackAdapter};
+use eventflux_rust::core::stream::output::StreamCallback;
 use eventflux_rust::core::stream::{Source, StreamJunction, TimerSource};
 use eventflux_rust::query_api::definition::attribute::Type as AttrType;
 use eventflux_rust::query_api::definition::stream_definition::StreamDefinition;
@@ -45,9 +49,14 @@ fn timer_source_to_log_sink() {
         Arc::clone(&app_ctx),
     )));
 
+    // Create sink with adapter (Events → mapper → bytes → sink)
     let sink = LogSink::new();
     let collected = sink.events.clone();
-    let callback = Arc::new(Mutex::new(Box::new(sink) as Box<dyn StreamCallback>));
+    let sink_adapter = SinkCallbackAdapter {
+        sink: Arc::new(Mutex::new(Box::new(sink))),
+        mapper: Arc::new(Mutex::new(Box::new(SinkPassthroughMapper::new()))),
+    };
+    let callback = Arc::new(Mutex::new(Box::new(sink_adapter) as Box<dyn StreamCallback>));
     let cb_processor = Arc::new(Mutex::new(CallbackProcessor::new(
         callback,
         Arc::clone(&app_ctx),
@@ -59,8 +68,13 @@ fn timer_source_to_log_sink() {
     )));
     junction.lock().unwrap().subscribe(cb_processor);
 
+    // Create source with callback adapter (source → bytes → mapper → Events → InputHandler)
+    let source_callback = Arc::new(SourceCallbackAdapter::new(
+        Arc::new(Mutex::new(Box::new(SourcePassthroughMapper::new()))),
+        Arc::clone(&input_handler),
+    ));
     let mut source = TimerSource::new(10);
-    source.start(Arc::clone(&input_handler));
+    source.start(source_callback);
     std::thread::sleep(Duration::from_millis(50));
     source.stop();
     std::thread::sleep(Duration::from_millis(20));

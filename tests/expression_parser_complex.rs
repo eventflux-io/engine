@@ -708,8 +708,18 @@ async fn test_app_runner_table_in_lookup() {
     use eventflux_rust::query_api::execution::query::selection::Selector;
     use eventflux_rust::query_api::execution::query::{OutputAttribute, Query};
 
+    use eventflux_rust::core::config::stream_config::{FlatConfig, PropertySource};
+
     let s_def = StreamDefinition::new("S".to_string()).attribute("val".to_string(), AttrType::INT);
-    let t_def = TableDefinition::new("T".to_string()).attribute("val".to_string(), AttrType::INT);
+
+    // Table now requires explicit extension specification for durability safety
+    let mut table_config = FlatConfig::new();
+    table_config.set("extension", "cache", PropertySource::SqlWith);
+    table_config.set("max_size", "100", PropertySource::SqlWith);  // Cache requires max_size
+    let t_def = TableDefinition::new("T".to_string())
+        .attribute("val".to_string(), AttrType::INT)
+        .with_config(table_config);
+
     let out_def =
         StreamDefinition::new("Out".to_string()).attribute("val".to_string(), AttrType::INT);
 

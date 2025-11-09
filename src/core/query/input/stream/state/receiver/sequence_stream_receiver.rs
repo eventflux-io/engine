@@ -2,7 +2,6 @@
 
 // eventflux_rust/src/core/query/input/stream/state/receiver/sequence_stream_receiver.rs
 // SequenceStreamReceiver for stabilizing sequence processor state
-// Reference: io.siddhi.core.query.input.stream.state.receiver.SequenceSingleProcessStreamReceiver
 
 use crate::core::query::input::stream::state::pre_state_processor::PreStateProcessor;
 use crate::core::query::input::stream::state::state_stream_runtime::StateStreamRuntime;
@@ -26,8 +25,6 @@ use std::sync::{Arc, Mutex};
 /// **Difference from Pattern**:
 /// - Pattern: expireEvents() + updateState() (retains state)
 /// - Sequence: expireEvents() + resetAndUpdate() (clears state)
-///
-/// **Java Reference**: `io.siddhi.core.query.input.stream.state.receiver.SequenceSingleProcessStreamReceiver`
 #[derive(Debug)]
 pub struct SequenceStreamReceiver {
     /// All PreStateProcessors in the chain (for expiring events)

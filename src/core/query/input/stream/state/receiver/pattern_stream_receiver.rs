@@ -2,7 +2,6 @@
 
 // eventflux_rust/src/core/query/input/stream/state/receiver/pattern_stream_receiver.rs
 // PatternStreamReceiver for stabilizing pattern processor state
-// Reference: io.siddhi.core.query.input.stream.state.receiver.PatternSingleProcessStreamReceiver
 
 use crate::core::query::input::stream::state::pre_state_processor::PreStateProcessor;
 use std::sync::{Arc, Mutex};
@@ -20,8 +19,6 @@ use std::sync::{Arc, Mutex};
 /// - Pattern allows multiple matches from the same state
 /// - State is retained after match (not cleared)
 /// - WITHIN time constraints honored via expire_events()
-///
-/// **Java Reference**: `io.siddhi.core.query.input.stream.state.receiver.PatternSingleProcessStreamReceiver`
 #[derive(Debug)]
 pub struct PatternStreamReceiver {
     /// All PreStateProcessors in the chain (for expiring events)

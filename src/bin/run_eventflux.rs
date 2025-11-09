@@ -12,7 +12,7 @@ use eventflux_rust::core::eventflux_manager::EventFluxManager;
 use eventflux_rust::core::persistence::{
     FilePersistenceStore, PersistenceStore, SqlitePersistenceStore,
 };
-use eventflux_rust::core::stream::output::sink::LogSink;
+use eventflux_rust::core::stream::output::LogStreamCallback;
 use std::sync::Arc;
 
 #[derive(Parser, Debug)]
@@ -93,7 +93,7 @@ async fn main() {
     };
 
     for stream_id in runtime.stream_junction_map.keys() {
-        let _ = runtime.add_callback(stream_id, Box::new(LogSink::new()));
+        let _ = runtime.add_callback(stream_id, Box::new(LogStreamCallback::new(stream_id.clone())));
     }
 
     println!(

@@ -2,11 +2,16 @@
 
 use crate::core::config::{ConfigValue, ProcessorConfigReader};
 use crate::core::event::event::Event;
+use crate::core::exception::EventFluxError;
+use crate::core::stream::output::mapper::PassthroughMapper;
 use crate::core::stream::output::sink::sink_trait::Sink;
-use crate::core::stream::output::stream_callback::StreamCallback;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
+/// LogSink - Debug sink that logs events to stdout/log system
+///
+/// This sink deserializes binary event payloads and logs them for debugging.
+/// Used primarily for development and testing.
 #[derive(Debug, Clone)]
 pub struct LogSink {
     pub events: Arc<Mutex<Vec<Event>>>,
@@ -54,17 +59,21 @@ impl LogSink {
     }
 }
 
-impl StreamCallback for LogSink {
-    fn receive_events(&self, events: &[Event]) {
+impl Sink for LogSink {
+    fn publish(&self, payload: &[u8]) -> Result<(), EventFluxError> {
+        // Deserialize events from binary format
+        let events = PassthroughMapper::deserialize(payload)
+            .map_err(|e| EventFluxError::app_runtime(format!("LogSink deserialization failed: {}", e)))?;
+
         let prefix = self.get_prefix();
-        for e in events {
-            println!("{} {e:?}", prefix);
+        for e in &events {
+            log::info!("{} {:?}", prefix, e);
             self.events.lock().unwrap().push(e.clone());
         }
-    }
-}
 
-impl Sink for LogSink {
+        Ok(())
+    }
+
     fn clone_box(&self) -> Box<dyn Sink> {
         Box::new(self.clone())
     }

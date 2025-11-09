@@ -13,6 +13,7 @@ use crate::core::query::output::callback_processor::CallbackProcessor; // To be 
 use crate::core::query::query_runtime::QueryRuntime;
 use crate::core::stream::input::input_handler::InputHandler;
 use crate::core::stream::input::input_manager::InputManager;
+use crate::core::stream::output::sink::SinkCallbackAdapter;
 use crate::core::stream::output::stream_callback::StreamCallback; // The trait
 use crate::core::stream::stream_junction::StreamJunction;
 use crate::core::trigger::TriggerRuntime;
@@ -125,11 +126,15 @@ impl EventFluxAppRuntime {
         let thread_barrier = Arc::new(crate::core::util::thread_barrier::ThreadBarrier::new());
         ctx.set_thread_barrier(thread_barrier);
 
+        // Create scheduler with dedicated thread pool (separate from event processing)
+        // This prevents scheduler sleep operations from blocking event processing threads
+        // Thread pool size: Configurable via EVENTFLUX_EXECUTOR_THREADS or num_cpus::get()
         let scheduler = if let Some(exec) = ctx.get_scheduled_executor_service() {
             Arc::new(crate::core::util::Scheduler::new(Arc::clone(
                 &exec.executor,
             )))
         } else {
+            // Create dedicated scheduler executor (separate from event processing)
             Arc::new(crate::core::util::Scheduler::new(Arc::new(
                 crate::core::util::ExecutorService::default(),
             )))
@@ -394,20 +399,32 @@ impl EventFluxAppRuntime {
             None,
         ));
 
-        // Get the underlying sink from the handler
-        // Since Sink extends StreamCallback, we can convert directly
-        let sink = handler.sink();
+        // Get the underlying sink Arc from the handler
+        // CRITICAL FIX: Use adapter to share the SAME Arc instead of cloning the sink
+        // This ensures lifecycle calls (start/stop) and event callbacks (receive)
+        // operate on the SAME sink instance, fixing the bug where SQL sinks never started
+        let sink_arc = handler.sink(); // Arc<Mutex<Box<dyn Sink>>>
 
-        // Lock and clone the inner Box<dyn Sink>
-        let sink_guard = sink.lock().expect("Sink Mutex poisoned");
-        let sink_clone = sink_guard.clone_box();
-        drop(sink_guard); // Release lock
+        // Get mapper from handler (custom format) or use PassthroughMapper (binary default)
+        let mapper = handler.mapper().unwrap_or_else(|| {
+            // No format specified - use efficient binary passthrough for debug sinks
+            Arc::new(Mutex::new(Box::new(
+                crate::core::stream::output::mapper::PassthroughMapper::new()
+            ) as Box<dyn crate::core::stream::output::mapper::SinkMapper>))
+        });
 
-        // Box<dyn Sink> can be upcast to Box<dyn StreamCallback> because Sink: StreamCallback
-        let sink_as_callback: Box<dyn StreamCallback> = sink_clone;
+        // Create adapter with sink and mapper
+        // Flow: Events → mapper.map() → bytes → sink.publish()
+        let adapter = SinkCallbackAdapter {
+            sink: Arc::clone(&sink_arc),
+            mapper,
+        };
+
+        // Wrap adapter as Box<dyn StreamCallback>
+        let callback_box: Box<dyn StreamCallback> = Box::new(adapter);
 
         // Wrap in Arc<Mutex<>> as expected by CallbackProcessor
-        let sink_callback_arc = Arc::new(Mutex::new(sink_as_callback));
+        let sink_callback_arc = Arc::new(Mutex::new(callback_box));
 
         // Wrap in a CallbackProcessor and subscribe to junction
         let callback_processor = Arc::new(Mutex::new(CallbackProcessor::new(
@@ -426,18 +443,61 @@ impl EventFluxAppRuntime {
 
     /// Start all registered source handlers
     pub fn start_all_sources(&self) -> Result<(), String> {
+        let mut errors = Vec::new();
+
+        // Attempt to start all sources, accumulating errors
         for handler in self.source_handlers.read().unwrap().values() {
-            handler
-                .start()
-                .map_err(|e| format!("Failed to start source '{}': {}", handler.stream_id(), e))?;
+            if let Err(e) = handler.start() {
+                let error_msg = format!("Failed to start source '{}': {}", handler.stream_id(), e);
+                log::error!("[EventFluxAppRuntime] {}", error_msg);
+                errors.push(error_msg);
+            }
         }
-        Ok(())
+
+        // Fail fast - no partial success allowed
+        if !errors.is_empty() {
+            Err(format!(
+                "Failed to start {} source(s): {}",
+                errors.len(),
+                errors.join("; ")
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     /// Stop all registered source handlers
     pub fn stop_all_sources(&self) {
         for handler in self.source_handlers.read().unwrap().values() {
             handler.stop();
+        }
+    }
+
+    /// Start all registered sink handlers
+    pub fn start_all_sinks(&self) -> Result<(), String> {
+        let mut errors = Vec::new();
+
+        // Attempt to start all sinks, accumulating errors
+        for handler in self.sink_handlers.read().unwrap().values() {
+            handler.start();
+            // Note: SinkStreamHandler::start() is infallible (no Result),
+            // but we check is_running() to verify it started
+            if !handler.is_running() {
+                let error_msg = format!("Failed to start sink '{}'", handler.stream_id());
+                log::error!("[EventFluxAppRuntime] {}", error_msg);
+                errors.push(error_msg);
+            }
+        }
+
+        // Fail fast - no partial success allowed
+        if !errors.is_empty() {
+            Err(format!(
+                "Failed to start {} sink(s): {}",
+                errors.len(),
+                errors.join("; ")
+            ))
+        } else {
+            Ok(())
         }
     }
 
@@ -552,6 +612,12 @@ impl EventFluxAppRuntime {
         // Start all registered sources (idempotent - no-op if already started)
         if let Err(e) = self.start_all_sources() {
             log::error!("Failed to start sources: {}", e);
+            all_errors.push(EventFluxError::app_runtime(e));
+        }
+
+        // Start all registered sinks (idempotent - no-op if already started)
+        if let Err(e) = self.start_all_sinks() {
+            log::error!("Failed to start sinks: {}", e);
             all_errors.push(EventFluxError::app_runtime(e));
         }
 
@@ -815,20 +881,10 @@ impl EventFluxAppRuntime {
             }
         }
 
-        // Return results based on what happened
-        if errors.is_empty() {
-            Ok((attached_sources, attached_sinks))
-        } else if attached_sources.is_empty() && attached_sinks.is_empty() {
-            // All failed
+        // Fail fast - no partial success allowed
+        if !errors.is_empty() {
             Err(errors)
         } else {
-            // Partial success - log warning but don't fail
-            log::error!(
-                "[EventFluxAppRuntime] Partial SQL attachment: {} source(s) + {} sink(s) succeeded, {} failed",
-                attached_sources.len(),
-                attached_sinks.len(),
-                errors.len()
-            );
             Ok((attached_sources, attached_sinks))
         }
     }
@@ -1152,19 +1208,10 @@ impl EventFluxAppRuntime {
             }
         }
 
-        // Return results based on what happened
-        if errors.is_empty() {
-            Ok(successes)
-        } else if successes.is_empty() {
-            // All failed
+        // Fail fast - no partial success allowed
+        if !errors.is_empty() {
             Err(errors)
         } else {
-            // Partial success - log warning but don't fail
-            log::error!(
-                "[EventFluxAppRuntime] Partial source attachment: {} succeeded, {} failed",
-                successes.len(),
-                errors.len()
-            );
             Ok(successes)
         }
     }
@@ -1182,11 +1229,20 @@ impl EventFluxAppRuntime {
         use crate::core::exception::EventFluxError;
 
         // Convert SourceConfig to StreamTypeConfig
-        let properties = self
+        let mut properties = self
             .extract_connection_config(&source_config.connection)
             .map_err(|e| {
                 EventFluxError::configuration(format!(
                     "Invalid connection config for source stream '{}': {}",
+                    stream_name, e
+                ))
+            })?;
+
+        // Merge remaining SourceConfig fields (security, error_handling, rate_limit)
+        Self::merge_source_config_into_properties(source_config, &mut properties)
+            .map_err(|e| {
+                EventFluxError::configuration(format!(
+                    "Failed to merge source config for stream '{}': {}",
                     stream_name, e
                 ))
             })?;
@@ -1280,35 +1336,98 @@ impl EventFluxAppRuntime {
     }
 
     /// Auto-attach sinks from configuration
+    ///
+    /// CRITICAL FIX: Uses stream_initializer with EventFluxContext's registered factories
+    /// instead of creating a fresh SinkFactoryRegistry that only has built-in sinks.
+    /// This allows custom/extension sinks to be auto-attached from YAML/TOML configuration.
     fn auto_attach_sinks_from_config(&self, app_config: &ApplicationConfig) -> Result<(), String> {
-        use crate::core::config::ProcessorConfigReader;
-        use crate::core::stream::output::sink::SinkFactoryRegistry;
-
-        // Create a ProcessorConfigReader with the application configuration
-        let config_reader = Arc::new(ProcessorConfigReader::new(
-            Some(app_config.clone()),
-            None, // Global config would be passed here if available
-        ));
-
-        // Create a sink factory registry
-        let registry = SinkFactoryRegistry::new();
+        use crate::core::config::stream_config::{StreamType, StreamTypeConfig};
+        use crate::core::exception::EventFluxError;
+        use crate::core::stream::handler::SinkStreamHandler;
+        use crate::core::stream::stream_initializer::{initialize_stream, InitializedStream};
 
         // Iterate through all configured streams
         for (stream_name, stream_config) in &app_config.streams {
             // Check if this stream has a sink configuration
             if let Some(ref sink_config) = stream_config.sink {
-                // Create the sink using the factory
-                let sink = registry.create_sink(
-                    sink_config,
-                    Some(Arc::clone(&config_reader)),
-                    stream_name,
-                )?;
+                // Check if sink handler already registered (idempotent operation)
+                if self.get_sink_handler(stream_name).is_some() {
+                    continue;
+                }
 
-                // Attach the sink to the stream
-                self.add_callback(stream_name, sink)?;
+                // Convert SinkConfig to StreamTypeConfig (similar to sources)
+                let mut properties = self
+                    .extract_connection_config(&sink_config.connection)
+                    .map_err(|e| {
+                        format!(
+                            "Invalid connection config for sink stream '{}': {}",
+                            stream_name, e
+                        )
+                    })?;
+
+                // Merge remaining SinkConfig fields (security, delivery_guarantee, retry, batching)
+                Self::merge_sink_config_into_properties(sink_config, &mut properties)
+                    .map_err(|e| {
+                        format!(
+                            "Failed to merge sink config for stream '{}': {}",
+                            stream_name, e
+                        )
+                    })?;
+
+                let stream_type_config = StreamTypeConfig::new(
+                    StreamType::Sink,
+                    Some(sink_config.sink_type.clone()),
+                    sink_config.format.clone(),
+                    properties,
+                )
+                .map_err(|e| {
+                    format!(
+                        "Invalid StreamTypeConfig for sink '{}' (type={}): {}",
+                        stream_name, sink_config.sink_type, e
+                    )
+                })?;
+
+                // Use stream_initializer to create sink with mapper
+                // This properly uses EventFluxContext's registered factories!
+                let initialized = initialize_stream(
+                    &self.eventflux_app_context.eventflux_context,
+                    &stream_type_config,
+                )
+                .map_err(|e| {
+                    format!(
+                        "Failed to initialize YAML sink '{}' (type={}): {}",
+                        stream_name, sink_config.sink_type, e
+                    )
+                })?;
+
+                // Extract sink and mapper from initialized stream
+                let (sink, mapper) = match initialized {
+                    InitializedStream::Sink(init_sink) => {
+                        (init_sink.sink, Some(init_sink.mapper))
+                    }
+                    _ => {
+                        return Err(format!(
+                            "Expected sink stream initialization for YAML stream '{}', got different stream type",
+                            stream_name
+                        ))
+                    }
+                };
+
+                // Create SinkStreamHandler
+                let handler = Arc::new(SinkStreamHandler::new(
+                    sink,
+                    mapper,
+                    stream_name.to_string(),
+                ));
+
+                // Register handler in runtime
+                self.register_sink_handler(stream_name.to_string(), Arc::clone(&handler));
+
+                // Attach sink to junction for event delivery
+                self.attach_sink_to_junction(stream_name, Arc::clone(&handler))?;
 
                 log::info!(
-                    "[EventFluxAppRuntime] Auto-attached sink '{}' to stream '{}'",
+                    "[EventFluxAppRuntime] Auto-attached YAML sink '{}' to stream '{}'",
                     sink_config.sink_type, stream_name
                 );
             }
@@ -1369,19 +1488,10 @@ impl EventFluxAppRuntime {
             }
         }
 
-        // Return results based on what happened
-        if errors.is_empty() {
-            Ok(successes)
-        } else if successes.is_empty() {
-            // All failed
+        // Fail fast - no partial success allowed
+        if !errors.is_empty() {
             Err(errors)
         } else {
-            // Partial success - log warning but don't fail
-            log::error!(
-                "[EventFluxAppRuntime] Partial table attachment: {} succeeded, {} failed",
-                successes.len(),
-                errors.len()
-            );
             Ok(successes)
         }
     }
@@ -1476,6 +1586,66 @@ impl EventFluxAppRuntime {
 
         // Create TableTypeConfig with validation
         TableTypeConfig::new(extension, properties)
+    }
+
+    /// Merge SinkConfig fields into properties HashMap
+    ///
+    /// Serializes entire SinkConfig to YAML and flattens all fields (security, delivery_guarantee,
+    /// retry, batching) into the properties HashMap using generic serialization.
+    /// This ensures all configuration fields reach the factory without hardcoding field names.
+    fn merge_sink_config_into_properties(
+        sink_config: &crate::core::config::types::application_config::SinkConfig,
+        properties: &mut HashMap<String, String>,
+    ) -> Result<(), String> {
+        // Serialize entire SinkConfig to YAML for generic flattening
+        let config_value = serde_yaml::to_value(sink_config)
+            .map_err(|e| format!("Failed to serialize SinkConfig: {}", e))?;
+
+        // Extract mapping
+        let mut mapping = match config_value {
+            serde_yaml::Value::Mapping(m) => m,
+            _ => return Err("SinkConfig must serialize to mapping".to_string()),
+        };
+
+        // Remove fields already extracted elsewhere (to avoid duplication)
+        mapping.remove(&serde_yaml::Value::String("type".to_string()));
+        mapping.remove(&serde_yaml::Value::String("format".to_string()));
+        mapping.remove(&serde_yaml::Value::String("connection".to_string()));
+
+        // Flatten remaining fields (security, delivery_guarantee, retry, batching)
+        Self::flatten_yaml_value(&serde_yaml::Value::Mapping(mapping), "", properties)?;
+
+        Ok(())
+    }
+
+    /// Merge SourceConfig fields into properties HashMap
+    ///
+    /// Serializes entire SourceConfig to YAML and flattens all fields (security, error_handling,
+    /// rate_limit) into the properties HashMap using generic serialization.
+    /// This ensures all configuration fields reach the factory without hardcoding field names.
+    fn merge_source_config_into_properties(
+        source_config: &crate::core::config::types::application_config::SourceConfig,
+        properties: &mut HashMap<String, String>,
+    ) -> Result<(), String> {
+        // Serialize entire SourceConfig to YAML for generic flattening
+        let config_value = serde_yaml::to_value(source_config)
+            .map_err(|e| format!("Failed to serialize SourceConfig: {}", e))?;
+
+        // Extract mapping
+        let mut mapping = match config_value {
+            serde_yaml::Value::Mapping(m) => m,
+            _ => return Err("SourceConfig must serialize to mapping".to_string()),
+        };
+
+        // Remove fields already extracted elsewhere (to avoid duplication)
+        mapping.remove(&serde_yaml::Value::String("type".to_string()));
+        mapping.remove(&serde_yaml::Value::String("format".to_string()));
+        mapping.remove(&serde_yaml::Value::String("connection".to_string()));
+
+        // Flatten remaining fields (security, error_handling, rate_limit)
+        Self::flatten_yaml_value(&serde_yaml::Value::Mapping(mapping), "", properties)?;
+
+        Ok(())
     }
 
     /// Flatten serde_yaml::Value into HashMap<String, String>

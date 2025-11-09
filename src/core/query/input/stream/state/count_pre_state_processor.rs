@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // count_pre_state_processor.rs - Count quantifier pattern matching (A{n}, A{m,n}, A+, A*)
-// Reference: io.siddhi.core.query.input.stream.state.CountPreStateProcessor
 
 use super::post_state_processor::PostStateProcessor;
 use super::pre_state_processor::PreStateProcessor;

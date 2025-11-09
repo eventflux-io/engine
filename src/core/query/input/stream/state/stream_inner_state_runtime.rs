@@ -2,7 +2,6 @@
 
 // eventflux_rust/src/core/query/input/stream/state/stream_inner_state_runtime.rs
 // StreamInnerStateRuntime - basic InnerStateRuntime implementation
-// Reference: io.siddhi.core.query.input.stream.state.runtime.StreamInnerStateRuntime
 
 use crate::core::query::input::stream::state::inner_state_runtime::InnerStateRuntime;
 use crate::core::query::input::stream::state::post_state_processor::PostStateProcessor;
@@ -26,8 +25,6 @@ use std::sync::{Arc, Mutex};
 /// - `init()` - Calls firstProcessor.init()
 /// - `reset()` - Calls firstProcessor.resetState() to clear all pending events
 /// - `update()` - Calls firstProcessor.updateState() to process pending events
-///
-/// **Java Reference**: `io.siddhi.core.query.input.stream.state.runtime.StreamInnerStateRuntime`
 #[derive(Debug)]
 pub struct StreamInnerStateRuntime {
     /// The first PreStateProcessor in the chain

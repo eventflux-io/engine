@@ -2,7 +2,6 @@
 
 // eventflux_rust/src/core/query/input/stream/state/logical_post_state_processor.rs
 // LogicalPostStateProcessor for handling AND/OR pattern match results
-// Reference: io.siddhi.core.query.input.stream.state.LogicalPostStateProcessor
 
 use crate::core::event::complex_event::ComplexEvent;
 use crate::core::event::state::state_event::StateEvent;
@@ -63,8 +62,6 @@ use std::sync::{Arc, Mutex};
 /// - LogicalPreB checks: already matched by partner?
 ///   - YES: skip (OR already satisfied)
 /// ```
-///
-/// **Reference**: Java Siddhi LogicalPostStateProcessor extends StreamPostStateProcessor
 pub struct LogicalPostStateProcessor {
     /// The underlying StreamPostStateProcessor for basic pattern match handling
     base_processor: StreamPostStateProcessor,

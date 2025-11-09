@@ -76,7 +76,7 @@ impl StateEventCloner {
     /// - Clear B and C (positions 1, 2)
     /// ```
     ///
-    /// **Reference**: Java Siddhi uses StateEventFactory which generates new IDs
+    /// StateEventFactory generates new IDs for each cloned 'every' pattern event
     pub fn copy_state_event_for_every(
         &self,
         state_event: &StateEvent,

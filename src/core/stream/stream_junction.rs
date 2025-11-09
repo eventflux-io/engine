@@ -772,15 +772,19 @@ impl StreamJunction {
     }
 
     /// Convert Event to StreamEvent
+    ///
+    /// CORRECTNESS NOTE: Both before_window_data and output_data must be populated.
+    /// - before_window_data: Original event data for window/aggregation processors
+    /// - output_data: Data sent downstream for joins, selects, and output processors
+    ///
+    /// Join processors specifically require output_data to be populated.
+    /// The clone is necessary to satisfy both use cases.
     fn event_to_stream_event(event: Event) -> StreamEvent {
-        let data = event.data;
-        let is_expired = event.is_expired;
-        let mut stream_event = StreamEvent::new(event.timestamp, data.len(), 0, 0);
-        stream_event.before_window_data = data.clone();
-        // Set output_data to ensure the data is preserved through the callback chain
-        stream_event.output_data = Some(data);
+        let mut stream_event = StreamEvent::new_with_data(event.timestamp, event.data);
+        // Populate output_data for downstream processors (joins require this)
+        stream_event.output_data = Some(stream_event.before_window_data.clone());
         // Preserve expired status
-        if is_expired {
+        if event.is_expired {
             stream_event.event_type = crate::core::event::complex_event::ComplexEventType::Expired;
         }
         stream_event

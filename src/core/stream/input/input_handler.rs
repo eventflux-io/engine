@@ -68,7 +68,7 @@ impl InputHandler {
     ) -> Result<(), String> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .expect("System clock before Unix epoch - check system time configuration")
             .as_millis() as i64;
         self.ensure_processor()?
             .lock()
