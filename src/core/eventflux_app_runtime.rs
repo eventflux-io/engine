@@ -1195,11 +1195,20 @@ impl EventFluxAppRuntime {
         use crate::core::exception::EventFluxError;
 
         // Convert SourceConfig to StreamTypeConfig
-        let properties = self
+        let mut properties = self
             .extract_connection_config(&source_config.connection)
             .map_err(|e| {
                 EventFluxError::configuration(format!(
                     "Invalid connection config for source stream '{}': {}",
+                    stream_name, e
+                ))
+            })?;
+
+        // Merge remaining SourceConfig fields (security, error_handling, rate_limit)
+        Self::merge_source_config_into_properties(source_config, &mut properties)
+            .map_err(|e| {
+                EventFluxError::configuration(format!(
+                    "Failed to merge source config for stream '{}': {}",
                     stream_name, e
                 ))
             })?;
@@ -1313,11 +1322,20 @@ impl EventFluxAppRuntime {
                 }
 
                 // Convert SinkConfig to StreamTypeConfig (similar to sources)
-                let properties = self
+                let mut properties = self
                     .extract_connection_config(&sink_config.connection)
                     .map_err(|e| {
                         format!(
                             "Invalid connection config for sink stream '{}': {}",
+                            stream_name, e
+                        )
+                    })?;
+
+                // Merge remaining SinkConfig fields (security, delivery_guarantee, retry, batching)
+                Self::merge_sink_config_into_properties(sink_config, &mut properties)
+                    .map_err(|e| {
+                        format!(
+                            "Failed to merge sink config for stream '{}': {}",
                             stream_name, e
                         )
                     })?;
@@ -1534,6 +1552,66 @@ impl EventFluxAppRuntime {
 
         // Create TableTypeConfig with validation
         TableTypeConfig::new(extension, properties)
+    }
+
+    /// Merge SinkConfig fields into properties HashMap
+    ///
+    /// Serializes entire SinkConfig to YAML and flattens all fields (security, delivery_guarantee,
+    /// retry, batching) into the properties HashMap using generic serialization.
+    /// This ensures all configuration fields reach the factory without hardcoding field names.
+    fn merge_sink_config_into_properties(
+        sink_config: &crate::core::config::types::application_config::SinkConfig,
+        properties: &mut HashMap<String, String>,
+    ) -> Result<(), String> {
+        // Serialize entire SinkConfig to YAML for generic flattening
+        let config_value = serde_yaml::to_value(sink_config)
+            .map_err(|e| format!("Failed to serialize SinkConfig: {}", e))?;
+
+        // Extract mapping
+        let mut mapping = match config_value {
+            serde_yaml::Value::Mapping(m) => m,
+            _ => return Err("SinkConfig must serialize to mapping".to_string()),
+        };
+
+        // Remove fields already extracted elsewhere (to avoid duplication)
+        mapping.remove(&serde_yaml::Value::String("type".to_string()));
+        mapping.remove(&serde_yaml::Value::String("format".to_string()));
+        mapping.remove(&serde_yaml::Value::String("connection".to_string()));
+
+        // Flatten remaining fields (security, delivery_guarantee, retry, batching)
+        Self::flatten_yaml_value(&serde_yaml::Value::Mapping(mapping), "", properties)?;
+
+        Ok(())
+    }
+
+    /// Merge SourceConfig fields into properties HashMap
+    ///
+    /// Serializes entire SourceConfig to YAML and flattens all fields (security, error_handling,
+    /// rate_limit) into the properties HashMap using generic serialization.
+    /// This ensures all configuration fields reach the factory without hardcoding field names.
+    fn merge_source_config_into_properties(
+        source_config: &crate::core::config::types::application_config::SourceConfig,
+        properties: &mut HashMap<String, String>,
+    ) -> Result<(), String> {
+        // Serialize entire SourceConfig to YAML for generic flattening
+        let config_value = serde_yaml::to_value(source_config)
+            .map_err(|e| format!("Failed to serialize SourceConfig: {}", e))?;
+
+        // Extract mapping
+        let mut mapping = match config_value {
+            serde_yaml::Value::Mapping(m) => m,
+            _ => return Err("SourceConfig must serialize to mapping".to_string()),
+        };
+
+        // Remove fields already extracted elsewhere (to avoid duplication)
+        mapping.remove(&serde_yaml::Value::String("type".to_string()));
+        mapping.remove(&serde_yaml::Value::String("format".to_string()));
+        mapping.remove(&serde_yaml::Value::String("connection".to_string()));
+
+        // Flatten remaining fields (security, error_handling, rate_limit)
+        Self::flatten_yaml_value(&serde_yaml::Value::Mapping(mapping), "", properties)?;
+
+        Ok(())
     }
 
     /// Flatten serde_yaml::Value into HashMap<String, String>

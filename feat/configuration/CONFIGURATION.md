@@ -1,18 +1,19 @@
 # EventFlux Configuration System
 
 **Target**: M2 (Part B - Essential Connectivity)
-**Last Updated**: 2025-10-20
+**Last Updated**: 2025-11-09
 
 ## Table of Contents
 
 1. [Overview](#overview)
 2. [Architecture](#architecture)
-3. [Configuration Syntax](#configuration-syntax)
-4. [Data Mapping](#data-mapping)
-5. [TOML Configuration](#toml-configuration)
-6. [Implementation Guide](#implementation-guide)
-7. [Troubleshooting Configuration Issues](#troubleshooting-configuration-issues)
-8. [Complete Example](#complete-example)
+3. [Configuration Flow](#configuration-flow)
+4. [Configuration Syntax](#configuration-syntax)
+5. [Data Mapping](#data-mapping)
+6. [TOML Configuration](#toml-configuration)
+7. [Implementation Guide](#implementation-guide)
+8. [Troubleshooting Configuration Issues](#troubleshooting-configuration-issues)
+9. [Complete Example](#complete-example)
 
 ---
 
@@ -435,6 +436,95 @@ Sink Stream (HTTP) → JSON Format → bytes (serialized)
 - **TOML cannot define `type`**: Type in TOML is **rejected with error** (SQL-first, parser needs type at parse-time)
 - **Rationale**: Type is structural (affects parser validation at Phase 1), consistent with SQL-first configuration priority
 - **Validation**: Parser validates type-specific rules (format required, extension required) at parse-time
+
+---
+
+## Configuration Flow
+
+### ConfigManager and ApplicationConfig Relationship
+
+EventFlux configuration uses a hierarchical structure where ApplicationConfig is nested within EventFluxConfig.
+
+**Structure Hierarchy**:
+```
+EventFluxConfig (top-level loaded by ConfigManager)
+├── apiVersion: String
+├── kind: String
+├── metadata: ConfigMetadata
+├── eventflux: EventFluxGlobalConfig (global runtime settings)
+└── applications: HashMap<String, ApplicationConfig>
+
+ApplicationConfig (per-application configuration)
+├── streams: HashMap<String, StreamConfig>
+├── definitions: HashMap<String, DefinitionConfig>
+├── queries: HashMap<String, QueryConfig>
+├── persistence: Option<PersistenceConfig>
+├── monitoring: Option<MonitoringConfig>
+└── error_handling: Option<ErrorHandlingConfig>
+
+StreamConfig
+├── source: Option<SourceConfig>
+└── sink: Option<SinkConfig>
+```
+
+**Configuration Path**:
+There is a single configuration path in production:
+```
+YAML/TOML files
+    ↓
+ConfigManager::load_unified_config()
+    ↓
+EventFluxConfig { applications: HashMap<String, ApplicationConfig> }
+    ↓
+EventFluxManager::get_application_config(app_name)
+    ↓
+config.applications.get(app_name) → ApplicationConfig
+    ↓
+EventFluxAppRuntime::new_with_config(..., app_config)
+    ↓
+EventFluxAppContext { app_config: Some(ApplicationConfig) }
+    ↓
+EventFluxAppRuntime::start() → auto_attach_sources/sinks/tables
+```
+
+**YAML Example**:
+```yaml
+apiVersion: eventflux.io/v1
+kind: EventFluxConfig
+
+eventflux:
+  application:
+    name: "MyApp"
+  runtime:
+    mode: distributed
+
+applications:
+  MyApp:
+    streams:
+      OrdersOut:
+        sink:
+          type: kafka
+          format: json
+          connection:
+            bootstrap_servers: "localhost:9092"
+          security:
+            tls:
+              enabled: true
+          delivery_guarantee: exactly-once
+          retry:
+            max_attempts: 5
+```
+
+ConfigManager loads this into EventFluxConfig, then EventFluxManager extracts the ApplicationConfig for "MyApp", which contains the sink configuration with all fields (connection, security, retry, etc.).
+
+### ApplicationConfig Purpose
+
+ApplicationConfig serves as the typed configuration container for application-specific settings. EventFluxConfig can contain multiple ApplicationConfigs keyed by application name, allowing a single configuration file to define settings for multiple EventFlux applications.
+
+**Separation of Concerns**:
+- ConfigManager: file loading, merging, validation, hot-reload
+- EventFluxConfig: global infrastructure configuration (runtime mode, observability, coordination)
+- ApplicationConfig: business logic configuration (streams, tables, queries, persistence)
 
 ---
 
