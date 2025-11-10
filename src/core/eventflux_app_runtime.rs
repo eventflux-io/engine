@@ -936,7 +936,7 @@ impl EventFluxAppRuntime {
         // Extract source and mapper from initialized stream
         let (source, mapper) = match initialized {
             InitializedStream::Source(init_source) => {
-                (init_source.source, Some(init_source.mapper))
+                (init_source.source, init_source.mapper)  // mapper is already Option
             }
             _ => {
                 return Err(EventFluxError::app_creation(format!(
@@ -1112,7 +1112,7 @@ impl EventFluxAppRuntime {
 
         // Extract sink and mapper from initialized stream
         let (sink, mapper) = match initialized {
-            InitializedStream::Sink(init_sink) => (init_sink.sink, Some(init_sink.mapper)),
+            InitializedStream::Sink(init_sink) => (init_sink.sink, init_sink.mapper),  // mapper is already Option
             _ => {
                 return Err(EventFluxError::app_creation(format!(
                     "Expected sink stream initialization for SQL stream '{}', got different stream type",
@@ -1403,7 +1403,7 @@ impl EventFluxAppRuntime {
                 // Extract sink and mapper from initialized stream
                 let (sink, mapper) = match initialized {
                     InitializedStream::Sink(init_sink) => {
-                        (init_sink.sink, Some(init_sink.mapper))
+                        (init_sink.sink, init_sink.mapper)  // mapper is already Option
                     }
                     _ => {
                         return Err(format!(
