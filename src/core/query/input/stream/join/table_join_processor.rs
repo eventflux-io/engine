@@ -53,25 +53,44 @@ impl TableJoinProcessor {
         stream: &StreamEvent,
         row: Option<&[AttributeValue]>,
     ) -> StreamEvent {
+        let total_attr_count = self.stream_attr_count + self.table_attr_count;
+
+        // Create event with output_data capacity set to total attribute count
+        // This ensures callbacks and downstream processors receive the joined payload
         let mut event = StreamEvent::new(
             stream.timestamp,
-            self.stream_attr_count + self.table_attr_count,
-            0,
-            0,
+            total_attr_count,  // before_window_data
+            0,                 // on_after_window_data
+            total_attr_count,  // output_data - FIXED: was 0, now has proper size
         );
+
+        // Preserve event type (Current/Expired) from upstream event
+        event.event_type = stream.event_type;
+
+        // Copy stream attributes to both before_window_data and output_data
         for i in 0..self.stream_attr_count {
-            event.before_window_data[i] = stream
+            let val = stream
                 .before_window_data
                 .get(i)
                 .cloned()
                 .unwrap_or(AttributeValue::Null);
+            event.before_window_data[i] = val.clone();
+            if let Some(ref mut output) = event.output_data {
+                output[i] = val;
+            }
         }
+
+        // Copy table attributes to both before_window_data and output_data
         for j in 0..self.table_attr_count {
             let val = row
                 .and_then(|r| r.get(j).cloned())
                 .unwrap_or(AttributeValue::Null);
-            event.before_window_data[self.stream_attr_count + j] = val;
+            event.before_window_data[self.stream_attr_count + j] = val.clone();
+            if let Some(ref mut output) = event.output_data {
+                output[self.stream_attr_count + j] = val;
+            }
         }
+
         event
     }
 
