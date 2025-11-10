@@ -107,19 +107,18 @@ impl EventFluxManager {
         api_eventflux_app: Arc<ApiEventFluxApp>,
         eventflux_app_str_opt: Option<String>,
     ) -> Result<Arc<EventFluxAppRuntime>, String> {
-        // Extract app name from annotations or generate one
-        // This logic is similar to Java's EventFluxAppParser.
-        let app_name = api_eventflux_app
-            .annotations
-            .iter()
-            .find(|ann| ann.name == crate::query_api::constants::ANNOTATION_INFO)
-            .and_then(|ann| {
-                ann.elements
-                    .iter()
-                    .find(|el| el.key == crate::query_api::constants::ANNOTATION_ELEMENT_NAME)
-            })
-            .map(|el| el.value.clone())
-            .unwrap_or_else(|| format!("eventflux_app_{}", uuid::Uuid::new_v4().hyphenated()));
+        // Determine app name using config-based naming (not annotations)
+        // Priority: YAML config.eventflux.application.name > api_eventflux_app.name > generated UUID
+        let app_name = if let Some(config_name) = self.get_config_app_name().await {
+            // 1. YAML config has highest priority
+            config_name
+        } else if !api_eventflux_app.name.is_empty() {
+            // 2. Use name from SQL application parsing
+            api_eventflux_app.name.clone()
+        } else {
+            // 3. Generate UUID-based name as fallback
+            format!("eventflux_app_{}", uuid::Uuid::new_v4().hyphenated())
+        };
 
         // Check if app with this name already exists
         if self
