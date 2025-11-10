@@ -365,8 +365,27 @@ impl Processor for StreamPreStateProcessor {
         self.next_processor = next;
     }
 
-    fn clone_processor(&self, _query_context: &Arc<EventFluxQueryContext>) -> Box<dyn Processor> {
-        unimplemented!("StreamPreStateProcessor cloning not yet implemented")
+    fn clone_processor(&self, query_context: &Arc<EventFluxQueryContext>) -> Box<dyn Processor> {
+        // Clone the processor for partitioned execution or state restoration
+        // Note: condition_fn cannot be cloned (closures don't implement Clone)
+        // and will be None in the cloned processor
+        Box::new(Self {
+            state_id: self.state_id,
+            is_start_state: self.is_start_state,
+            state_type: self.state_type,
+            app_context: Arc::clone(&self.app_context),
+            query_context: Arc::clone(query_context),  // Use new query context
+            state: Arc::clone(&self.state),  // Shared state across clones
+            shared_state: Arc::clone(&self.shared_state),  // Shared state across clones
+            stream_event_cloner: self.stream_event_cloner.clone(),
+            state_event_cloner: self.state_event_cloner.clone(),
+            within_time: self.within_time,
+            start_state_ids: self.start_state_ids.clone(),
+            success_condition: self.success_condition,
+            next_processor: self.next_processor.clone(),
+            this_state_post_processor: self.this_state_post_processor.clone(),
+            condition_fn: None,  // Cannot clone closures - must be reset after cloning
+        })
     }
 
     fn get_eventflux_app_context(&self) -> Arc<EventFluxAppContext> {
