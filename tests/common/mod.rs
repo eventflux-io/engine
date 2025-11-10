@@ -70,7 +70,7 @@ impl AppRunner {
                 }),
             )
             .expect("add cb");
-        runtime.start();
+        runtime.start().expect("Failed to start runtime");
         Self {
             runtime,
             collected,
@@ -110,7 +110,7 @@ impl AppRunner {
                 }),
             )
             .expect("add cb");
-        runtime.start();
+        runtime.start().expect("Failed to start runtime");
         Self {
             runtime,
             collected,
@@ -377,7 +377,7 @@ impl AppRunner {
                 }),
             )
             .expect("add cb");
-        runtime.start();
+        runtime.start().expect("Failed to start runtime");
         Self {
             runtime,
             collected,
@@ -420,7 +420,7 @@ impl AppRunner {
                 }),
             )
             .expect("add cb");
-        runtime.start();
+        runtime.start().expect("Failed to start runtime");
         Self {
             runtime,
             collected,
@@ -482,7 +482,7 @@ impl AppRunner {
                 }),
             )
             .expect("add cb");
-        runtime.start();
+        runtime.start().expect("Failed to start runtime");
         Self {
             runtime,
             collected,
@@ -526,7 +526,7 @@ impl AppRunner {
                 }),
             )
             .expect("add cb");
-        runtime.start();
+        runtime.start().expect("Failed to start runtime");
         Self {
             runtime,
             collected,
