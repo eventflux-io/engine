@@ -258,7 +258,9 @@ impl SourceFactory for TimerSourceFactory {
     }
 
     fn supported_formats(&self) -> &[&str] {
-        &["json", "text", "bytes"]
+        // Timer uses internal binary passthrough format (no external format needed)
+        // When no format is specified, PassthroughMapper is automatically used
+        &[]
     }
 
     fn required_parameters(&self) -> &[&str] {
