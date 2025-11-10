@@ -35,13 +35,40 @@ pub trait StreamCallback: Debug + Send + Sync {
     ) {
         let mut event_buffer = Vec::new();
         let mut current_opt = complex_event_chunk.take(); // Take ownership of the head
+
         while let Some(mut current_complex_event) = current_opt {
-            // TODO: Convert Box<dyn ComplexEvent> to core::Event.
-            // This requires ComplexEvent to have methods to extract necessary data,
-            // or downcasting to a concrete type like StreamEvent.
-            // For now, creating a dummy event.
-            let event = Event::new_empty(current_complex_event.get_timestamp());
-            // event.copy_from_complex(current_complex_event.as_ref()); // Needs ComplexEvent methods
+            // Convert ComplexEvent to Event by extracting data
+            // Try output_data first (for processed events with selectors),
+            // then fall back to before_window_data (for source events)
+            let data = if let Some(stream_event) = current_complex_event.as_any().downcast_ref::<crate::core::event::stream::StreamEvent>() {
+                // For StreamEvent, prefer output_data if non-empty, else use before_window_data
+                if let Some(ref output) = stream_event.output_data {
+                    if !output.is_empty() {
+                        output.clone()
+                    } else {
+                        stream_event.before_window_data.clone()
+                    }
+                } else {
+                    stream_event.before_window_data.clone()
+                }
+            } else if let Some(state_event) = current_complex_event.as_any().downcast_ref::<crate::core::event::state::StateEvent>() {
+                // For StateEvent, use output_data or empty
+                state_event.output_data.clone().unwrap_or_default()
+            } else {
+                log::warn!("[StreamCallback] Unknown event type, using get_output_data()");
+                // Unknown event type, try output_data
+                current_complex_event.get_output_data()
+                    .map(|d| d.to_vec())
+                    .unwrap_or_default()
+            };
+
+            let event = Event {
+                id: 0, // Note: ID generation handled by CallbackProcessor
+                timestamp: current_complex_event.get_timestamp(),
+                data,
+                is_expired: current_complex_event.is_expired(),
+            };
+
             event_buffer.push(event);
             current_opt = current_complex_event.set_next(None); // Detach and get next
         }
@@ -140,6 +167,6 @@ impl LogStreamCallback {
 }
 impl StreamCallback for LogStreamCallback {
     fn receive_events(&self, events: &[Event]) {
-        println!("[{}] Received events: {:?}", self.stream_id, events);
+        log::info!("[{}] Received events: {:?}", self.stream_id, events);
     }
 }
