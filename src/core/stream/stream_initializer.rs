@@ -196,7 +196,20 @@ fn initialize_source_stream(
             .get_source_mapper_factory(format)
             .ok_or_else(|| EventFluxError::extension_not_found("source mapper", format))?)
     } else {
-        // No format specified - will use PassthroughMapper automatically
+        // No format specified - validate that source supports binary passthrough
+        let supported_formats = source_factory.supported_formats();
+        if !supported_formats.is_empty() {
+            // Source requires explicit format but none was specified
+            // This prevents silent data loss for external sources (Kafka, HTTP, etc.)
+            return Err(EventFluxError::configuration(format!(
+                "Source extension '{}' requires a format specification. \
+                Supported formats: {}. \
+                Without a format, events will be incorrectly decoded as binary, causing data loss.",
+                extension,
+                supported_formats.join(", ")
+            )));
+        }
+        // PassthroughMapper will be used for binary-only sources
         None
     };
 
@@ -268,7 +281,20 @@ fn initialize_sink_stream(
             .get_sink_mapper_factory(format)
             .ok_or_else(|| EventFluxError::extension_not_found("sink mapper", format))?)
     } else {
-        // No format specified - will use PassthroughMapper automatically
+        // No format specified - validate that sink supports binary passthrough
+        let supported_formats = sink_factory.supported_formats();
+        if !supported_formats.is_empty() {
+            // Sink requires explicit format but none was specified
+            // This prevents silent data loss for external sinks (HTTP, Kafka, etc.)
+            return Err(EventFluxError::configuration(format!(
+                "Sink extension '{}' requires a format specification. \
+                Supported formats: {}. \
+                Without a format, events will be incorrectly encoded as binary, causing data loss.",
+                extension,
+                supported_formats.join(", ")
+            )));
+        }
+        // PassthroughMapper will be used for binary-only sinks
         None
     };
 
@@ -1097,6 +1123,76 @@ mod tests {
             }
             e => panic!(
                 "Expected InvalidParameter error for missing parameter, got {:?}",
+                e
+            ),
+        }
+    }
+
+    #[test]
+    fn test_initialize_source_stream_missing_required_format() {
+        let context = EventFluxContext::new();
+        context.add_source_factory("kafka".to_string(), Box::new(KafkaSourceFactory));
+        // Don't add mapper factory - we're testing the format requirement validation
+
+        let mut config = HashMap::new();
+        config.insert(
+            "kafka.bootstrap.servers".to_string(),
+            "localhost:9092".to_string(),
+        );
+        config.insert("kafka.topic".to_string(), "test-topic".to_string());
+
+        // Kafka source WITHOUT format - should be rejected
+        let stream_config =
+            StreamTypeConfig::new(StreamType::Source, Some("kafka".to_string()), None, config)
+                .unwrap();
+
+        let result = initialize_stream(&context, &stream_config);
+        assert!(result.is_err());
+
+        // Should get Configuration error requiring format
+        match result.unwrap_err() {
+            EventFluxError::Configuration { message, .. } => {
+                assert!(message.contains("requires a format specification"));
+                assert!(message.contains("kafka"));
+                assert!(message.contains("json"));
+                assert!(message.contains("data loss"));
+            }
+            e => panic!(
+                "Expected Configuration error for missing format, got {:?}",
+                e
+            ),
+        }
+    }
+
+    #[test]
+    fn test_initialize_sink_stream_missing_required_format() {
+        let context = EventFluxContext::new();
+        context.add_sink_factory("http".to_string(), Box::new(HttpSinkFactory));
+
+        let mut config = HashMap::new();
+        config.insert(
+            "http.url".to_string(),
+            "http://localhost:8080/events".to_string(),
+        );
+
+        // HTTP sink WITHOUT format - should be rejected
+        let stream_config =
+            StreamTypeConfig::new(StreamType::Sink, Some("http".to_string()), None, config)
+                .unwrap();
+
+        let result = initialize_stream(&context, &stream_config);
+        assert!(result.is_err());
+
+        // Should get Configuration error requiring format
+        match result.unwrap_err() {
+            EventFluxError::Configuration { message, .. } => {
+                assert!(message.contains("requires a format specification"));
+                assert!(message.contains("http"));
+                assert!(message.contains("json"));
+                assert!(message.contains("data loss"));
+            }
+            e => panic!(
+                "Expected Configuration error for missing format, got {:?}",
                 e
             ),
         }
