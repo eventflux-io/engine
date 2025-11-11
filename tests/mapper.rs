@@ -6,6 +6,7 @@ use common::AppRunner;
 
 use eventflux_rust::core::event::event::Event;
 use eventflux_rust::core::event::value::AttributeValue;
+use eventflux_rust::core::exception::EventFluxError;
 use eventflux_rust::core::stream::input::mapper::SourceMapper;
 use eventflux_rust::core::stream::output::mapper::SinkMapper;
 
@@ -36,7 +37,7 @@ impl SourceMapper for CsvSourceMapper {
 struct ConcatSinkMapper;
 
 impl SinkMapper for ConcatSinkMapper {
-    fn map(&self, events: &[Event]) -> Vec<u8> {
+    fn map(&self, events: &[Event]) -> Result<Vec<u8>, EventFluxError> {
         let mut parts = Vec::new();
         for e in events {
             for v in &e.data {
@@ -45,7 +46,7 @@ impl SinkMapper for ConcatSinkMapper {
                 }
             }
         }
-        parts.join(";").into_bytes()
+        Ok(parts.join(";").into_bytes())
     }
 
     fn clone_box(&self) -> Box<dyn SinkMapper> {
@@ -77,6 +78,6 @@ async fn test_source_and_sink_mapper_usage() {
         .map(|row| Event::new_with_data(0, row.clone()))
         .collect();
     let sink_mapper = ConcatSinkMapper;
-    let bytes = sink_mapper.map(&out_events);
+    let bytes = sink_mapper.map(&out_events).expect("Mapper should succeed");
     assert_eq!(bytes, b"1;2;3;4".to_vec());
 }
