@@ -105,7 +105,8 @@ pub struct StreamPreStateProcessor {
     // Condition function (simplified - will be expression executor in full impl)
     // For now: always returns true (matches all events)
     // In full implementation: would be ExpressionExecutor evaluating WHERE clause
-    condition_fn: Option<Box<dyn Fn(&StreamEvent) -> bool + Send + Sync>>,
+    // Uses Arc for shareability across clones (partitioned execution, state restoration)
+    condition_fn: Option<Arc<dyn Fn(&StreamEvent) -> bool + Send + Sync>>,
 }
 
 // Manual Debug implementation (condition_fn doesn't implement Debug)
@@ -228,16 +229,16 @@ impl StreamPreStateProcessor {
     ///
     /// **Usage**:
     /// ```rust,ignore
-    /// processor.set_condition(Box::new(|event| {
+    /// processor.set_condition(|event| {
     ///     // Check event.before_window_data, etc.
     ///     true // matches
-    /// }));
+    /// });
     /// ```
     pub fn set_condition<F>(&mut self, condition: F)
     where
         F: Fn(&StreamEvent) -> bool + Send + Sync + 'static,
     {
-        self.condition_fn = Some(Box::new(condition));
+        self.condition_fn = Some(Arc::new(condition));
     }
 
     /// Check if a stream event matches this processor's condition
@@ -343,7 +344,7 @@ impl StreamPreStateProcessor {
             success_condition: self.success_condition,
             next_processor: self.next_processor.clone(),
             this_state_post_processor: self.this_state_post_processor.clone(),
-            condition_fn: None, // Cannot clone closures
+            condition_fn: self.condition_fn.clone(), // Arc is cloneable
         }
     }
 }
@@ -367,8 +368,7 @@ impl Processor for StreamPreStateProcessor {
 
     fn clone_processor(&self, query_context: &Arc<EventFluxQueryContext>) -> Box<dyn Processor> {
         // Clone the processor for partitioned execution or state restoration
-        // Note: condition_fn cannot be cloned (closures don't implement Clone)
-        // and will be None in the cloned processor
+        // condition_fn uses Arc and is properly cloned to preserve filtering semantics
         Box::new(Self {
             state_id: self.state_id,
             is_start_state: self.is_start_state,
@@ -384,7 +384,7 @@ impl Processor for StreamPreStateProcessor {
             success_condition: self.success_condition,
             next_processor: self.next_processor.clone(),
             this_state_post_processor: self.this_state_post_processor.clone(),
-            condition_fn: None,  // Cannot clone closures - must be reset after cloning
+            condition_fn: self.condition_fn.clone(),  // Arc is cloneable - preserves filter
         })
     }
 
