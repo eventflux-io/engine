@@ -37,14 +37,13 @@ fn complex_event_to_simple_event(ce_box: Box<dyn ComplexEvent>) -> Event {
     let data = ce_box
         .get_output_data()
         .map_or_else(Vec::new, |d| d.to_vec());
-    Event {
-        id: 0, // EventFlux core Event does not have an ID like query_api::Event.
-        // Or generate a new one if needed for callback context.
-        // For now, 0 as placeholder.
-        timestamp: ce_box.get_timestamp(),
-        data,
-        is_expired: ce_box.is_expired(),
-    }
+    let timestamp = ce_box.get_timestamp();
+    let is_expired = ce_box.is_expired();
+
+    // Use Event's constructor to ensure proper ID generation from global counter
+    let mut event = Event::new_with_data(timestamp, data);
+    event.set_is_expired(is_expired);
+    event
 }
 
 impl Processor for CallbackProcessor {
