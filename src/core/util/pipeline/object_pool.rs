@@ -4,6 +4,26 @@
 //!
 //! Provides lock-free object pooling to minimize allocations in the hot path,
 //! critical for achieving >1M events/second throughput.
+//!
+//! ## Current Status
+//!
+//! **NOT YET INTEGRATED**: This pool is instantiated in StreamJunction but not actively used.
+//! The _event_pool field is reserved for future object pooling optimizations.
+//!
+//! ## Known Issues
+//!
+//! 1. **Drop-based recycling doesn't work**: PooledEvent.pool is set to None on creation (line 142),
+//!    so the Drop impl never returns events to the pool. Events must be manually released via
+//!    EventPool::release() for now.
+//!
+//! 2. **Integration pending**: Need to integrate with StreamEvent lifecycle to actually use pooling.
+//!
+//! ## Future Work (Performance Optimization - M4+)
+//!
+//! - Fix PooledEvent to maintain Arc<EventPool> reference for automatic recycling
+//! - Integrate with StreamJunction event processing pipeline
+//! - Benchmark to verify >1M events/sec improvement
+//! - Consider removing if not providing measurable benefit
 
 use crossbeam_queue::SegQueue;
 use std::sync::atomic::{AtomicU64, Ordering};
