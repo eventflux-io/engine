@@ -132,9 +132,9 @@ pub fn validate_with_clause(config: &FlatConfig) -> Result<(), ConverterError> {
     if let Some(stream_type_str) = config.get("type") {
         match stream_type_str.as_str() {
             "source" | "sink" => {
-                // External streams require extension and format
+                // External streams require extension
+                // Format is optional - some sources/sinks (like timer) use internal binary format
                 require_property(config, "extension")?;
-                require_property(config, "format")?;
             }
             "internal" => {
                 // Internal streams must NOT have extension or format
@@ -308,17 +308,14 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_with_clause_source_missing_format() {
+    fn test_validate_with_clause_source_without_format() {
+        // Format is optional - some sources use internal binary format
         let mut config = FlatConfig::new();
         config.set("type", "source", PropertySource::SqlWith);
-        config.set("extension", "kafka", PropertySource::SqlWith);
+        config.set("extension", "timer", PropertySource::SqlWith);
 
         let result = validate_with_clause(&config);
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Missing required property 'format'"));
+        assert!(result.is_ok(), "Sources should be allowed without format (e.g., timer uses binary passthrough)");
     }
 
     #[test]

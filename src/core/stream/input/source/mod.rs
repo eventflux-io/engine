@@ -111,12 +111,15 @@ impl SourceCallback for SourceCallbackAdapter {
         let events = self.mapper.lock().unwrap().map(data);
 
         // Deliver Events to InputHandler
-        for event in events {
+        for event in events.iter() {
             self.handler
                 .lock()
                 .unwrap()
-                .send_single_event(event)
-                .map_err(|e| EventFluxError::app_runtime(format!("Failed to send event: {}", e)))?;
+                .send_single_event(event.clone())
+                .map_err(|e| {
+                    log::error!("[SourceCallbackAdapter] Failed to send event: {}", e);
+                    EventFluxError::app_runtime(format!("Failed to send event: {}", e))
+                })?;
         }
 
         Ok(())

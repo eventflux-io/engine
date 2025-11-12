@@ -375,9 +375,9 @@ struct CsvSinkMapper {
 }
 
 impl SinkMapper for CsvSinkMapper {
-    fn map(&self, _events: &[Event]) -> Vec<u8> {
+    fn map(&self, _events: &[Event]) -> Result<Vec<u8>, crate::core::exception::EventFluxError> {
         // Placeholder: actual implementation would generate CSV
-        vec![]
+        Ok(vec![])
     }
 
     fn clone_box(&self) -> Box<dyn SinkMapper> {

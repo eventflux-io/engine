@@ -314,12 +314,8 @@ impl StreamTypeConfig {
                     ));
                 }
 
-                if self.format.is_none() {
-                    return Err(format!(
-                        "Stream has type='{}' but missing required 'format' property",
-                        self.stream_type.as_str()
-                    ));
-                }
+                // Format is optional - some sources/sinks use internal binary format
+                // If not specified, PassthroughMapper will be used automatically
             }
             StreamType::Internal => {
                 // Internal streams must NOT have extension or format
@@ -353,15 +349,13 @@ impl StreamTypeConfig {
         })
     }
 
-    /// Get format with validation (error if not present)
+    /// Get format (optional)
+    ///
+    /// Returns None if no format is specified. Some sources/sinks (like timer)
+    /// use internal binary format and don't need an external format specification.
     #[inline]
-    pub fn format(&self) -> Result<&str, String> {
-        self.format.as_deref().ok_or_else(|| {
-            format!(
-                "Stream type '{}' requires format",
-                self.stream_type.as_str()
-            )
-        })
+    pub fn format(&self) -> Option<&str> {
+        self.format.as_deref()
     }
 
     /// Get all properties with a specific prefix
@@ -742,7 +736,7 @@ mod tests {
         let config = config.unwrap();
         assert_eq!(config.stream_type, StreamType::Source);
         assert_eq!(config.extension().unwrap(), "kafka");
-        assert_eq!(config.format().unwrap(), "json");
+        assert_eq!(config.format(), Some("json"));
     }
 
     #[test]
@@ -789,17 +783,17 @@ mod tests {
     }
 
     #[test]
-    fn test_stream_type_config_source_missing_format() {
+    fn test_stream_type_config_source_without_format() {
+        // Format is optional - some sources use internal binary format
         let props = HashMap::new();
         let config = StreamTypeConfig::new(
             StreamType::Source,
-            Some("kafka".to_string()),
-            None, // Missing format
+            Some("timer".to_string()),
+            None, // No format - will use PassthroughMapper
             props,
         );
 
-        assert!(config.is_err());
-        assert!(config.unwrap_err().contains("missing required 'format'"));
+        assert!(config.is_ok(), "Sources should be allowed without format (e.g., timer uses binary passthrough)");
     }
 
     #[test]
@@ -852,7 +846,7 @@ mod tests {
         let config = config.unwrap();
         assert_eq!(config.stream_type, StreamType::Source);
         assert_eq!(config.extension().unwrap(), "kafka");
-        assert_eq!(config.format().unwrap(), "json");
+        assert_eq!(config.format(), Some("json"));
         assert_eq!(
             config.properties.get("bootstrap_servers"),
             Some(&"localhost:9092".to_string())

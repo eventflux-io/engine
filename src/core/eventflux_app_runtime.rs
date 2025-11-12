@@ -556,10 +556,27 @@ impl EventFluxAppRuntime {
                 }
             }
 
-            // Auto-attach sinks - idempotent operation
-            if let Err(e) = self.auto_attach_sinks_from_config(app_config) {
-                log::error!("Failed to auto-attach sinks: {}", e);
-                all_errors.push(EventFluxError::app_runtime(e));
+            // Auto-attach sinks - idempotent operation with error accumulation
+            match self.auto_attach_sinks_from_config(app_config) {
+                Ok(sinks) => {
+                    if !sinks.is_empty() {
+                        log::info!(
+                            "Successfully attached {} sink(s): {}",
+                            sinks.len(),
+                            sinks.join(", ")
+                        );
+                    }
+                }
+                Err(errors) => {
+                    log::error!(
+                        "Failed to auto-attach sinks ({} error(s)):",
+                        errors.len()
+                    );
+                    for (idx, err) in errors.iter().enumerate() {
+                        log::error!("  {}. {}", idx + 1, err);
+                    }
+                    all_errors.extend(errors);
+                }
             }
 
             // Auto-attach tables - idempotent operation with error accumulation
@@ -936,7 +953,7 @@ impl EventFluxAppRuntime {
         // Extract source and mapper from initialized stream
         let (source, mapper) = match initialized {
             InitializedStream::Source(init_source) => {
-                (init_source.source, Some(init_source.mapper))
+                (init_source.source, init_source.mapper)  // mapper is already Option
             }
             _ => {
                 return Err(EventFluxError::app_creation(format!(
@@ -1112,7 +1129,7 @@ impl EventFluxAppRuntime {
 
         // Extract sink and mapper from initialized stream
         let (sink, mapper) = match initialized {
-            InitializedStream::Sink(init_sink) => (init_sink.sink, Some(init_sink.mapper)),
+            InitializedStream::Sink(init_sink) => (init_sink.sink, init_sink.mapper),  // mapper is already Option
             _ => {
                 return Err(EventFluxError::app_creation(format!(
                     "Expected sink stream initialization for SQL stream '{}', got different stream type",
@@ -1340,98 +1357,143 @@ impl EventFluxAppRuntime {
     /// CRITICAL FIX: Uses stream_initializer with EventFluxContext's registered factories
     /// instead of creating a fresh SinkFactoryRegistry that only has built-in sinks.
     /// This allows custom/extension sinks to be auto-attached from YAML/TOML configuration.
-    fn auto_attach_sinks_from_config(&self, app_config: &ApplicationConfig) -> Result<(), String> {
-        use crate::core::config::stream_config::{StreamType, StreamTypeConfig};
-        use crate::core::exception::EventFluxError;
-        use crate::core::stream::handler::SinkStreamHandler;
-        use crate::core::stream::stream_initializer::{initialize_stream, InitializedStream};
+    ///
+    /// # Arguments
+    ///
+    /// * `app_config` - Application configuration containing sink definitions
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<String>)` - List of successfully attached sink names
+    /// * `Err(Vec<EventFluxError>)` - List of all errors encountered
+    fn auto_attach_sinks_from_config(
+        &self,
+        app_config: &ApplicationConfig,
+    ) -> Result<Vec<String>, Vec<crate::core::exception::EventFluxError>> {
+        let mut errors = Vec::new();
+        let mut successes = Vec::new();
 
         // Iterate through all configured streams
         for (stream_name, stream_config) in &app_config.streams {
             // Check if this stream has a sink configuration
             if let Some(ref sink_config) = stream_config.sink {
-                // Check if sink handler already registered (idempotent operation)
-                if self.get_sink_handler(stream_name).is_some() {
-                    continue;
+                // Process this sink, collecting errors instead of failing fast
+                match self.attach_single_sink(stream_name, sink_config) {
+                    Ok(()) => {
+                        successes.push(stream_name.clone());
+                        log::info!(
+                            "[EventFluxAppRuntime] Successfully attached sink '{}' to stream '{}'",
+                            sink_config.sink_type, stream_name
+                        );
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "[EventFluxAppRuntime] Failed to attach sink '{}' to stream '{}': {}",
+                            sink_config.sink_type, stream_name, e
+                        );
+                        errors.push(e);
+                    }
                 }
-
-                // Convert SinkConfig to StreamTypeConfig (similar to sources)
-                let mut properties = self
-                    .extract_connection_config(&sink_config.connection)
-                    .map_err(|e| {
-                        format!(
-                            "Invalid connection config for sink stream '{}': {}",
-                            stream_name, e
-                        )
-                    })?;
-
-                // Merge remaining SinkConfig fields (security, delivery_guarantee, retry, batching)
-                Self::merge_sink_config_into_properties(sink_config, &mut properties)
-                    .map_err(|e| {
-                        format!(
-                            "Failed to merge sink config for stream '{}': {}",
-                            stream_name, e
-                        )
-                    })?;
-
-                let stream_type_config = StreamTypeConfig::new(
-                    StreamType::Sink,
-                    Some(sink_config.sink_type.clone()),
-                    sink_config.format.clone(),
-                    properties,
-                )
-                .map_err(|e| {
-                    format!(
-                        "Invalid StreamTypeConfig for sink '{}' (type={}): {}",
-                        stream_name, sink_config.sink_type, e
-                    )
-                })?;
-
-                // Use stream_initializer to create sink with mapper
-                // This properly uses EventFluxContext's registered factories!
-                let initialized = initialize_stream(
-                    &self.eventflux_app_context.eventflux_context,
-                    &stream_type_config,
-                )
-                .map_err(|e| {
-                    format!(
-                        "Failed to initialize YAML sink '{}' (type={}): {}",
-                        stream_name, sink_config.sink_type, e
-                    )
-                })?;
-
-                // Extract sink and mapper from initialized stream
-                let (sink, mapper) = match initialized {
-                    InitializedStream::Sink(init_sink) => {
-                        (init_sink.sink, Some(init_sink.mapper))
-                    }
-                    _ => {
-                        return Err(format!(
-                            "Expected sink stream initialization for YAML stream '{}', got different stream type",
-                            stream_name
-                        ))
-                    }
-                };
-
-                // Create SinkStreamHandler
-                let handler = Arc::new(SinkStreamHandler::new(
-                    sink,
-                    mapper,
-                    stream_name.to_string(),
-                ));
-
-                // Register handler in runtime
-                self.register_sink_handler(stream_name.to_string(), Arc::clone(&handler));
-
-                // Attach sink to junction for event delivery
-                self.attach_sink_to_junction(stream_name, Arc::clone(&handler))?;
-
-                log::info!(
-                    "[EventFluxAppRuntime] Auto-attached YAML sink '{}' to stream '{}'",
-                    sink_config.sink_type, stream_name
-                );
             }
         }
+
+        // Fail fast - no partial success allowed
+        if !errors.is_empty() {
+            Err(errors)
+        } else {
+            Ok(successes)
+        }
+    }
+
+    /// Attach a single sink stream handler
+    ///
+    /// Converts YAML SinkConfig to StreamTypeConfig and creates SinkStreamHandler.
+    /// All errors are properly typed as EventFluxError with context.
+    fn attach_single_sink(
+        &self,
+        stream_name: &str,
+        sink_config: &crate::core::config::types::application_config::SinkConfig,
+    ) -> Result<(), crate::core::exception::EventFluxError> {
+        use crate::core::config::stream_config::{StreamType, StreamTypeConfig};
+        use crate::core::exception::EventFluxError;
+        use crate::core::stream::handler::SinkStreamHandler;
+        use crate::core::stream::stream_initializer::{initialize_stream, InitializedStream};
+
+        // Check if sink handler already registered (idempotent operation)
+        if self.get_sink_handler(stream_name).is_some() {
+            return Ok(());
+        }
+
+        // Convert SinkConfig to StreamTypeConfig (similar to sources)
+        let mut properties = self
+            .extract_connection_config(&sink_config.connection)
+            .map_err(|e| {
+                EventFluxError::configuration(format!(
+                    "Invalid connection config for sink stream '{}': {}",
+                    stream_name, e
+                ))
+            })?;
+
+        // Merge remaining SinkConfig fields (security, delivery_guarantee, retry, batching)
+        Self::merge_sink_config_into_properties(sink_config, &mut properties).map_err(|e| {
+            EventFluxError::configuration(format!(
+                "Failed to merge sink config for stream '{}': {}",
+                stream_name, e
+            ))
+        })?;
+
+        let stream_type_config = StreamTypeConfig::new(
+            StreamType::Sink,
+            Some(sink_config.sink_type.clone()),
+            sink_config.format.clone(),
+            properties,
+        )
+        .map_err(|e| {
+            EventFluxError::configuration(format!(
+                "Invalid StreamTypeConfig for sink '{}' (type={}): {}",
+                stream_name, sink_config.sink_type, e
+            ))
+        })?;
+
+        // Use stream_initializer to create sink with mapper
+        // This properly uses EventFluxContext's registered factories!
+        let initialized = initialize_stream(
+            &self.eventflux_app_context.eventflux_context,
+            &stream_type_config,
+        )
+        .map_err(|e| {
+            EventFluxError::app_runtime(format!(
+                "Failed to initialize YAML sink '{}' (type={}): {}",
+                stream_name, sink_config.sink_type, e
+            ))
+        })?;
+
+        // Extract sink and mapper from initialized stream
+        let (sink, mapper) = match initialized {
+            InitializedStream::Sink(init_sink) => {
+                (init_sink.sink, init_sink.mapper) // mapper is already Option
+            }
+            _ => {
+                return Err(EventFluxError::app_runtime(format!(
+                    "Expected sink stream initialization for YAML stream '{}', got different stream type",
+                    stream_name
+                )))
+            }
+        };
+
+        // Create SinkStreamHandler
+        let handler = Arc::new(SinkStreamHandler::new(
+            sink,
+            mapper,
+            stream_name.to_string(),
+        ));
+
+        // Register handler in runtime
+        self.register_sink_handler(stream_name.to_string(), Arc::clone(&handler));
+
+        // Attach sink to junction for event delivery
+        self.attach_sink_to_junction(stream_name, Arc::clone(&handler))
+            .map_err(|e| EventFluxError::app_runtime(format!("Failed to attach sink to junction: {}", e)))?;
 
         Ok(())
     }

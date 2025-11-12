@@ -311,23 +311,21 @@ mod tests {
     }
 
     #[test]
-    fn test_create_stream_with_validation_error_missing_format() {
+    fn test_create_stream_without_format_allowed() {
+        // Format is now optional at SQL level (some sources like timer use binary passthrough)
         let sql = r#"
-            CREATE STREAM BadStream (id INT)
+            CREATE STREAM TimerStream (tick STRING)
             WITH (
                 type = 'source',
-                extension = 'kafka'
+                extension = 'timer'
             );
         "#;
 
         let result = parse_sql_application(sql);
-        assert!(result.is_err(), "Should fail validation: missing format");
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("format"),
-            "Error should mention missing format: {}",
-            err
-        );
+        assert!(result.is_ok(), "Should allow missing format for sources like timer");
+
+        // Note: Sources that require format (like Kafka) will fail at initialization time,
+        // not at SQL parsing time. This allows binary passthrough sources (timer) to work.
     }
 
     #[test]

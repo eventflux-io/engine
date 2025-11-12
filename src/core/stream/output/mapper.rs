@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::core::event::event::Event;
+use crate::core::exception::EventFluxError;
 use std::fmt::Debug;
 
 pub trait SinkMapper: Debug + Send + Sync {
-    fn map(&self, events: &[Event]) -> Vec<u8>;
+    fn map(&self, events: &[Event]) -> Result<Vec<u8>, EventFluxError>;
     fn clone_box(&self) -> Box<dyn SinkMapper>;
 }
 
@@ -53,11 +54,10 @@ impl Default for PassthroughMapper {
 }
 
 impl SinkMapper for PassthroughMapper {
-    fn map(&self, events: &[Event]) -> Vec<u8> {
+    fn map(&self, events: &[Event]) -> Result<Vec<u8>, EventFluxError> {
         // Use bincode for efficient binary serialization
-        bincode::serialize(events).unwrap_or_else(|e| {
-            log::error!("Failed to serialize events: {}", e);
-            vec![]
+        bincode::serialize(events).map_err(|e| {
+            EventFluxError::app_runtime(format!("Failed to serialize events: {}", e))
         })
     }
 

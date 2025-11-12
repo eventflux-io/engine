@@ -134,12 +134,20 @@ impl SnapshotService {
             failed_components,
         };
 
+        // Return error on partial or complete failure
+        // Persistence is a critical operation - partial success IS a failure
         if report.failure_count > 0 {
-            log::warn!(
-                "Partial persistence success: {} succeeded, {} failed",
-                report.success_count,
-                report.failure_count
-            );
+            let failed_ids: Vec<&str> = report
+                .failed_components
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect();
+            return Err(format!(
+                "Partial persistence failure: {} component(s) failed to persist (revision: {}). Failed: {}",
+                report.failure_count,
+                report.revision,
+                failed_ids.join(", ")
+            ));
         }
 
         Ok(report)

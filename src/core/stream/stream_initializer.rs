@@ -42,17 +42,17 @@ use crate::query_api::execution::query::Query;
 /// Fully initialized stream with source and mapper components
 pub struct InitializedSource {
     pub source: Box<dyn Source>,
-    pub mapper: Box<dyn SourceMapper>,
+    pub mapper: Option<Box<dyn SourceMapper>>,  // Optional - None = use PassthroughMapper
     pub extension: String,
-    pub format: String,
+    pub format: Option<String>,  // Optional - None = no format (binary passthrough)
 }
 
 /// Fully initialized sink stream with sink and mapper components
 pub struct InitializedSink {
     pub sink: Box<dyn Sink>,
-    pub mapper: Box<dyn SinkMapper>,
+    pub mapper: Option<Box<dyn SinkMapper>>,  // Optional - None = use PassthroughMapper
     pub extension: String,
-    pub format: String,
+    pub format: Option<String>,  // Optional - None = no format (binary passthrough)
 }
 
 /// Fully initialized table with backing store
@@ -184,40 +184,57 @@ fn initialize_source_stream(
         .get_source_factory(extension)
         .ok_or_else(|| EventFluxError::extension_not_found("source", extension))?;
 
-    // 2. Validate format support
-    let format = stream_config
-        .format()
-        .map_err(|e| EventFluxError::configuration(format!("Stream configuration error: {}", e)))?;
+    // 2. Validate format support (if format is specified)
+    let mapper_factory = if let Some(format) = stream_config.format() {
+        // Format specified - validate and look up mapper factory
+        if !source_factory.supported_formats().contains(&format) {
+            return Err(EventFluxError::unsupported_format(format, extension));
+        }
 
-    if !source_factory.supported_formats().contains(&format) {
-        return Err(EventFluxError::unsupported_format(format, extension));
-    }
+        // 3. Look up mapper factory by format
+        Some(context
+            .get_source_mapper_factory(format)
+            .ok_or_else(|| EventFluxError::extension_not_found("source mapper", format))?)
+    } else {
+        // No format specified - validate that source supports binary passthrough
+        let supported_formats = source_factory.supported_formats();
+        if !supported_formats.is_empty() {
+            // Source requires explicit format but none was specified
+            // This prevents silent data loss for external sources (Kafka, HTTP, etc.)
+            return Err(EventFluxError::configuration(format!(
+                "Source extension '{}' requires a format specification. \
+                Supported formats: {}. \
+                Without a format, events will be incorrectly decoded as binary, causing data loss.",
+                extension,
+                supported_formats.join(", ")
+            )));
+        }
+        // PassthroughMapper will be used for binary-only sources
+        None
+    };
 
-    // 3. Look up mapper factory by format
-    let mapper_factory = context
-        .get_source_mapper_factory(format)
-        .ok_or_else(|| EventFluxError::extension_not_found("source mapper", format))?;
-
-    // 4. Phase 1 Validation: Verify mapper configuration (source/sink property restrictions)
+    // 4. Phase 1 Validation: Verify mapper configuration (if format is specified)
     // This ensures source streams don't use sink-only properties (template, pretty-print, etc.)
-    crate::core::stream::mapper::validation::validate_source_mapper_config(
-        &stream_config.properties,
-        format,
-    )
-    .map_err(|e| {
-        EventFluxError::configuration_with_key(
-            format!(
-                "Source stream mapper configuration validation failed: {}. \
-                Source streams can use 'mapping.*' properties but not 'template' property.",
-                e
-            ),
-            format!("{}.mapping", format),
+    if let Some(format) = stream_config.format() {
+        crate::core::stream::mapper::validation::validate_source_mapper_config(
+            &stream_config.properties,
+            format,
         )
-    })?;
+        .map_err(|e| {
+            EventFluxError::configuration_with_key(
+                format!(
+                    "Source stream mapper configuration validation failed: {}. \
+                    Source streams can use 'mapping.*' properties but not 'template' property.",
+                    e
+                ),
+                format!("{}.mapping", format),
+            )
+        })?;
+    }
 
     // 5. Create fully initialized instances (fail-fast validation)
     let source = source_factory.create_initialized(&stream_config.properties)?;
-    let mapper = mapper_factory.create_initialized(&stream_config.properties)?;
+    let mapper = mapper_factory.map(|factory| factory.create_initialized(&stream_config.properties)).transpose()?;
 
     // 6. Phase 2 Validation: Verify external connectivity (FAIL-FAST)
     // This ensures "What's the point of deploying if transports aren't ready?"
@@ -234,7 +251,7 @@ fn initialize_source_stream(
         source,
         mapper,
         extension: extension.to_string(),
-        format: format.to_string(),
+        format: stream_config.format().map(|s| s.to_string()),
     }))
 }
 
@@ -252,40 +269,57 @@ fn initialize_sink_stream(
         .get_sink_factory(extension)
         .ok_or_else(|| EventFluxError::extension_not_found("sink", extension))?;
 
-    // 2. Validate format support
-    let format = stream_config
-        .format()
-        .map_err(|e| EventFluxError::configuration(format!("Stream configuration error: {}", e)))?;
+    // 2. Validate format support (if format is specified)
+    let mapper_factory = if let Some(format) = stream_config.format() {
+        // Format specified - validate and look up mapper factory
+        if !sink_factory.supported_formats().contains(&format) {
+            return Err(EventFluxError::unsupported_format(format, extension));
+        }
 
-    if !sink_factory.supported_formats().contains(&format) {
-        return Err(EventFluxError::unsupported_format(format, extension));
-    }
+        // 3. Look up mapper factory by format
+        Some(context
+            .get_sink_mapper_factory(format)
+            .ok_or_else(|| EventFluxError::extension_not_found("sink mapper", format))?)
+    } else {
+        // No format specified - validate that sink supports binary passthrough
+        let supported_formats = sink_factory.supported_formats();
+        if !supported_formats.is_empty() {
+            // Sink requires explicit format but none was specified
+            // This prevents silent data loss for external sinks (HTTP, Kafka, etc.)
+            return Err(EventFluxError::configuration(format!(
+                "Sink extension '{}' requires a format specification. \
+                Supported formats: {}. \
+                Without a format, events will be incorrectly encoded as binary, causing data loss.",
+                extension,
+                supported_formats.join(", ")
+            )));
+        }
+        // PassthroughMapper will be used for binary-only sinks
+        None
+    };
 
-    // 3. Look up mapper factory by format
-    let mapper_factory = context
-        .get_sink_mapper_factory(format)
-        .ok_or_else(|| EventFluxError::extension_not_found("sink mapper", format))?;
-
-    // 4. Phase 1 Validation: Verify mapper configuration (source/sink property restrictions)
+    // 4. Phase 1 Validation: Verify mapper configuration (if format is specified)
     // This ensures sink streams don't use source-only properties (mapping.*, ignore-parse-errors, etc.)
-    crate::core::stream::mapper::validation::validate_sink_mapper_config(
-        &stream_config.properties,
-        format,
-    )
-    .map_err(|e| {
-        EventFluxError::configuration_with_key(
-            format!(
-                "Sink stream mapper configuration validation failed: {}. \
-                Sink streams can use 'template' property but not 'mapping.*' properties.",
-                e
-            ),
-            format!("{}.template", format),
+    if let Some(format) = stream_config.format() {
+        crate::core::stream::mapper::validation::validate_sink_mapper_config(
+            &stream_config.properties,
+            format,
         )
-    })?;
+        .map_err(|e| {
+            EventFluxError::configuration_with_key(
+                format!(
+                    "Sink stream mapper configuration validation failed: {}. \
+                    Sink streams can use 'template' property but not 'mapping.*' properties.",
+                    e
+                ),
+                format!("{}.template", format),
+            )
+        })?;
+    }
 
     // 5. Create fully initialized instances (fail-fast validation)
     let sink = sink_factory.create_initialized(&stream_config.properties)?;
-    let mapper = mapper_factory.create_initialized(&stream_config.properties)?;
+    let mapper = mapper_factory.map(|factory| factory.create_initialized(&stream_config.properties)).transpose()?;
 
     // 6. Phase 2 Validation: Verify external connectivity (FAIL-FAST)
     // This ensures "What's the point of deploying if transports aren't ready?"
@@ -302,7 +336,7 @@ fn initialize_sink_stream(
         sink,
         mapper,
         extension: extension.to_string(),
-        format: format.to_string(),
+        format: stream_config.format().map(|s| s.to_string()),
     }))
 }
 
@@ -551,7 +585,7 @@ fn initialize_source_stream_with_handler(
             // Create SourceStreamHandler
             let handler = Arc::new(SourceStreamHandler::new(
                 source.source,
-                Some(source.mapper),
+                source.mapper,  // Already Option<Box<dyn SourceMapper>>
                 input_handler,
                 stream_name.to_string(),
             ));
@@ -584,7 +618,7 @@ fn initialize_sink_stream_with_handler(
             // Create SinkStreamHandler
             let handler = Arc::new(SinkStreamHandler::new(
                 sink.sink,
-                Some(sink.mapper),
+                sink.mapper,  // Already Option<Box<dyn SinkMapper>>
                 stream_name.to_string(),
             ));
 
@@ -915,7 +949,7 @@ mod tests {
         match result.unwrap() {
             InitializedStream::Source(source) => {
                 assert_eq!(source.extension, "kafka");
-                assert_eq!(source.format, "json");
+                assert_eq!(source.format.as_deref(), Some("json"));
             }
             _ => panic!("Expected Source stream"),
         }
@@ -1038,7 +1072,7 @@ mod tests {
         match result.unwrap() {
             InitializedStream::Sink(sink) => {
                 assert_eq!(sink.extension, "http");
-                assert_eq!(sink.format, "json");
+                assert_eq!(sink.format.as_deref(), Some("json"));
             }
             _ => panic!("Expected Sink stream"),
         }
@@ -1089,6 +1123,76 @@ mod tests {
             }
             e => panic!(
                 "Expected InvalidParameter error for missing parameter, got {:?}",
+                e
+            ),
+        }
+    }
+
+    #[test]
+    fn test_initialize_source_stream_missing_required_format() {
+        let context = EventFluxContext::new();
+        context.add_source_factory("kafka".to_string(), Box::new(KafkaSourceFactory));
+        // Don't add mapper factory - we're testing the format requirement validation
+
+        let mut config = HashMap::new();
+        config.insert(
+            "kafka.bootstrap.servers".to_string(),
+            "localhost:9092".to_string(),
+        );
+        config.insert("kafka.topic".to_string(), "test-topic".to_string());
+
+        // Kafka source WITHOUT format - should be rejected
+        let stream_config =
+            StreamTypeConfig::new(StreamType::Source, Some("kafka".to_string()), None, config)
+                .unwrap();
+
+        let result = initialize_stream(&context, &stream_config);
+        assert!(result.is_err());
+
+        // Should get Configuration error requiring format
+        match result.unwrap_err() {
+            EventFluxError::Configuration { message, .. } => {
+                assert!(message.contains("requires a format specification"));
+                assert!(message.contains("kafka"));
+                assert!(message.contains("json"));
+                assert!(message.contains("data loss"));
+            }
+            e => panic!(
+                "Expected Configuration error for missing format, got {:?}",
+                e
+            ),
+        }
+    }
+
+    #[test]
+    fn test_initialize_sink_stream_missing_required_format() {
+        let context = EventFluxContext::new();
+        context.add_sink_factory("http".to_string(), Box::new(HttpSinkFactory));
+
+        let mut config = HashMap::new();
+        config.insert(
+            "http.url".to_string(),
+            "http://localhost:8080/events".to_string(),
+        );
+
+        // HTTP sink WITHOUT format - should be rejected
+        let stream_config =
+            StreamTypeConfig::new(StreamType::Sink, Some("http".to_string()), None, config)
+                .unwrap();
+
+        let result = initialize_stream(&context, &stream_config);
+        assert!(result.is_err());
+
+        // Should get Configuration error requiring format
+        match result.unwrap_err() {
+            EventFluxError::Configuration { message, .. } => {
+                assert!(message.contains("requires a format specification"));
+                assert!(message.contains("http"));
+                assert!(message.contains("json"));
+                assert!(message.contains("data loss"));
+            }
+            e => panic!(
+                "Expected Configuration error for missing format, got {:?}",
                 e
             ),
         }

@@ -9,9 +9,7 @@
 
 use eventflux_rust::core::event::value::AttributeValue;
 use eventflux_rust::core::eventflux_manager::EventFluxManager;
-use eventflux_rust::core::extension::example_factories::{
-    CsvSinkMapperFactory, JsonSourceMapperFactory,
-};
+use eventflux_rust::core::extension::example_factories::CsvSinkMapperFactory;
 use eventflux_rust::core::extension::{LogSinkFactory, TimerSourceFactory};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -32,15 +30,14 @@ async fn test_sql_with_timer_source_basic() {
     // Create manager and register timer source factory
     let manager = EventFluxManager::new();
     manager.add_source_factory("timer".to_string(), Box::new(TimerSourceFactory));
-    manager.add_source_mapper_factory("json".to_string(), Box::new(JsonSourceMapperFactory));
 
     // SQL WITH configuration for timer source
+    // Note: Timer source uses binary passthrough format (no format specification needed)
     let sql = r#"
         CREATE STREAM TimerInput (tick STRING) WITH (
             type = 'source',
             extension = 'timer',
-            "timer.interval" = '100',
-            format = 'json'
+            "timer.interval" = '100'
         );
 
         CREATE STREAM TimerOutput (tick STRING);
@@ -82,22 +79,20 @@ async fn test_sql_with_timer_source_basic() {
 async fn test_sql_with_timer_to_log_full_flow() {
     let manager = EventFluxManager::new();
     manager.add_source_factory("timer".to_string(), Box::new(TimerSourceFactory));
-    manager.add_source_mapper_factory("json".to_string(), Box::new(JsonSourceMapperFactory));
     manager.add_sink_factory("log".to_string(), Box::new(LogSinkFactory));
-    manager.add_sink_mapper_factory("json".to_string(), Box::new(CsvSinkMapperFactory));
+    manager.add_sink_mapper_factory("csv".to_string(), Box::new(CsvSinkMapperFactory));
 
     let sql = r#"
         CREATE STREAM TimerInput (tick STRING) WITH (
             type = 'source',
             extension = 'timer',
-            "timer.interval" = '100',
-            format = 'json'
+            "timer.interval" = '100'
         );
 
         CREATE STREAM LogOutput (tick STRING) WITH (
             type = 'sink',
             extension = 'log',
-            format = 'json',
+            format = 'csv',
             "log.prefix" = '[TEST]'
         );
 
@@ -132,17 +127,15 @@ async fn test_sql_with_timer_to_log_full_flow() {
 async fn test_sql_with_timer_filter_log_complete() {
     let manager = EventFluxManager::new();
     manager.add_source_factory("timer".to_string(), Box::new(TimerSourceFactory));
-    manager.add_source_mapper_factory("json".to_string(), Box::new(JsonSourceMapperFactory));
     manager.add_sink_factory("log".to_string(), Box::new(LogSinkFactory));
-    manager.add_sink_mapper_factory("json".to_string(), Box::new(CsvSinkMapperFactory));
+    manager.add_sink_mapper_factory("csv".to_string(), Box::new(CsvSinkMapperFactory));
 
     // COMPLETE flow: All configured via SQL WITH!
     let sql = r#"
         CREATE STREAM TimerInput (tick STRING) WITH (
             type = 'source',
             extension = 'timer',
-            "timer.interval" = '50',
-            format = 'json'
+            "timer.interval" = '50'
         );
 
         CREATE STREAM ProcessedOutput (tick STRING);
@@ -150,7 +143,7 @@ async fn test_sql_with_timer_filter_log_complete() {
         CREATE STREAM LogSink (tick STRING) WITH (
             type = 'sink',
             extension = 'log',
-            format = 'json',
+            format = 'csv',
             "log.prefix" = '[COMPLETE-FLOW]'
         );
 
@@ -198,21 +191,18 @@ async fn test_sql_with_timer_filter_log_complete() {
 async fn test_sql_with_multiple_streams_independent() {
     let manager = EventFluxManager::new();
     manager.add_source_factory("timer".to_string(), Box::new(TimerSourceFactory));
-    manager.add_source_mapper_factory("json".to_string(), Box::new(JsonSourceMapperFactory));
 
     let sql = r#"
         CREATE STREAM FastTimer (tick STRING) WITH (
             type = 'source',
             extension = 'timer',
-            "timer.interval" = '50',
-            format = 'json'
+            "timer.interval" = '50'
         );
 
         CREATE STREAM SlowTimer (tick STRING) WITH (
             type = 'source',
             extension = 'timer',
-            "timer.interval" = '200',
-            format = 'json'
+            "timer.interval" = '200'
         );
 
         SELECT tick FROM FastTimer;
@@ -243,13 +233,11 @@ async fn test_sql_with_multiple_streams_independent() {
 async fn test_sql_with_missing_extension_error() {
     let manager = EventFluxManager::new();
     manager.add_source_factory("timer".to_string(), Box::new(TimerSourceFactory));
-    manager.add_source_mapper_factory("json".to_string(), Box::new(JsonSourceMapperFactory));
 
     // Missing 'extension' property - this should fail at parse-time validation
     let sql = r#"
         CREATE STREAM BadStream (tick STRING) WITH (
-            type = 'source',
-            format = 'json'
+            type = 'source'
         );
 
         SELECT tick FROM BadStream;
@@ -335,7 +323,6 @@ async fn test_sql_with_priority_over_yaml() {
 
     // Register required factories
     manager.add_source_factory("timer".to_string(), Box::new(TimerSourceFactory));
-    manager.add_source_mapper_factory("json".to_string(), Box::new(JsonSourceMapperFactory));
 
     // SQL WITH configuration for timer source
     // The timer interval is defined in SQL, not in YAML
@@ -343,8 +330,7 @@ async fn test_sql_with_priority_over_yaml() {
         CREATE STREAM TimerInput (tick STRING) WITH (
             type = 'source',
             extension = 'timer',
-            "timer.interval" = '100',
-            format = 'json'
+            "timer.interval" = '100'
         );
 
         CREATE STREAM TimerOutput (tick STRING);
@@ -397,14 +383,12 @@ async fn test_sql_with_priority_over_yaml() {
 async fn test_sql_internal_stream_no_with() {
     let manager = EventFluxManager::new();
     manager.add_source_factory("timer".to_string(), Box::new(TimerSourceFactory));
-    manager.add_source_mapper_factory("json".to_string(), Box::new(JsonSourceMapperFactory));
 
     let sql = r#"
         CREATE STREAM TimerInput (tick STRING) WITH (
             type = 'source',
             extension = 'timer',
-            "timer.interval" = '100',
-            format = 'json'
+            "timer.interval" = '100'
         );
 
         CREATE STREAM InternalStream (tick STRING);
@@ -481,7 +465,8 @@ async fn test_sql_with_properties_reach_factory() {
         }
 
         fn supported_formats(&self) -> &[&str] {
-            &["json"]
+            // No format required - uses passthrough (returns TimerSource internally)
+            &[]
         }
 
         fn required_parameters(&self) -> &[&str] {
@@ -517,15 +502,13 @@ async fn test_sql_with_properties_reach_factory() {
 
     let manager = EventFluxManager::new();
     manager.add_source_factory("verify".to_string(), Box::new(VerifyingFactory));
-    manager.add_source_mapper_factory("json".to_string(), Box::new(JsonSourceMapperFactory));
 
     let sql = r#"
         CREATE STREAM VerifyStream (tick STRING) WITH (
             type = 'source',
             extension = 'verify',
             "verify.prop1" = 'value1',
-            "verify.prop2" = 'value2',
-            format = 'json'
+            "verify.prop2" = 'value2'
         );
 
         SELECT tick FROM VerifyStream;

@@ -32,7 +32,13 @@ pub struct SinkCallbackAdapter {
 impl StreamCallback for SinkCallbackAdapter {
     fn receive_events(&self, events: &[Event]) {
         // Transform Events → bytes via mapper
-        let payload = self.mapper.lock().unwrap().map(events);
+        let payload = match self.mapper.lock().unwrap().map(events) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                log::error!("Mapper failed to serialize events: {}", e);
+                return; // Drop events on mapping failure
+            }
+        };
 
         // Publish bytes to sink
         if let Err(e) = self.sink.lock().unwrap().publish(&payload) {

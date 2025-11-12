@@ -82,7 +82,10 @@ impl InputHandler {
         data: Vec<crate::core::event::value::AttributeValue>,
     ) -> Result<(), String> {
         if self.eventflux_app_context.is_playback {
-            // TODO: timestamp generator
+            // TODO: Update timestamp generator with event timestamp for replay mode
+            // In playback mode, the timestamp generator should track the max event timestamp
+            // so that internally generated events (timers, etc.) use replay time not system time.
+            // Implementation deferred until playback/replay feature is prioritized (M3+).
         }
 
         // Use ThreadBarrier to coordinate with restoration operations
@@ -105,7 +108,8 @@ impl InputHandler {
 
     pub fn send_single_event(&self, event: Event) -> Result<(), String> {
         if self.eventflux_app_context.is_playback {
-            // TODO: set timestamp generator
+            // TODO: Update timestamp generator with event.timestamp for replay mode
+            // See send_data() comment above for details. Deferred to M3+.
         }
         self.ensure_processor()?
             .lock()
@@ -115,7 +119,8 @@ impl InputHandler {
 
     pub fn send_multiple_events(&self, events: Vec<Event>) -> Result<(), String> {
         if self.eventflux_app_context.is_playback && !events.is_empty() {
-            // TODO: update timestamp generator
+            // TODO: Update timestamp generator with max(events.timestamp) for replay mode
+            // See send_data() comment above for details. Deferred to M3+.
         }
         self.ensure_processor()?
             .lock()
