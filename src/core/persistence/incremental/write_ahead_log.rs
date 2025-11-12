@@ -685,12 +685,80 @@ impl WALSegment {
     /// Read entries from a given offset
     fn read_entries_from(
         &self,
-        _offset: LogOffset,
-        _limit: usize,
+        offset: LogOffset,
+        limit: usize,
     ) -> Result<Vec<Vec<u8>>, StateError> {
-        // Simplified implementation - in production this would be more sophisticated
-        // with proper offset indexing and efficient random access
-        Ok(Vec::new())
+        // Return early if offset is outside this segment's range
+        if offset < self.start_offset || offset >= self.end_offset {
+            return Ok(Vec::new());
+        }
+
+        // Open file for reading
+        let file = File::open(&self.file_path).map_err(|e| StateError::InvalidStateData {
+            message: format!("Failed to open segment file for reading: {e}"),
+        })?;
+
+        let mut reader = BufReader::new(file);
+        let mut results = Vec::new();
+
+        // Scan from the beginning to find our starting offset
+        let mut current_offset = self.start_offset;
+
+        // Skip entries until we reach the target offset
+        while current_offset < offset {
+            // Read entry size
+            let mut size_buf = [0u8; 4];
+            if reader.read_exact(&mut size_buf).is_err() {
+                break; // End of file or corrupt entry
+            }
+
+            let entry_size = u32::from_le_bytes(size_buf) as usize;
+
+            // Sanity check on entry size
+            if entry_size == 0 || entry_size > 10 * 1024 * 1024 {
+                // 10MB max
+                return Err(StateError::InvalidStateData {
+                    message: format!("Invalid entry size: {entry_size}"),
+                });
+            }
+
+            // Skip the entry data
+            let mut skip_buf = vec![0u8; entry_size];
+            if reader.read_exact(&mut skip_buf).is_err() {
+                break; // End of file
+            }
+
+            current_offset += 1;
+        }
+
+        // Now read `limit` entries starting from `offset`
+        while results.len() < limit && current_offset < self.end_offset {
+            // Read entry size
+            let mut size_buf = [0u8; 4];
+            if reader.read_exact(&mut size_buf).is_err() {
+                break; // End of file
+            }
+
+            let entry_size = u32::from_le_bytes(size_buf) as usize;
+
+            // Sanity check
+            if entry_size == 0 || entry_size > 10 * 1024 * 1024 {
+                return Err(StateError::InvalidStateData {
+                    message: format!("Invalid entry size: {entry_size}"),
+                });
+            }
+
+            // Read entry data
+            let mut entry_data = vec![0u8; entry_size];
+            if reader.read_exact(&mut entry_data).is_err() {
+                break; // End of file
+            }
+
+            results.push(entry_data);
+            current_offset += 1;
+        }
+
+        Ok(results)
     }
 
     /// Seal the segment (make it read-only)
