@@ -108,7 +108,8 @@ impl SourceCallbackAdapter {
 impl SourceCallback for SourceCallbackAdapter {
     fn on_data(&self, data: &[u8]) -> Result<(), EventFluxError> {
         // Transform bytes → Events via mapper
-        let events = self.mapper.lock().unwrap().map(data);
+        // Mapper can now report parsing errors instead of silently dropping data
+        let events = self.mapper.lock().unwrap().map(data)?;
 
         // Deliver Events to InputHandler
         for event in events.iter() {
