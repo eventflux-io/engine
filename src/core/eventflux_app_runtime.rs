@@ -24,6 +24,26 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use std::collections::HashMap;
+use std::sync::RwLock;
+
+/// Runtime lifecycle states for EventFluxAppRuntime
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeState {
+    /// Initial state after construction
+    Created,
+    /// Attaching sources/sinks/triggers
+    Attaching,
+    /// Executing startup sequence
+    Starting,
+    /// Fully operational
+    Running,
+    /// Graceful shutdown in progress
+    Stopping,
+    /// Clean shutdown completed
+    Stopped,
+    /// Error occurred, partial state
+    Failed,
+}
 
 /// Manages the runtime lifecycle of a single EventFlux Application.
 #[derive(Debug)] // Default removed, construction via new() -> Result
@@ -31,6 +51,9 @@ pub struct EventFluxAppRuntime {
     pub name: String,
     pub eventflux_app: Arc<ApiEventFluxApp>, // The original parsed API definition
     pub eventflux_app_context: Arc<EventFluxAppContext>,
+
+    // Lifecycle state tracking
+    pub state: Arc<RwLock<RuntimeState>>,
 
     // Runtime components constructed by EventFluxAppRuntimeBuilder
     pub stream_junction_map: HashMap<String, Arc<Mutex<StreamJunction>>>,
@@ -526,11 +549,60 @@ impl EventFluxAppRuntime {
     ///
     /// Partial success is possible (e.g., some sources attach, others fail). The
     /// returned error will contain details about all failures.
+    /// Rollback startup by stopping all started components
+    fn rollback_startup(&self) {
+        log::warn!("Rolling back runtime startup for '{}'", self.name);
+
+        // Stop in reverse order (best effort, don't propagate errors)
+        for pr in self.partition_runtimes.iter().rev() {
+            pr.shutdown();
+        }
+
+        for tr in self.trigger_runtimes.iter().rev() {
+            tr.shutdown();
+        }
+
+        // Stop sinks
+        self.stop_all_sinks();
+
+        // Stop sources
+        self.stop_all_sources();
+
+        log::info!("Rollback completed for '{}'", self.name);
+    }
+
     pub fn start(&self) -> Result<(), crate::core::exception::EventFluxError> {
         use crate::core::exception::EventFluxError;
 
+        // 1. State validation - prevent duplicate start
+        {
+            let mut state = self.state.write().unwrap();
+            match *state {
+                RuntimeState::Created | RuntimeState::Failed => {
+                    *state = RuntimeState::Starting;
+                }
+                RuntimeState::Running => {
+                    return Err(EventFluxError::app_runtime(
+                        "Runtime is already running".to_string(),
+                    ));
+                }
+                RuntimeState::Starting => {
+                    return Err(EventFluxError::app_runtime(
+                        "Runtime is already starting".to_string(),
+                    ));
+                }
+                _ => {
+                    return Err(EventFluxError::app_runtime(format!(
+                        "Cannot start runtime in state: {:?}",
+                        *state
+                    )));
+                }
+            }
+        }
+
         let mut all_errors = Vec::new();
 
+        // 2. Attachment phase - prepare all components
         // Auto-attach sources and sinks from configuration (if available)
         if let Some(app_config) = &self.eventflux_app_context.app_config {
             // Auto-attach sources - idempotent operation with error accumulation
@@ -626,42 +698,16 @@ impl EventFluxAppRuntime {
             }
         }
 
-        // Start all registered sources (idempotent - no-op if already started)
-        if let Err(e) = self.start_all_sources() {
-            log::error!("Failed to start sources: {}", e);
-            all_errors.push(EventFluxError::app_runtime(e));
-        }
-
-        // Start all registered sinks (idempotent - no-op if already started)
-        if let Err(e) = self.start_all_sinks() {
-            log::error!("Failed to start sinks: {}", e);
-            all_errors.push(EventFluxError::app_runtime(e));
-        }
-
-        if self.scheduler.is_some() {
-            // placeholder: scheduler is kept alive by self
-            log::info!(
-                "Scheduler initialized for EventFluxAppRuntime '{}'",
-                self.name
-            );
-        }
-        for tr in &self.trigger_runtimes {
-            tr.start();
-        }
-        for pr in &self.partition_runtimes {
-            pr.start();
-        }
-
-        // Check if any errors occurred during startup
+        // 3. Early error check - fail before starting anything
         if !all_errors.is_empty() {
+            *self.state.write().unwrap() = RuntimeState::Failed;
             log::error!(
-                "EventFluxAppRuntime '{}' started with {} error(s)",
+                "EventFluxAppRuntime '{}' failed during attachment with {} error(s)",
                 self.name,
                 all_errors.len()
             );
             return Err(EventFluxError::app_runtime(format!(
-                "Runtime startup encountered {} error(s): {}",
-                all_errors.len(),
+                "Runtime startup failed during attachment: {}",
                 all_errors
                     .iter()
                     .map(|e| e.to_string())
@@ -670,6 +716,45 @@ impl EventFluxAppRuntime {
             )));
         }
 
+        // 4. Execution phase - start all components (with rollback on error)
+        // Start all registered sources
+        if let Err(e) = self.start_all_sources() {
+            log::error!("Failed to start sources: {}", e);
+            self.rollback_startup();
+            *self.state.write().unwrap() = RuntimeState::Failed;
+            return Err(EventFluxError::app_runtime(format!(
+                "Failed to start sources: {}",
+                e
+            )));
+        }
+
+        // Start all registered sinks
+        if let Err(e) = self.start_all_sinks() {
+            log::error!("Failed to start sinks: {}", e);
+            self.rollback_startup();
+            *self.state.write().unwrap() = RuntimeState::Failed;
+            return Err(EventFluxError::app_runtime(format!("Failed to start sinks: {}", e)));
+        }
+
+        if self.scheduler.is_some() {
+            log::info!(
+                "Scheduler initialized for EventFluxAppRuntime '{}'",
+                self.name
+            );
+        }
+
+        // Start triggers
+        for tr in &self.trigger_runtimes {
+            tr.start();
+        }
+
+        // Start partitions
+        for pr in &self.partition_runtimes {
+            pr.start();
+        }
+
+        // 5. Success - update state
+        *self.state.write().unwrap() = RuntimeState::Running;
         log::info!("EventFluxAppRuntime '{}' started successfully", self.name);
         Ok(())
     }
