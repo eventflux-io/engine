@@ -738,9 +738,15 @@ impl Processor for LengthBatchWindowProcessor {
                         state_holder.record_event_added(&se_clone);
                     }
 
-                    self.buffer.lock().unwrap().push(se_clone);
+                    // Fix race condition: hold lock for entire check-and-modify operation
                     let last_ts = se.timestamp;
-                    if self.buffer.lock().unwrap().len() >= self.length {
+                    let should_flush = {
+                        let mut buffer = self.buffer.lock().unwrap();
+                        buffer.push(se_clone);
+                        buffer.len() >= self.length
+                    };
+
+                    if should_flush {
                         self.flush(last_ts);
                     }
                 }
