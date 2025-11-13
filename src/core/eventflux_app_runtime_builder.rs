@@ -152,6 +152,9 @@ impl EventFluxAppRuntimeBuilder {
             name: self.eventflux_app_context.name.clone(),
             eventflux_app: api_eventflux_app, // The original parsed API definition
             eventflux_app_context: self.eventflux_app_context, // The context created for this app instance
+            state: Arc::new(std::sync::RwLock::new(
+                crate::core::eventflux_app_runtime::RuntimeState::Created,
+            )),
             stream_junction_map: self.stream_junction_map,
             input_manager: Arc::new(input_manager),
             query_runtimes: self.query_runtimes,

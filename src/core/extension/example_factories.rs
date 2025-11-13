@@ -286,9 +286,9 @@ impl SinkFactory for HttpSinkFactory {
 struct JsonSourceMapper;
 
 impl SourceMapper for JsonSourceMapper {
-    fn map(&self, _input: &[u8]) -> Vec<Event> {
+    fn map(&self, _input: &[u8]) -> Result<Vec<Event>, EventFluxError> {
         // Placeholder: actual implementation would parse JSON
-        vec![]
+        Ok(vec![])
     }
 
     fn clone_box(&self) -> Box<dyn SourceMapper> {

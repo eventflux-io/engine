@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::core::event::event::Event;
+use crate::core::exception::EventFluxError;
 use std::fmt::Debug;
 
 pub trait SourceMapper: Debug + Send + Sync {
-    fn map(&self, input: &[u8]) -> Vec<Event>;
+    fn map(&self, input: &[u8]) -> Result<Vec<Event>, EventFluxError>;
     fn clone_box(&self) -> Box<dyn SourceMapper>;
 }
 
@@ -54,15 +55,67 @@ impl Default for PassthroughMapper {
 }
 
 impl SourceMapper for PassthroughMapper {
-    fn map(&self, input: &[u8]) -> Vec<Event> {
+    fn map(&self, input: &[u8]) -> Result<Vec<Event>, EventFluxError> {
         // Use bincode for efficient binary deserialization
-        bincode::deserialize(input).unwrap_or_else(|e| {
-            log::error!("Failed to deserialize events: {}", e);
-            vec![]
+        bincode::deserialize(input).map_err(|e| EventFluxError::MappingFailed {
+            message: format!("Failed to deserialize events from binary format: {}", e),
+            source: Some(Box::new(e)),
         })
     }
 
     fn clone_box(&self) -> Box<dyn SourceMapper> {
         Box::new(self.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::event::value::AttributeValue;
+
+    #[test]
+    fn test_passthrough_mapper_valid_input() {
+        let mapper = PassthroughMapper::new();
+        let events = vec![Event::new_with_data(
+            123,
+            vec![AttributeValue::String("test".to_string())],
+        )];
+
+        // Serialize and deserialize
+        let bytes = PassthroughMapper::serialize(&events).unwrap();
+        let result = mapper.map(&bytes);
+
+        assert!(result.is_ok());
+        let deserialized = result.unwrap();
+        assert_eq!(deserialized.len(), 1);
+        assert_eq!(deserialized[0].timestamp, 123);
+    }
+
+    #[test]
+    fn test_passthrough_mapper_invalid_input_returns_error() {
+        let mapper = PassthroughMapper::new();
+
+        // Invalid bincode data
+        let invalid_bytes = b"this is not valid bincode data";
+        let result = mapper.map(invalid_bytes);
+
+        // Should return error instead of silently dropping data
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(matches!(error, EventFluxError::MappingFailed { .. }));
+        assert!(error
+            .to_string()
+            .contains("Failed to deserialize events from binary format"));
+    }
+
+    #[test]
+    fn test_passthrough_mapper_empty_input_returns_error() {
+        let mapper = PassthroughMapper::new();
+
+        // Empty input
+        let result = mapper.map(&[]);
+
+        // Should return error
+        assert!(result.is_err());
     }
 }

@@ -185,6 +185,15 @@ impl EventFluxAppContext {
     ) -> Self {
         // Default values from Java EventFluxAppContext() constructor and field initializers
         let default_buffer = eventflux_context.get_default_junction_buffer_size() as i32;
+
+        // Initialize shared executor service for all stream junctions
+        // This prevents unbounded thread growth (one pool instead of one per junction)
+        let thread_count = num_cpus::get();
+        let shared_executor = Arc::new(crate::core::util::ExecutorService::new(
+            "shared-junction-pool",
+            thread_count,
+        ));
+
         Self {
             eventflux_context,
             name,
@@ -194,7 +203,7 @@ impl EventFluxAppContext {
             is_enforce_order: false, // Default not specified in Java, assuming false
             root_metrics_level: MetricsLevelPlaceholder::default(), // Java defaults to Level.OFF
             statistics_manager: None, // Initialized later in Java
-            executor_service: None,
+            executor_service: Some(shared_executor),
             scheduled_executor_service: None,
             scheduler: None,
             // external_referenced_holders: Vec::new(),
