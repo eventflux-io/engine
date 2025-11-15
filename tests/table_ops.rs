@@ -252,7 +252,7 @@ fn test_query_parser_with_table_actions() {
 
     let q1 = parse_query("from S select val insert into table T").unwrap();
     assert!(
-        eventflux_rust::core::util::parser::QueryParser::parse_query(
+        eventflux_rust::core::util::parser::QueryParser::parse_query_test(
             &q1,
             &app_ctx,
             &junctions,
@@ -265,7 +265,7 @@ fn test_query_parser_with_table_actions() {
 
     let q2 = parse_query("from S select val update table T").unwrap();
     assert!(
-        eventflux_rust::core::util::parser::QueryParser::parse_query(
+        eventflux_rust::core::util::parser::QueryParser::parse_query_test(
             &q2,
             &app_ctx,
             &junctions,
@@ -278,7 +278,7 @@ fn test_query_parser_with_table_actions() {
 
     let q3 = parse_query("from S select val delete table T").unwrap();
     assert!(
-        eventflux_rust::core::util::parser::QueryParser::parse_query(
+        eventflux_rust::core::util::parser::QueryParser::parse_query_test(
             &q3,
             &app_ctx,
             &junctions,

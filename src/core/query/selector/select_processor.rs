@@ -97,7 +97,7 @@ impl StateHolder for OutputRateLimiterStateHolder {
     }
 
     fn deserialize_state(
-        &mut self,
+        &self,
         snapshot: &crate::core::persistence::StateSnapshot,
     ) -> Result<(), crate::core::persistence::StateError> {
         if !snapshot.verify_integrity() {
@@ -137,7 +137,7 @@ impl StateHolder for OutputRateLimiterStateHolder {
     }
 
     fn apply_changelog(
-        &mut self,
+        &self,
         _changes: &crate::core::persistence::ChangeLog,
     ) -> Result<(), crate::core::persistence::StateError> {
         // OutputRateLimiter doesn't support incremental changes

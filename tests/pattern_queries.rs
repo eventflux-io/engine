@@ -123,7 +123,7 @@ fn build_sequence_query() -> Query {
 fn test_sequence_query_parse() {
     let (app_ctx, mut junctions) = setup_context();
     let q = build_sequence_query();
-    let res = QueryParser::parse_query(
+    let res = QueryParser::parse_query_test(
         &q,
         &app_ctx,
         &mut junctions,
