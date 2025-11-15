@@ -8,7 +8,6 @@
 //! EventFluxAppRuntime and adds distributed capabilities based on configuration.
 //! It maintains API compatibility while enabling distributed features.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 

@@ -17,7 +17,7 @@ use super::session_window_processor::{SessionContainer, SessionEventChunk, Sessi
 
 use crate::core::event::stream::stream_event::StreamEvent;
 use crate::core::persistence::state_holder::{
-    AccessPattern, ChangeLog, CheckpointId, ComponentId, CompressionType, SchemaVersion,
+    AccessPattern, ChangeLog, CheckpointId, CompressionType, SchemaVersion,
     SerializationHints, StateError, StateHolder, StateMetadata, StateOperation, StateSize,
     StateSnapshot,
 };

@@ -30,7 +30,6 @@ use session_window_processor::SessionWindowProcessor;
 
 // Import session window state holder
 mod session_window_state_holder;
-use session_window_state_holder::SessionWindowStateHolder;
 
 // Import sort window processor
 mod sort_window_processor;

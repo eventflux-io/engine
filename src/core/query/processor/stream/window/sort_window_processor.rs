@@ -5,7 +5,7 @@
 
 use crate::core::config::{
     eventflux_app_context::EventFluxAppContext, eventflux_context::EventFluxContext,
-    eventflux_query_context::EventFluxQueryContext, ConfigValue, ProcessorConfigReader,
+    eventflux_query_context::EventFluxQueryContext, ConfigValue,
 };
 use crate::core::event::complex_event::{ComplexEvent, ComplexEventType};
 use crate::core::event::stream::StreamEvent;

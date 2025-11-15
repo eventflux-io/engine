@@ -7,7 +7,7 @@
 //! This module provides the coordination service abstraction for distributed
 //! processing. It handles leader election, consensus, and cluster membership.
 
-use super::{DistributedError, DistributedResult};
+use super::DistributedResult;
 use async_trait::async_trait;
 
 /// Distributed coordinator trait

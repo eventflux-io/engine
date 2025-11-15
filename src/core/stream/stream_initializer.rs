@@ -22,8 +22,8 @@
 //! All stream handlers are created behind Arc for shared ownership across
 //! multiple threads during query processing.
 
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::core::config::eventflux_context::EventFluxContext;
 use crate::core::config::stream_config::{
