@@ -364,6 +364,8 @@ impl EventFluxAppParser {
         eventflux_app_context: &Arc<EventFluxAppContext>,
     ) -> Result<(), String> {
         // Parse Execution Elements (Queries, Partitions)
+        // Use counter to provide deterministic query indices for stable component IDs (needed for state recovery)
+        let mut query_index = 0;
         for exec_element in &api_eventflux_app.execution_element_list {
             match exec_element {
                 ApiExecutionElement::Query(api_query) => {
@@ -376,8 +378,10 @@ impl EventFluxAppParser {
                         &builder.table_definition_map,
                         &builder.aggregation_map,
                         None,
+                        query_index,
                     )?;
                     builder.add_query_runtime(Arc::new(query_runtime));
+                    query_index += 1; // Increment for next query
                     // TODO: eventflux_app_context.addEternalReferencedHolder(queryRuntime);
                 }
                 ApiExecutionElement::Partition(api_partition) => {

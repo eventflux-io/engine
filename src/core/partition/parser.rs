@@ -24,7 +24,7 @@ impl PartitionParser {
             .executor_services
             .get_or_create_from_env("partition", 2);
 
-        for query in &partition.query_list {
+        for (query_index, query) in partition.query_list.iter().enumerate() {
             let qr = QueryParser::parse_query(
                 query,
                 eventflux_app_context,
@@ -32,6 +32,7 @@ impl PartitionParser {
                 &builder.table_definition_map,
                 &builder.aggregation_map,
                 Some("partition".to_string()),
+                query_index,
             )?;
             let qr_arc = Arc::new(qr);
             builder.add_query_runtime(Arc::clone(&qr_arc));

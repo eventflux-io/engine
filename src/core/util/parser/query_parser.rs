@@ -29,7 +29,11 @@ use std::sync::{Arc, Mutex};
 pub struct QueryParser;
 
 impl QueryParser {
-    pub fn parse_query(
+    /// Test helper that calls parse_query with query_index = 0
+    ///
+    /// This is available in both library and integration tests.
+    #[doc(hidden)]
+    pub fn parse_query_test(
         api_query: &ApiQuery,
         eventflux_app_context: &Arc<EventFluxAppContext>,
         stream_junction_map: &HashMap<String, Arc<Mutex<StreamJunction>>>,
@@ -37,14 +41,35 @@ impl QueryParser {
         aggregation_map: &HashMap<String, Arc<Mutex<crate::core::aggregation::AggregationRuntime>>>,
         partition_id: Option<String>,
     ) -> Result<QueryRuntime, String> {
+        Self::parse_query(
+            api_query,
+            eventflux_app_context,
+            stream_junction_map,
+            table_def_map,
+            aggregation_map,
+            partition_id,
+            0,
+        )
+    }
+
+    pub fn parse_query(
+        api_query: &ApiQuery,
+        eventflux_app_context: &Arc<EventFluxAppContext>,
+        stream_junction_map: &HashMap<String, Arc<Mutex<StreamJunction>>>,
+        table_def_map: &HashMap<String, Arc<crate::query_api::definition::TableDefinition>>,
+        aggregation_map: &HashMap<String, Arc<Mutex<crate::core::aggregation::AggregationRuntime>>>,
+        partition_id: Option<String>,
+        query_index: usize,
+    ) -> Result<QueryRuntime, String> {
         // 1. Determine Query Name (from @info(name='foo') or generate)
+        // Use deterministic index-based naming for state recovery compatibility
         let query_name = api_query
             .annotations
             .iter()
             .find(|ann| ann.name == "info")
             .and_then(|ann| ann.elements.iter().find(|el| el.key == "name"))
             .map(|el| el.value.clone())
-            .unwrap_or_else(|| format!("query_{}", uuid::Uuid::new_v4().hyphenated()));
+            .unwrap_or_else(|| format!("query_{}", query_index));
 
         let mut eventflux_query_context = EventFluxQueryContext::new(
             Arc::clone(eventflux_app_context),
