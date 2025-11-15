@@ -24,6 +24,9 @@ use crate::core::persistence::state_holder::{
 // Window type constants
 pub mod types;
 
+// Import changelog helpers
+pub(crate) mod changelog_helpers;
+
 // Import session window processor
 mod session_window_processor;
 use session_window_processor::SessionWindowProcessor;
@@ -438,10 +441,10 @@ impl NewStateHolder for TimeWindowProcessor {
     }
 
     fn deserialize_state(
-        &mut self,
+        &self,
         snapshot: &crate::core::persistence::state_holder::StateSnapshot,
     ) -> Result<(), crate::core::persistence::state_holder::StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+        if let Some(ref state_holder) = self.state_holder {
             state_holder.deserialize_state(snapshot)
         } else {
             Err(
@@ -471,10 +474,10 @@ impl NewStateHolder for TimeWindowProcessor {
     }
 
     fn apply_changelog(
-        &mut self,
+        &self,
         changes: &crate::core::persistence::state_holder::ChangeLog,
     ) -> Result<(), crate::core::persistence::state_holder::StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+        if let Some(ref state_holder) = self.state_holder {
             state_holder.apply_changelog(changes)
         } else {
             Err(
@@ -626,6 +629,7 @@ impl LengthBatchWindowProcessor {
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
     ) -> Self {
+
         let buffer = Arc::new(Mutex::new(Vec::new()));
         let expired = Arc::new(Mutex::new(Vec::new()));
 
@@ -643,7 +647,8 @@ impl LengthBatchWindowProcessor {
         let state_holder_arc: Arc<Mutex<dyn crate::core::persistence::StateHolder>> =
             Arc::new(Mutex::new(state_holder_clone));
         if let Some(snapshot_service) = app_ctx.get_snapshot_service() {
-            snapshot_service.register_state_holder(component_id, state_holder_arc);
+            snapshot_service.register_state_holder(component_id.clone(), state_holder_arc);
+        } else {
         }
 
         Self {
@@ -807,8 +812,8 @@ impl NewStateHolder for LengthBatchWindowProcessor {
         }
     }
 
-    fn deserialize_state(&mut self, snapshot: &StateSnapshot) -> Result<(), StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+    fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError> {
+        if let Some(ref state_holder) = self.state_holder {
             state_holder.deserialize_state(snapshot)
         } else {
             Err(StateError::InvalidStateData {
@@ -827,8 +832,8 @@ impl NewStateHolder for LengthBatchWindowProcessor {
         }
     }
 
-    fn apply_changelog(&mut self, changes: &ChangeLog) -> Result<(), StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+    fn apply_changelog(&self, changes: &ChangeLog) -> Result<(), StateError> {
+        if let Some(ref state_holder) = self.state_holder {
             state_holder.apply_changelog(changes)
         } else {
             Err(StateError::InvalidStateData {
@@ -1121,8 +1126,8 @@ impl NewStateHolder for TimeBatchWindowProcessor {
         }
     }
 
-    fn deserialize_state(&mut self, snapshot: &StateSnapshot) -> Result<(), StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+    fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError> {
+        if let Some(ref state_holder) = self.state_holder {
             state_holder.deserialize_state(snapshot)
         } else {
             Err(StateError::InvalidStateData {
@@ -1141,8 +1146,8 @@ impl NewStateHolder for TimeBatchWindowProcessor {
         }
     }
 
-    fn apply_changelog(&mut self, changes: &ChangeLog) -> Result<(), StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+    fn apply_changelog(&self, changes: &ChangeLog) -> Result<(), StateError> {
+        if let Some(ref state_holder) = self.state_holder {
             state_holder.apply_changelog(changes)
         } else {
             Err(StateError::InvalidStateData {

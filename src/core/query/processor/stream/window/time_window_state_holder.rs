@@ -231,7 +231,7 @@ impl StateHolder for TimeWindowStateHolder {
         })
     }
 
-    fn deserialize_state(&mut self, snapshot: &StateSnapshot) -> Result<(), StateError> {
+    fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError> {
         use crate::core::util::from_bytes;
 
         // Verify integrity
@@ -264,8 +264,7 @@ impl StateHolder for TimeWindowStateHolder {
             }
         }
 
-        // Restore metadata
-        self.window_duration_ms = state_data.window_duration_ms;
+        // Restore metadata (window_duration_ms is configuration and doesn't need to be restored)
         *self.window_start_time.lock().unwrap() = state_data.window_start_time;
         *self.total_events_processed.lock().unwrap() = state_data.total_events_processed;
 
@@ -293,18 +292,23 @@ impl StateHolder for TimeWindowStateHolder {
         Ok(changelog)
     }
 
-    fn apply_changelog(&mut self, changes: &ChangeLog) -> Result<(), StateError> {
-        // For time windows, we could apply incremental changes
-        // For now, this is a simplified implementation
-        println!(
-            "Applying {} state operations to time window",
-            changes.operations.len()
-        );
+    fn apply_changelog(&self, changes: &ChangeLog) -> Result<(), StateError> {
+        use super::changelog_helpers::apply_operation_to_simple_window;
 
-        // In a full implementation, we would:
-        // 1. Parse each operation
-        // 2. Apply inserts/deletes to the buffer
-        // 3. Respect time-based expiration rules
+        let mut buffer = self.buffer.lock().unwrap();
+
+        for operation in &changes.operations {
+            // Handle Clear specially to also reset window_start_time
+            if matches!(operation, StateOperation::Clear) {
+                buffer.clear();
+                *self.window_start_time.lock().unwrap() = None;
+            } else {
+                // Use shared helper for other operations
+                apply_operation_to_simple_window(&mut buffer, operation, &|data| {
+                    self.deserialize_event(data)
+                })?;
+            }
+        }
 
         Ok(())
     }

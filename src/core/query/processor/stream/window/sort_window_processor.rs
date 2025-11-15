@@ -4,9 +4,12 @@
 // Rust implementation of EventFlux SortWindowProcessor
 
 use crate::core::config::{
-    eventflux_app_context::EventFluxAppContext, eventflux_context::EventFluxContext,
+    eventflux_app_context::EventFluxAppContext,
     eventflux_query_context::EventFluxQueryContext, ConfigValue,
 };
+
+#[cfg(test)]
+use crate::core::config::eventflux_context::EventFluxContext;
 use crate::core::event::complex_event::{ComplexEvent, ComplexEventType};
 use crate::core::event::stream::StreamEvent;
 use crate::core::query::processor::stream::window::WindowProcessor;
