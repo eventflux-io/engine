@@ -492,6 +492,40 @@ impl AppRunner {
         }
     }
 
+    /// Create AppRunner WITHOUT auto-starting the runtime.
+    ///
+    /// This is critical for state recovery scenarios where you need to:
+    /// 1. Create the runtime (which creates all processors/windows)
+    /// 2. Restore state from checkpoint
+    /// 3. THEN start the runtime
+    ///
+    /// If you start before restoring, the windows will have empty buffers!
+    pub async fn new_with_manager_no_start(
+        manager: EventFluxManager,
+        app_string: &str,
+        out_stream: &str,
+    ) -> Self {
+        let runtime = manager
+            .create_eventflux_app_runtime_from_string(app_string)
+            .await
+            .expect("runtime");
+        let collected = Arc::new(Mutex::new(Vec::new()));
+        runtime
+            .add_callback(
+                out_stream,
+                Box::new(CollectCallback {
+                    events: Arc::clone(&collected),
+                }),
+            )
+            .expect("add cb");
+        // NOTE: Do NOT call runtime.start() here!
+        Self {
+            runtime,
+            collected,
+            _manager: manager,
+        }
+    }
+
     /// Create AppRunner from API with a fully pre-configured EventFluxManager.
     ///
     /// API variant of `new_with_manager()` for pre-constructed EventFluxApp objects.
