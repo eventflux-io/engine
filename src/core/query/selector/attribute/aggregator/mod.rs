@@ -99,10 +99,11 @@ impl AttributeAggregatorExecutor for SumAttributeAggregatorExecutor {
         // Initialize state holder for enterprise state management
         let sum_arc = Arc::new(Mutex::new(0.0f64));
         let count_arc = Arc::new(Mutex::new(0u64));
+        // Use deterministic component ID for state recovery compatibility
         let component_id = format!(
-            "sum_aggregator_{}_{}",
+            "{}::sum_aggregator_{}",
             ctx.name.as_str(),
-            uuid::Uuid::new_v4()
+            ctx.name.as_str()
         );
 
         let state_holder = SumAggregatorStateHolder::new(
@@ -327,10 +328,10 @@ impl crate::core::persistence::state_holder::StateHolder for SumAttributeAggrega
     }
 
     fn deserialize_state(
-        &mut self,
+        &self,
         snapshot: &crate::core::persistence::state_holder::StateSnapshot,
     ) -> Result<(), crate::core::persistence::state_holder::StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+        if let Some(ref state_holder) = self.state_holder {
             // First restore the state holder
             let result = state_holder.deserialize_state(snapshot);
 
@@ -384,10 +385,10 @@ impl crate::core::persistence::state_holder::StateHolder for SumAttributeAggrega
     }
 
     fn apply_changelog(
-        &mut self,
+        &self,
         changes: &crate::core::persistence::state_holder::ChangeLog,
     ) -> Result<(), crate::core::persistence::state_holder::StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+        if let Some(ref state_holder) = self.state_holder {
             state_holder.apply_changelog(changes)
         } else {
             Err(
@@ -473,9 +474,9 @@ impl AttributeAggregatorExecutor for AvgAttributeAggregatorExecutor {
         let sum_arc = Arc::new(Mutex::new(0.0f64));
         let count_arc = Arc::new(Mutex::new(0u64));
         let component_id = format!(
-            "avg_aggregator_{}_{}",
+            "{}::avg_aggregator_{}",
             ctx.name.as_str(),
-            uuid::Uuid::new_v4()
+            ctx.name.as_str()
         );
 
         let state_holder = AvgAggregatorStateHolder::new(sum_arc, count_arc, component_id.clone());
@@ -611,10 +612,10 @@ impl crate::core::persistence::state_holder::StateHolder for AvgAttributeAggrega
     }
 
     fn deserialize_state(
-        &mut self,
+        &self,
         snapshot: &crate::core::persistence::state_holder::StateSnapshot,
     ) -> Result<(), crate::core::persistence::state_holder::StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+        if let Some(ref state_holder) = self.state_holder {
             state_holder.deserialize_state(snapshot)
         } else {
             Err(
@@ -644,10 +645,10 @@ impl crate::core::persistence::state_holder::StateHolder for AvgAttributeAggrega
     }
 
     fn apply_changelog(
-        &mut self,
+        &self,
         changes: &crate::core::persistence::state_holder::ChangeLog,
     ) -> Result<(), crate::core::persistence::state_holder::StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+        if let Some(ref state_holder) = self.state_holder {
             state_holder.apply_changelog(changes)
         } else {
             Err(
@@ -728,9 +729,9 @@ impl AttributeAggregatorExecutor for CountAttributeAggregatorExecutor {
         // Initialize state holder for enterprise state management
         let count_arc = Arc::new(Mutex::new(0i64));
         let component_id = format!(
-            "count_aggregator_{}_{}",
+            "{}::count_aggregator_{}",
             ctx.name.as_str(),
-            uuid::Uuid::new_v4()
+            ctx.name.as_str()
         );
 
         let state_holder = CountAggregatorStateHolder::new(count_arc.clone(), component_id.clone());
@@ -901,10 +902,10 @@ impl crate::core::persistence::state_holder::StateHolder for CountAttributeAggre
     }
 
     fn deserialize_state(
-        &mut self,
+        &self,
         snapshot: &crate::core::persistence::state_holder::StateSnapshot,
     ) -> Result<(), crate::core::persistence::state_holder::StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+        if let Some(ref state_holder) = self.state_holder {
             // First restore the state holder
             let result = state_holder.deserialize_state(snapshot);
 
@@ -951,10 +952,10 @@ impl crate::core::persistence::state_holder::StateHolder for CountAttributeAggre
     }
 
     fn apply_changelog(
-        &mut self,
+        &self,
         changes: &crate::core::persistence::state_holder::ChangeLog,
     ) -> Result<(), crate::core::persistence::state_holder::StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+        if let Some(ref state_holder) = self.state_holder {
             state_holder.apply_changelog(changes)
         } else {
             Err(
@@ -1038,9 +1039,9 @@ impl AttributeAggregatorExecutor for DistinctCountAttributeAggregatorExecutor {
         // Initialize StateHolder
         let map_ref = Arc::new(Mutex::new(HashMap::new()));
         let component_id = format!(
-            "distinctcount_aggregator_{}_{}",
+            "{}::distinctcount_aggregator_{}",
             ctx.name.as_str(),
-            uuid::Uuid::new_v4()
+            ctx.name.as_str()
         );
         self.state_holder = Some(DistinctCountAggregatorStateHolder::new(
             map_ref.clone(),
@@ -1169,10 +1170,10 @@ impl crate::core::persistence::state_holder::StateHolder
     }
 
     fn deserialize_state(
-        &mut self,
+        &self,
         snapshot: &crate::core::persistence::state_holder::StateSnapshot,
     ) -> Result<(), crate::core::persistence::state_holder::StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+        if let Some(ref state_holder) = self.state_holder {
             state_holder.deserialize_state(snapshot)
         } else {
             Err(
@@ -1202,10 +1203,10 @@ impl crate::core::persistence::state_holder::StateHolder
     }
 
     fn apply_changelog(
-        &mut self,
+        &self,
         changes: &crate::core::persistence::state_holder::ChangeLog,
     ) -> Result<(), crate::core::persistence::state_holder::StateError> {
-        if let Some(ref mut state_holder) = self.state_holder {
+        if let Some(ref state_holder) = self.state_holder {
             state_holder.apply_changelog(changes)
         } else {
             Err(

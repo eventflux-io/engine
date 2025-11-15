@@ -186,7 +186,7 @@ impl StateHolder for DistinctCountAggregatorStateHolder {
         })
     }
 
-    fn deserialize_state(&mut self, snapshot: &StateSnapshot) -> Result<(), StateError> {
+    fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError> {
         use crate::core::util::from_bytes;
 
         // Verify integrity
@@ -230,15 +230,82 @@ impl StateHolder for DistinctCountAggregatorStateHolder {
         Ok(changelog)
     }
 
-    fn apply_changelog(&mut self, changes: &ChangeLog) -> Result<(), StateError> {
-        // For distinct count aggregators, we could apply incremental changes
-        // For now, this is a simplified implementation
-        // Note: Applying {} state operations to distinct count aggregator
+    fn apply_changelog(&self, changes: &ChangeLog) -> Result<(), StateError> {
+        use crate::core::util::from_bytes;
 
-        // In a full implementation, we would:
-        // 1. Parse each operation (insert/update/delete/reset)
-        // 2. Apply key-value changes to the distinct values map
-        // 3. Maintain count consistency
+        // Lock state structure once for efficiency
+        let mut map = self.map.lock().unwrap();
+
+        // Apply each operation in order
+        for operation in &changes.operations {
+            match operation {
+                StateOperation::Insert { key, value } => {
+                    // Deserialize key and count
+                    let key_str =
+                        String::from_utf8(key.clone()).map_err(|e| {
+                            StateError::DeserializationError {
+                                message: format!("Failed to deserialize key: {e}"),
+                            }
+                        })?;
+
+                    let count: i64 = from_bytes(value).map_err(|e| {
+                        StateError::DeserializationError {
+                            message: format!("Failed to deserialize count: {e}"),
+                        }
+                    })?;
+
+                    // Insert new distinct value with its count
+                    map.insert(key_str, count);
+                }
+                StateOperation::Delete { key, .. } => {
+                    // Deserialize key
+                    let key_str =
+                        String::from_utf8(key.clone()).map_err(|e| {
+                            StateError::DeserializationError {
+                                message: format!("Failed to deserialize key: {e}"),
+                            }
+                        })?;
+
+                    // Remove distinct value from map
+                    map.remove(&key_str);
+                }
+                StateOperation::Update { key, new_value, .. } => {
+                    // Check if this is a reset operation
+                    if key == b"reset" {
+                        // Deserialize new map (used for reset operations)
+                        let new_map: HashMap<String, i64> =
+                            from_bytes(new_value).map_err(|e| {
+                                StateError::DeserializationError {
+                                    message: format!("Failed to deserialize new map: {e}"),
+                                }
+                            })?;
+
+                        // Replace current map with new map
+                        *map = new_map;
+                    } else {
+                        // Deserialize key and new count
+                        let key_str = String::from_utf8(key.clone()).map_err(|e| {
+                            StateError::DeserializationError {
+                                message: format!("Failed to deserialize key: {e}"),
+                            }
+                        })?;
+
+                        let new_count: i64 = from_bytes(new_value).map_err(|e| {
+                            StateError::DeserializationError {
+                                message: format!("Failed to deserialize new count: {e}"),
+                            }
+                        })?;
+
+                        // Update the count for existing distinct value
+                        map.insert(key_str, new_count);
+                    }
+                }
+                StateOperation::Clear => {
+                    // Reset to initial state
+                    map.clear();
+                }
+            }
+        }
 
         Ok(())
     }
