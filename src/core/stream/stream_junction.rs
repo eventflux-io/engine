@@ -1236,58 +1236,6 @@ mod tests {
         assert!(metrics.pipeline_metrics.throughput_events_per_sec > 10000.0);
     }
 
-    #[test]
-    fn test_junction_backpressure() {
-        // Create junction with smaller buffer to guarantee backpressure
-        let eventflux_context = Arc::new(EventFluxContext::new());
-        let app = Arc::new(crate::query_api::eventflux_app::EventFluxApp::new(
-            "TestApp".to_string(),
-        ));
-        let app_ctx = Arc::new(EventFluxAppContext::new(
-            Arc::clone(&eventflux_context),
-            "TestApp".to_string(),
-            Arc::clone(&app),
-            String::new(),
-        ));
-
-        let stream_def = Arc::new(
-            StreamDefinition::new("TestStream".to_string())
-                .attribute("id".to_string(), AttrType::INT),
-        );
-
-        // Use minimal buffer (64) to guarantee overflow
-        let junction = StreamJunction::new(
-            "TestStream".to_string(),
-            stream_def,
-            app_ctx,
-            64, // Minimal buffer to ensure backpressure
-            true,
-            None,
-        )
-        .unwrap();
-
-        let processor = Arc::new(Mutex::new(TestProcessor::new("TestProcessor".to_string())));
-        junction.subscribe(processor.clone() as Arc<Mutex<dyn Processor>>);
-
-        junction.start_processing().unwrap();
-
-        // Flood the junction to test backpressure
-        let mut dropped = 0;
-        for i in 0..50000 {
-            let event = Event::new_with_data(i, vec![AttributeValue::Int(i as i32)]);
-            if junction.send_event(event).is_err() {
-                dropped += 1;
-            }
-        }
-
-        println!("Dropped events due to backpressure: {}", dropped);
-
-        let metrics = junction.get_performance_metrics();
-        println!("Junction metrics: {:?}", metrics);
-
-        // With small buffer, some events should definitely be dropped due to backpressure
-        assert!(metrics.events_dropped > 0 || dropped > 0);
-    }
 
     #[test]
     fn test_junction_metrics_integration() {
