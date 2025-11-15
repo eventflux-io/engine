@@ -97,8 +97,9 @@ impl AppRunner {
         out_stream: &str,
     ) -> Self {
         let manager = EventFluxManager::new();
+        // Use no-autostart to catch start triggers
         let runtime = manager
-            .create_eventflux_app_runtime_from_api(Arc::new(app), None)
+            .create_eventflux_app_runtime_without_autostart(Arc::new(app), None)
             .await
             .expect("runtime");
         let collected = Arc::new(Mutex::new(Vec::new()));
@@ -407,8 +408,9 @@ impl AppRunner {
     ) -> Self {
         let manager = EventFluxManager::new();
         manager.set_persistence_store(store);
+        // Use no-autostart to catch start triggers
         let runtime = manager
-            .create_eventflux_app_runtime_from_api(Arc::new(app), None)
+            .create_eventflux_app_runtime_without_autostart(Arc::new(app), None)
             .await
             .expect("runtime");
         let collected = Arc::new(Mutex::new(Vec::new()));
@@ -513,8 +515,9 @@ impl AppRunner {
         app: eventflux_rust::query_api::eventflux_app::EventFluxApp,
         out_stream: &str,
     ) -> Self {
+        // Use no-autostart to catch start triggers
         let runtime = manager
-            .create_eventflux_app_runtime_from_api(Arc::new(app), None)
+            .create_eventflux_app_runtime_without_autostart(Arc::new(app), None)
             .await
             .expect("runtime");
         let collected = Arc::new(Mutex::new(Vec::new()));
