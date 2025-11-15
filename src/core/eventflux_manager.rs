@@ -102,6 +102,13 @@ impl EventFluxManager {
 
     // Added eventflux_app_str_opt for cases where it's available (from string parsing)
     // or not (when an ApiEventFluxApp is provided directly).
+    /// Create an EventFluxAppRuntime from an API EventFluxApp.
+    ///
+    /// Creates and starts the runtime automatically. Returns a fully initialized,
+    /// running runtime ready to process events.
+    ///
+    /// The runtime.start() method is idempotent, so callers can safely call it
+    /// again if needed (e.g., after adding callbacks for start triggers).
     pub async fn create_eventflux_app_runtime_from_api(
         &self,
         api_eventflux_app: Arc<ApiEventFluxApp>,
@@ -143,18 +150,71 @@ impl EventFluxManager {
             app_config,
         )?);
 
-        // Start the runtime and clean up on failure to prevent resource leaks
+        // Start the runtime (idempotent, can be called again later if needed)
+        // Errors during start are returned to caller for proper handling
         if let Err(e) = runtime.start() {
-            // Clean up any partially started components (sources, sinks, triggers, partitions)
-            // to prevent thread leaks and inconsistent state
+            // Clean up any partially started components before returning error
             runtime.shutdown();
             return Err(e.to_string());
         }
 
+        // Register runtime in the map after successful start
         self.eventflux_app_runtime_map
             .lock()
             .expect("Mutex poisoned")
-            .insert(app_name.clone(), Arc::clone(&runtime)); // Use app_name for map key
+            .insert(app_name.clone(), Arc::clone(&runtime));
+
+        Ok(runtime)
+    }
+
+    /// Create runtime without auto-starting (for testing/advanced scenarios).
+    ///
+    /// Use this when you need to add callbacks before starting, such as
+    /// for start triggers in tests. Caller MUST call `runtime.start()`.
+    ///
+    /// **Note**: This is primarily for test scenarios. Production code should
+    /// use `create_eventflux_app_runtime_from_api()` which auto-starts.
+    #[doc(hidden)] // Hide from public docs but keep pub for tests
+    pub async fn create_eventflux_app_runtime_without_autostart(
+        &self,
+        api_eventflux_app: Arc<ApiEventFluxApp>,
+        eventflux_app_str_opt: Option<String>,
+    ) -> Result<Arc<EventFluxAppRuntime>, String> {
+        // Same logic as create_eventflux_app_runtime_from_api but without auto-start
+        let app_name = if let Some(config_name) = self.get_config_app_name().await {
+            config_name
+        } else if !api_eventflux_app.name.is_empty() {
+            api_eventflux_app.name.clone()
+        } else {
+            format!("eventflux_app_{}", uuid::Uuid::new_v4().hyphenated())
+        };
+
+        if self
+            .eventflux_app_runtime_map
+            .lock()
+            .expect("Mutex poisoned")
+            .contains_key(&app_name)
+        {
+            return Err(format!(
+                "EventFluxApp with name '{app_name}' already exists."
+            ));
+        }
+
+        let app_config = self.get_application_config(&app_name).await?;
+
+        let runtime = Arc::new(EventFluxAppRuntime::new_with_config(
+            Arc::clone(&api_eventflux_app),
+            Arc::clone(&self.eventflux_context),
+            eventflux_app_str_opt.clone(),
+            app_config,
+        )?);
+
+        // Register but don't start - caller's responsibility
+        self.eventflux_app_runtime_map
+            .lock()
+            .expect("Mutex poisoned")
+            .insert(app_name.clone(), Arc::clone(&runtime));
+
         Ok(runtime)
     }
 

@@ -574,7 +574,7 @@ impl EventFluxAppRuntime {
     pub fn start(&self) -> Result<(), crate::core::exception::EventFluxError> {
         use crate::core::exception::EventFluxError;
 
-        // 1. State validation - prevent duplicate start
+        // 1. State validation - idempotent start
         {
             let mut state = self.state.write().unwrap();
             match *state {
@@ -582,13 +582,18 @@ impl EventFluxAppRuntime {
                     *state = RuntimeState::Starting;
                 }
                 RuntimeState::Running => {
-                    return Err(EventFluxError::app_runtime(
-                        "Runtime is already running".to_string(),
-                    ));
+                    // Idempotent: already running, nothing to do
+                    log::debug!("Runtime already running, start() is no-op");
+                    return Ok(());
                 }
                 RuntimeState::Starting => {
+                    // Concurrent start attempt - treat as idempotent
+                    log::debug!("Runtime already starting, start() is no-op");
+                    return Ok(());
+                }
+                RuntimeState::Stopped => {
                     return Err(EventFluxError::app_runtime(
-                        "Runtime is already starting".to_string(),
+                        "Cannot restart a stopped runtime".to_string(),
                     ));
                 }
                 _ => {
@@ -1601,7 +1606,6 @@ impl EventFluxAppRuntime {
         app_config: &ApplicationConfig,
     ) -> Result<Vec<String>, Vec<crate::core::exception::EventFluxError>> {
         use crate::core::config::types::application_config::DefinitionConfig;
-        use crate::core::exception::EventFluxError;
 
         let mut errors = Vec::new();
         let mut successes = Vec::new();
@@ -1652,7 +1656,6 @@ impl EventFluxAppRuntime {
         table_name: &str,
         table_config: &crate::core::config::types::application_config::TableConfig,
     ) -> Result<(), crate::core::exception::EventFluxError> {
-        use crate::core::config::stream_config::TableTypeConfig;
         use crate::core::exception::EventFluxError;
         use crate::core::stream::stream_initializer::{initialize_table, InitializedStream};
 
