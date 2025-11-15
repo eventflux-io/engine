@@ -195,7 +195,7 @@ impl StateHolder for SumAggregatorStateHolder {
         })
     }
 
-    fn deserialize_state(&mut self, snapshot: &StateSnapshot) -> Result<(), StateError> {
+    fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError> {
         use crate::core::util::from_bytes;
 
         // Verify integrity
@@ -212,10 +212,9 @@ impl StateHolder for SumAggregatorStateHolder {
                 message: format!("Failed to deserialize sum aggregator state: {e}"),
             })?;
 
-        // Restore aggregator state
+        // Restore aggregator state (return_type is configuration and doesn't need to be restored)
         *self.sum.lock().unwrap() = state_data.sum;
         *self.count.lock().unwrap() = state_data.count;
-        self.return_type = state_data.get_return_type();
 
         Ok(())
     }
@@ -241,15 +240,61 @@ impl StateHolder for SumAggregatorStateHolder {
         Ok(changelog)
     }
 
-    fn apply_changelog(&mut self, changes: &ChangeLog) -> Result<(), StateError> {
-        // For sum aggregators, we could apply incremental changes
-        // For now, this is a simplified implementation
-        // Note: Applying {} state operations to sum aggregator
+    fn apply_changelog(&self, changes: &ChangeLog) -> Result<(), StateError> {
+        use crate::core::util::from_bytes;
 
-        // In a full implementation, we would:
-        // 1. Parse each operation (add/remove/reset)
-        // 2. Apply value changes to sum and count
-        // 3. Maintain aggregation consistency
+        // Lock state structures once for efficiency
+        let mut sum = self.sum.lock().unwrap();
+        let mut count = self.count.lock().unwrap();
+
+        // Apply each operation in order
+        for operation in &changes.operations {
+            match operation {
+                StateOperation::Insert { value, .. } => {
+                    // Deserialize the value that was added
+                    let added_value: f64 = from_bytes(value).map_err(|e| {
+                        StateError::DeserializationError {
+                            message: format!("Failed to deserialize added value: {e}"),
+                        }
+                    })?;
+
+                    // Add to sum and increment count
+                    *sum += added_value;
+                    *count += 1;
+                }
+                StateOperation::Delete { old_value, .. } => {
+                    // Deserialize the value that was removed
+                    let removed_value: f64 = from_bytes(old_value).map_err(|e| {
+                        StateError::DeserializationError {
+                            message: format!("Failed to deserialize removed value: {e}"),
+                        }
+                    })?;
+
+                    // Subtract from sum and decrement count
+                    *sum -= removed_value;
+                    if *count > 0 {
+                        *count -= 1;
+                    }
+                }
+                StateOperation::Update { new_value, .. } => {
+                    // Deserialize new state (used for reset operations)
+                    let new_state: (f64, u64) = from_bytes(new_value).map_err(|e| {
+                        StateError::DeserializationError {
+                            message: format!("Failed to deserialize new state: {e}"),
+                        }
+                    })?;
+
+                    // Replace current state with new state
+                    *sum = new_state.0;
+                    *count = new_state.1;
+                }
+                StateOperation::Clear => {
+                    // Reset to initial state
+                    *sum = 0.0;
+                    *count = 0;
+                }
+            }
+        }
 
         Ok(())
     }

@@ -101,7 +101,7 @@ fn test_length_window_query_parse() {
         .select(selector)
         .out_stream(out_stream);
 
-    let res = QueryParser::parse_query(
+    let res = QueryParser::parse_query_test(
         &query,
         &app_ctx,
         &junctions,
@@ -131,7 +131,7 @@ fn test_time_window_query_parse() {
         .select(selector)
         .out_stream(out_stream);
 
-    let res = QueryParser::parse_query(
+    let res = QueryParser::parse_query_test(
         &query,
         &app_ctx,
         &junctions,

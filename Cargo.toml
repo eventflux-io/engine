@@ -74,6 +74,7 @@ harness = false
 
 [features]
 default = []
+perf-tests = []
 kubernetes = ["kube", "k8s-openapi", "base64"]
 consul = ["dep:consul"]
 etcd = ["etcd-rs"]

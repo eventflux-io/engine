@@ -211,7 +211,7 @@ impl StateHolder for ExternalTimeWindowStateHolder {
         })
     }
 
-    fn deserialize_state(&mut self, snapshot: &StateSnapshot) -> Result<(), StateError> {
+    fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError> {
         use crate::core::util::from_bytes;
 
         // Verify integrity
@@ -241,8 +241,7 @@ impl StateHolder for ExternalTimeWindowStateHolder {
             }
         }
 
-        // Restore metadata
-        self.window_duration_ms = state_data.window_duration_ms;
+        // Restore metadata (window_duration_ms is configuration and doesn't need to be restored)
         *self.total_events_processed.lock().unwrap() = state_data.total_events_processed;
 
         Ok(())
@@ -269,8 +268,18 @@ impl StateHolder for ExternalTimeWindowStateHolder {
         Ok(changelog)
     }
 
-    fn apply_changelog(&mut self, changes: &ChangeLog) -> Result<(), StateError> {
-        // Note: Applying {} state operations to external time window
+    fn apply_changelog(&self, changes: &ChangeLog) -> Result<(), StateError> {
+        use super::changelog_helpers::apply_operation_to_simple_window;
+
+        let mut buffer = self.buffer.lock().unwrap();
+
+        for operation in &changes.operations {
+            // Use shared helper for all simple window operations
+            apply_operation_to_simple_window(&mut buffer, operation, &|data| {
+                self.deserialize_event(data)
+            })?;
+        }
+
         Ok(())
     }
 

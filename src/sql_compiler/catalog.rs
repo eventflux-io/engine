@@ -8,15 +8,14 @@ use crate::query_api::definition::abstract_definition::AbstractDefinition;
 use crate::query_api::definition::attribute::{Attribute, Type as AttributeType};
 use crate::query_api::definition::{StreamDefinition, TableDefinition};
 use crate::query_api::eventflux_app::EventFluxApp;
-use crate::query_api::execution::query::input::stream::input_stream::InputStreamTrait;
 use crate::query_api::execution::ExecutionElement;
 use crate::query_api::expression::Expression;
 use sqlparser::ast::ColumnDef;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::error::{ApplicationError, CatalogError, TypeError};
-use super::type_inference::{TypeContext, TypeInferenceEngine};
+use super::error::{ApplicationError, CatalogError};
+use super::type_inference::TypeInferenceEngine;
 
 /// A relation that can appear in SQL queries (either a stream or a table)
 ///

@@ -20,7 +20,6 @@ pub mod coordinator;
 pub mod message_broker;
 
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use std::time::Duration;
 
 /// Configuration for distributed processing

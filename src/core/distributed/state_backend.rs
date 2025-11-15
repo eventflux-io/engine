@@ -28,6 +28,9 @@ pub trait StateBackend: Send + Sync {
     /// Set state value
     async fn set(&self, key: &str, value: Vec<u8>) -> DistributedResult<()>;
 
+    /// Set multiple state values atomically
+    async fn set_multi(&self, kvs: Vec<(String, Vec<u8>)>) -> DistributedResult<()>;
+
     /// Delete state value
     async fn delete(&self, key: &str) -> DistributedResult<()>;
 
@@ -68,6 +71,14 @@ impl StateBackend for InMemoryBackend {
     async fn set(&self, key: &str, value: Vec<u8>) -> DistributedResult<()> {
         let mut state = self.state.write().await;
         state.insert(key.to_string(), value);
+        Ok(())
+    }
+
+    async fn set_multi(&self, kvs: Vec<(String, Vec<u8>)>) -> DistributedResult<()> {
+        let mut state = self.state.write().await;
+        for (key, value) in kvs {
+            state.insert(key, value);
+        }
         Ok(())
     }
 
@@ -264,6 +275,35 @@ impl StateBackend for RedisBackend {
             })
             .await
         }
+    }
+
+    async fn set_multi(&self, kvs: Vec<(String, Vec<u8>)>) -> DistributedResult<()> {
+        if kvs.is_empty() {
+            return Ok(());
+        }
+
+        let mut conn = self.get_connection().await?;
+
+        // Build pipeline with MULTI/EXEC for atomic execution
+        let mut pipe = redis::pipe();
+        pipe.atomic();
+
+        // Add all SET operations to the pipeline
+        for (key, value) in kvs {
+            let redis_key = self.make_key(&key);
+            if let Some(ttl) = self.config.ttl_seconds {
+                pipe.set_ex(&redis_key, &value, ttl);
+            } else {
+                pipe.set(&redis_key, &value);
+            }
+        }
+
+        // Execute pipeline atomically
+        pipe.query_async::<_, ()>(&mut conn)
+            .await
+            .map_err(|e| DistributedError::StateError {
+                message: format!("Redis atomic set_multi failed: {}", e),
+            })
     }
 
     async fn delete(&self, key: &str) -> DistributedResult<()> {

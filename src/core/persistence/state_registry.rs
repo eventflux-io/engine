@@ -505,7 +505,7 @@ mod tests {
             unimplemented!()
         }
 
-        fn deserialize_state(&mut self, _snapshot: &StateSnapshot) -> Result<(), StateError> {
+        fn deserialize_state(&self, _snapshot: &StateSnapshot) -> Result<(), StateError> {
             unimplemented!()
         }
 
@@ -516,7 +516,7 @@ mod tests {
             unimplemented!()
         }
 
-        fn apply_changelog(&mut self, _changes: &ChangeLog) -> Result<(), StateError> {
+        fn apply_changelog(&self, _changes: &ChangeLog) -> Result<(), StateError> {
             unimplemented!()
         }
 

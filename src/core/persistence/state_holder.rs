@@ -225,13 +225,13 @@ pub trait StateHolder: Send + Sync {
     fn serialize_state(&self, hints: &SerializationHints) -> Result<StateSnapshot, StateError>;
 
     /// Deserialize state with version compatibility checking
-    fn deserialize_state(&mut self, snapshot: &StateSnapshot) -> Result<(), StateError>;
+    fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError>;
 
     /// Get incremental changes since last checkpoint
     fn get_changelog(&self, since: CheckpointId) -> Result<ChangeLog, StateError>;
 
     /// Apply incremental changes
-    fn apply_changelog(&mut self, changes: &ChangeLog) -> Result<(), StateError>;
+    fn apply_changelog(&self, changes: &ChangeLog) -> Result<(), StateError>;
 
     /// Estimate state size for resource planning
     fn estimate_size(&self) -> StateSize;

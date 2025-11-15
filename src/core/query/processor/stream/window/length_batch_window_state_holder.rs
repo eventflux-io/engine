@@ -251,11 +251,14 @@ impl StateHolder for LengthBatchWindowStateHolder {
         })
     }
 
-    fn deserialize_state(&mut self, snapshot: &StateSnapshot) -> Result<(), StateError> {
+    fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError> {
         use crate::core::util::from_bytes;
+
+        log::info!("LengthBatchWindow: deserialize_state called for component {}", self.component_id);
 
         // Verify integrity
         if !snapshot.verify_integrity() {
+            log::error!("LengthBatchWindow: Checksum mismatch");
             return Err(StateError::ChecksumMismatch);
         }
 
@@ -268,6 +271,9 @@ impl StateHolder for LengthBatchWindowStateHolder {
                 message: format!("Failed to deserialize length batch window state: {e}"),
             })?;
 
+        log::info!("LengthBatchWindow: Deserialized {} current batch events, {} expired events",
+            state_data.current_batch.len(), state_data.expired_batch.len());
+
         // Deserialize and restore current batch events
         {
             let mut buffer = self.buffer.lock().unwrap();
@@ -275,7 +281,9 @@ impl StateHolder for LengthBatchWindowStateHolder {
 
             for serialized_event in state_data.current_batch {
                 match self.deserialize_event(&serialized_event) {
-                    Ok(event) => buffer.push(event),
+                    Ok(event) => {
+                        buffer.push(event);
+                    }
                     Err(e) => {
                         eprintln!("Warning: Failed to deserialize current batch event: {e}");
                         // Continue with other events rather than failing completely
@@ -300,10 +308,10 @@ impl StateHolder for LengthBatchWindowStateHolder {
             }
         }
 
-        // Restore metadata
-        self.batch_length = state_data.batch_length;
+        // Restore metadata (batch_length is configuration and doesn't need to be restored)
         *self.total_events_processed.lock().unwrap() = state_data.total_events_processed;
 
+        log::info!("LengthBatchWindow: Successfully restored state for component {}", self.component_id);
         Ok(())
     }
 
@@ -328,16 +336,83 @@ impl StateHolder for LengthBatchWindowStateHolder {
         Ok(changelog)
     }
 
-    fn apply_changelog(&mut self, changes: &ChangeLog) -> Result<(), StateError> {
-        // For length batch windows, we could apply incremental changes
-        // For now, this is a simplified implementation
-        // Note: Applying state operations to length batch window
+    fn apply_changelog(&self, changes: &ChangeLog) -> Result<(), StateError> {
+        let mut buffer = self.buffer.lock().unwrap();
+        let mut expired = self.expired.lock().unwrap();
 
-        // In a full implementation, we would:
-        // 1. Parse each operation
-        // 2. Apply inserts/deletes to the buffers
-        // 3. Maintain batch length constraints
-        // 4. Handle flush operations properly
+        for operation in &changes.operations {
+            match operation {
+                StateOperation::Insert { key, value } => {
+                    // Deserialize and insert event into appropriate buffer
+                    match self.deserialize_event(value) {
+                        Ok(event) => {
+                            // Check key to determine target buffer
+                            if key.starts_with(b"current_batch") {
+                                buffer.push(event);
+                            } else if key.starts_with(b"expired_batch") {
+                                expired.push(event);
+                            } else {
+                                // Default to current buffer
+                                buffer.push(event);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Warning: Failed to deserialize event during changelog apply: {:?}", e);
+                            continue;
+                        }
+                    }
+                }
+
+                StateOperation::Delete { key, old_value } => {
+                    if key == b"batch_flush_marker" {
+                        // Handle batch flush: move current to expired
+                        expired.clear();
+                        expired.extend(buffer.drain(..));
+                    } else {
+                        // Deserialize and remove the event
+                        if let Ok(event_to_remove) = self.deserialize_event(old_value) {
+                            // Remove from both buffers
+                            buffer.retain(|e| {
+                                !(e.timestamp == event_to_remove.timestamp
+                                    && e.before_window_data == event_to_remove.before_window_data)
+                            });
+                            expired.retain(|e| {
+                                !(e.timestamp == event_to_remove.timestamp
+                                    && e.before_window_data == event_to_remove.before_window_data)
+                            });
+                        }
+                    }
+                }
+
+                StateOperation::Update {
+                    key: _,
+                    old_value,
+                    new_value,
+                } => {
+                    // Remove old event and insert new one
+                    if let Ok(old_event) = self.deserialize_event(old_value) {
+                        buffer.retain(|e| {
+                            !(e.timestamp == old_event.timestamp
+                                && e.before_window_data == old_event.before_window_data)
+                        });
+                        expired.retain(|e| {
+                            !(e.timestamp == old_event.timestamp
+                                && e.before_window_data == old_event.before_window_data)
+                        });
+                    }
+
+                    if let Ok(new_event) = self.deserialize_event(new_value) {
+                        buffer.push(new_event);
+                    }
+                }
+
+                StateOperation::Clear => {
+                    // Clear both buffers
+                    buffer.clear();
+                    expired.clear();
+                }
+            }
+        }
 
         Ok(())
     }

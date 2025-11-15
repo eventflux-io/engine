@@ -14,9 +14,15 @@ use eventflux_rust::core::stream::output::mapper::SinkMapper;
 struct CsvSourceMapper;
 
 impl SourceMapper for CsvSourceMapper {
-    fn map(&self, input: &[u8]) -> Vec<Event> {
-        let text = std::str::from_utf8(input).unwrap();
-        text.lines()
+    fn map(&self, input: &[u8]) -> Result<Vec<Event>, EventFluxError> {
+        let text = std::str::from_utf8(input)
+            .map_err(|e| EventFluxError::MappingFailed {
+                message: format!("Invalid UTF-8: {}", e),
+                source: Some(Box::new(e)),
+            })?;
+
+        let events: Vec<Event> = text
+            .lines()
             .filter(|l| !l.trim().is_empty())
             .map(|l| {
                 let values: Vec<AttributeValue> = l
@@ -25,7 +31,9 @@ impl SourceMapper for CsvSourceMapper {
                     .collect();
                 Event::new_with_data(0, values)
             })
-            .collect()
+            .collect();
+
+        Ok(events)
     }
 
     fn clone_box(&self) -> Box<dyn SourceMapper> {
@@ -68,7 +76,7 @@ async fn test_source_and_sink_mapper_usage() {
     let runner = AppRunner::new(app, "Out").await;
 
     let src_mapper = CsvSourceMapper;
-    let events = src_mapper.map(b"1,2\n3,4");
+    let events = src_mapper.map(b"1,2\n3,4").expect("Mapper should succeed");
     let data: Vec<Vec<AttributeValue>> = events.into_iter().map(|e| e.data).collect();
     runner.send_batch("In", data);
 

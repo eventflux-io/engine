@@ -157,7 +157,7 @@ impl StateHolder for CountAggregatorStateHolder {
         })
     }
 
-    fn deserialize_state(&mut self, snapshot: &StateSnapshot) -> Result<(), StateError> {
+    fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError> {
         use crate::core::util::from_bytes;
 
         // Verify integrity
@@ -201,15 +201,42 @@ impl StateHolder for CountAggregatorStateHolder {
         Ok(changelog)
     }
 
-    fn apply_changelog(&mut self, changes: &ChangeLog) -> Result<(), StateError> {
-        // For count aggregators, we could apply incremental changes
-        // For now, this is a simplified implementation
-        // Note: Applying {} state operations to count aggregator
+    fn apply_changelog(&self, changes: &ChangeLog) -> Result<(), StateError> {
+        use crate::core::util::from_bytes;
 
-        // In a full implementation, we would:
-        // 1. Parse each operation (increment/decrement/reset)
-        // 2. Apply count changes
-        // 3. Maintain count consistency
+        // Lock state structure once for efficiency
+        let mut count = self.count.lock().unwrap();
+
+        // Apply each operation in order
+        for operation in &changes.operations {
+            match operation {
+                StateOperation::Insert { .. } => {
+                    // Insert represents an increment operation
+                    *count += 1;
+                }
+                StateOperation::Delete { .. } => {
+                    // Delete represents a decrement operation
+                    if *count > 0 {
+                        *count -= 1;
+                    }
+                }
+                StateOperation::Update { new_value, .. } => {
+                    // Deserialize new count (used for reset operations)
+                    let new_count: i64 = from_bytes(new_value).map_err(|e| {
+                        StateError::DeserializationError {
+                            message: format!("Failed to deserialize new count: {e}"),
+                        }
+                    })?;
+
+                    // Replace current count with new count
+                    *count = new_count;
+                }
+                StateOperation::Clear => {
+                    // Reset to initial state
+                    *count = 0;
+                }
+            }
+        }
 
         Ok(())
     }

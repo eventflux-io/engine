@@ -170,7 +170,7 @@ impl StateHolder for MaxAggregatorStateHolder {
         })
     }
 
-    fn deserialize_state(&mut self, snapshot: &StateSnapshot) -> Result<(), StateError> {
+    fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError> {
         use crate::core::util::from_bytes;
 
         // Verify integrity
@@ -187,9 +187,8 @@ impl StateHolder for MaxAggregatorStateHolder {
                 message: format!("Failed to deserialize max aggregator state: {e}"),
             })?;
 
-        // Restore aggregator state
+        // Restore aggregator state (return_type is configuration and doesn't need to be restored)
         *self.value.lock().unwrap() = state_data.value;
-        self.return_type = state_data.get_return_type();
 
         Ok(())
     }
@@ -215,15 +214,54 @@ impl StateHolder for MaxAggregatorStateHolder {
         Ok(changelog)
     }
 
-    fn apply_changelog(&mut self, changes: &ChangeLog) -> Result<(), StateError> {
-        // For max aggregators, we could apply incremental changes
-        // For now, this is a simplified implementation
-        // Note: Applying {} state operations to max aggregator
+    fn apply_changelog(&self, changes: &ChangeLog) -> Result<(), StateError> {
+        use crate::core::util::from_bytes;
 
-        // In a full implementation, we would:
-        // 1. Parse each operation (update/reset)
-        // 2. Apply value changes to maximum value
-        // 3. Maintain aggregation consistency
+        // Lock state structure once for efficiency
+        let mut value = self.value.lock().unwrap();
+
+        // Apply each operation in order
+        for operation in &changes.operations {
+            match operation {
+                StateOperation::Insert { value: new_val, .. } => {
+                    // Deserialize the new value
+                    let new_value: Option<f64> = from_bytes(new_val).map_err(|e| {
+                        StateError::DeserializationError {
+                            message: format!("Failed to deserialize new value: {e}"),
+                        }
+                    })?;
+
+                    // Update max value (insert is used when updating the max)
+                    if let Some(new_v) = new_value {
+                        if let Some(current_v) = *value {
+                            *value = Some(current_v.max(new_v));
+                        } else {
+                            *value = Some(new_v);
+                        }
+                    }
+                }
+                StateOperation::Delete { .. } => {
+                    // For max aggregator, delete might indicate value removal
+                    // However, max typically doesn't support removal in the traditional sense
+                    // This could be a no-op or reset depending on implementation
+                }
+                StateOperation::Update { new_value: new_val, .. } => {
+                    // Deserialize new value (used for update/reset operations)
+                    let new_value: Option<f64> = from_bytes(new_val).map_err(|e| {
+                        StateError::DeserializationError {
+                            message: format!("Failed to deserialize new value: {e}"),
+                        }
+                    })?;
+
+                    // Replace current value with new value
+                    *value = new_value;
+                }
+                StateOperation::Clear => {
+                    // Reset to initial state
+                    *value = None;
+                }
+            }
+        }
 
         Ok(())
     }

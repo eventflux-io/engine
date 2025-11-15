@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use log::error;
+
 /// Trait for simple persistence stores that save full snapshots.
 pub trait PersistenceStore: Send + Sync {
     fn save(&self, eventflux_app_id: &str, revision: &str, snapshot: &[u8]);
@@ -112,7 +114,7 @@ impl PersistenceStore for FilePersistenceStore {
     fn save(&self, eventflux_app_id: &str, revision: &str, snapshot: &[u8]) {
         let dir = self.base.join(eventflux_app_id);
         if let Err(e) = fs::create_dir_all(&dir) {
-            eprintln!("FilePersistenceStore: cannot create dir: {e}");
+            error!("FilePersistenceStore: cannot create dir: {e}");
             return;
         }
         let path = self.file_path(eventflux_app_id, revision);
@@ -124,7 +126,7 @@ impl PersistenceStore for FilePersistenceStore {
                     .insert(eventflux_app_id.to_string(), revision.to_string());
             }
             Err(e) => {
-                eprintln!("FilePersistenceStore: write failed: {e}");
+                error!("FilePersistenceStore: write failed: {e}");
             }
         }
     }
@@ -175,7 +177,7 @@ impl PersistenceStore for SqlitePersistenceStore {
             "INSERT OR REPLACE INTO snapshots(app, rev, data) VALUES (?1, ?2, ?3)",
             params![eventflux_app_id, revision, snapshot],
         ) {
-            eprintln!("SqlitePersistenceStore: write failed: {e}");
+            error!("SqlitePersistenceStore: write failed: {e}");
         }
     }
 
@@ -277,22 +279,23 @@ impl PersistenceStore for RedisPersistenceStore {
             runtime.block_on(async move {
                 let mut backend = backend.lock().await;
 
-                // Try to store the snapshot, initialize if needed
-                if let Err(_) = backend.set(&revision_key, snapshot.clone()).await {
+                // Prepare atomic multi-set operation
+                let kvs = vec![
+                    (revision_key.clone(), snapshot.clone()),
+                    (last_rev_key.clone(), revision.into_bytes()),
+                ];
+
+                // Try atomic multi-set, initialize if needed
+                if let Err(_) = backend.set_multi(kvs.clone()).await {
                     // Initialize and retry
                     if let Err(e) = backend.initialize().await {
-                        eprintln!("Failed to initialize Redis backend: {}", e);
+                        error!("Failed to initialize Redis backend: {}", e);
                         return;
                     }
-                    if let Err(e) = backend.set(&revision_key, snapshot).await {
-                        eprintln!("Failed to save snapshot to Redis: {}", e);
+                    if let Err(e) = backend.set_multi(kvs).await {
+                        error!("Failed to atomically save snapshot to Redis: {}", e);
                         return;
                     }
-                }
-
-                // Update last revision pointer
-                if let Err(e) = backend.set(&last_rev_key, revision.into_bytes()).await {
-                    eprintln!("Failed to update last revision in Redis: {}", e);
                 }
             });
         } else {
@@ -302,22 +305,23 @@ impl PersistenceStore for RedisPersistenceStore {
                 rt.block_on(async move {
                     let mut backend = backend.lock().await;
 
-                    // Try to store the snapshot, initialize if needed
-                    if let Err(_) = backend.set(&revision_key, snapshot.clone()).await {
+                    // Prepare atomic multi-set operation
+                    let kvs = vec![
+                        (revision_key.clone(), snapshot.clone()),
+                        (last_rev_key.clone(), revision.into_bytes()),
+                    ];
+
+                    // Try atomic multi-set, initialize if needed
+                    if let Err(_) = backend.set_multi(kvs.clone()).await {
                         // Initialize and retry
                         if let Err(e) = backend.initialize().await {
-                            eprintln!("Failed to initialize Redis backend: {}", e);
+                            error!("Failed to initialize Redis backend: {}", e);
                             return;
                         }
-                        if let Err(e) = backend.set(&revision_key, snapshot).await {
-                            eprintln!("Failed to save snapshot to Redis: {}", e);
+                        if let Err(e) = backend.set_multi(kvs).await {
+                            error!("Failed to atomically save snapshot to Redis: {}", e);
                             return;
                         }
-                    }
-
-                    // Update last revision pointer
-                    if let Err(e) = backend.set(&last_rev_key, revision.into_bytes()).await {
-                        eprintln!("Failed to update last revision in Redis: {}", e);
                     }
                 })
             });
@@ -340,13 +344,13 @@ impl PersistenceStore for RedisPersistenceStore {
                     Err(_) => {
                         // Initialize and retry
                         if let Err(e) = backend.initialize().await {
-                            eprintln!("Failed to initialize Redis backend: {}", e);
+                            error!("Failed to initialize Redis backend: {}", e);
                             return None;
                         }
                         match backend.get(&revision_key).await {
                             Ok(data) => data,
                             Err(e) => {
-                                eprintln!("Failed to load snapshot from Redis: {}", e);
+                                error!("Failed to load snapshot from Redis: {}", e);
                                 None
                             }
                         }
@@ -366,13 +370,13 @@ impl PersistenceStore for RedisPersistenceStore {
                         Err(_) => {
                             // Initialize and retry
                             if let Err(e) = backend.initialize().await {
-                                eprintln!("Failed to initialize Redis backend: {}", e);
+                                error!("Failed to initialize Redis backend: {}", e);
                                 return None;
                             }
                             match backend.get(&revision_key).await {
                                 Ok(data) => data,
                                 Err(e) => {
-                                    eprintln!("Failed to load snapshot from Redis: {}", e);
+                                    error!("Failed to load snapshot from Redis: {}", e);
                                     None
                                 }
                             }
@@ -400,14 +404,14 @@ impl PersistenceStore for RedisPersistenceStore {
                     Err(_) => {
                         // Initialize and retry
                         if let Err(e) = backend.initialize().await {
-                            eprintln!("Failed to initialize Redis backend: {}", e);
+                            error!("Failed to initialize Redis backend: {}", e);
                             return None;
                         }
                         match backend.get(&last_rev_key).await {
                             Ok(Some(data)) => String::from_utf8(data).ok(),
                             Ok(None) => None,
                             Err(e) => {
-                                eprintln!("Failed to get last revision from Redis: {}", e);
+                                error!("Failed to get last revision from Redis: {}", e);
                                 None
                             }
                         }
@@ -428,14 +432,14 @@ impl PersistenceStore for RedisPersistenceStore {
                         Err(_) => {
                             // Initialize and retry
                             if let Err(e) = backend.initialize().await {
-                                eprintln!("Failed to initialize Redis backend: {}", e);
+                                error!("Failed to initialize Redis backend: {}", e);
                                 return None;
                             }
                             match backend.get(&last_rev_key).await {
                                 Ok(Some(data)) => String::from_utf8(data).ok(),
                                 Ok(None) => None,
                                 Err(e) => {
-                                    eprintln!("Failed to get last revision from Redis: {}", e);
+                                    error!("Failed to get last revision from Redis: {}", e);
                                     None
                                 }
                             }
@@ -461,11 +465,11 @@ impl PersistenceStore for RedisPersistenceStore {
                 if let Err(_) = backend.delete(&last_rev_key).await {
                     // Initialize and retry
                     if let Err(e) = backend.initialize().await {
-                        eprintln!("Failed to initialize Redis backend: {}", e);
+                        error!("Failed to initialize Redis backend: {}", e);
                         return;
                     }
                     if let Err(e) = backend.delete(&last_rev_key).await {
-                        eprintln!("Failed to delete last revision from Redis: {}", e);
+                        error!("Failed to delete last revision from Redis: {}", e);
                     }
                 }
 
@@ -485,11 +489,11 @@ impl PersistenceStore for RedisPersistenceStore {
                     if let Err(_) = backend.delete(&last_rev_key).await {
                         // Initialize and retry
                         if let Err(e) = backend.initialize().await {
-                            eprintln!("Failed to initialize Redis backend: {}", e);
+                            error!("Failed to initialize Redis backend: {}", e);
                             return;
                         }
                         if let Err(e) = backend.delete(&last_rev_key).await {
-                            eprintln!("Failed to delete last revision from Redis: {}", e);
+                            error!("Failed to delete last revision from Redis: {}", e);
                         }
                     }
 

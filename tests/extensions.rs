@@ -320,6 +320,7 @@ fn test_query_parser_uses_custom_window_factory() {
         &HashMap::new(),
         &HashMap::new(),
         None,
+        0, // query_index
     )
     .unwrap();
     let head = runtime.processor_chain_head.expect("head");

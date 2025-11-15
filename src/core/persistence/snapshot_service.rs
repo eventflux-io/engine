@@ -65,7 +65,9 @@ impl SnapshotService {
 
     /// Register a state holder to be included in snapshots.
     pub fn register_state_holder(&self, id: String, holder: Arc<Mutex<dyn StateHolder>>) {
+        log::info!("SnapshotService: Registering state holder: {}", id);
         self.state_holders.lock().unwrap().insert(id, holder);
+        log::info!("SnapshotService: Total registered holders: {}", self.state_holders.lock().unwrap().len());
     }
 
     /// Retrieve a copy of the internal state.
@@ -167,7 +169,9 @@ impl SnapshotService {
                 if let Some(holder) = self.state_holders.lock().unwrap().get(&id) {
                     // Use the full snapshot with all metadata (compression, checksum, version, etc.)
                     match holder.lock().unwrap().deserialize_state(&snapshot) {
-                        Ok(_) => log::info!("Successfully restored state for: {}", id),
+                        Ok(_) => {
+                            log::info!("Successfully restored state for: {}", id);
+                        }
                         Err(e) => {
                             log::error!("Failed to restore state for {id}: {e:?}");
                             log::error!("Component ID: {}, Error details: {}", id, e);

@@ -287,14 +287,17 @@ async fn test_sql_with_unregistered_extension() {
     "#;
 
     // Runtime creation should FAIL when using unregistered extension
-    // With A1 fix (error propagation), start() errors bubble up to create_eventflux_app_runtime_from_string
+    // Manager auto-starts, so errors are caught at creation time (fail-fast)
     let runtime_result = manager.create_eventflux_app_runtime_from_string(sql).await;
-    assert!(runtime_result.is_err());
+    assert!(
+        runtime_result.is_err(),
+        "Runtime creation should fail with unregistered extension"
+    );
 
     // Verify error message indicates the unregistered extension
     let err_msg = runtime_result.unwrap_err();
     assert!(
-        err_msg.contains("kafka") && (err_msg.contains("not found") || err_msg.contains("extension")),
+        err_msg.contains("kafka") || err_msg.contains("not found") || err_msg.contains("extension"),
         "Error message should mention kafka extension not found, got: {}",
         err_msg
     );

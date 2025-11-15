@@ -15,8 +15,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
-use tonic::transport::{Channel, Server};
-use tonic::{Request, Response, Status};
+use tonic::transport::Channel;
+use tonic::Request;
 
 /// Simplified gRPC transport configuration
 #[derive(Debug, Clone)]
