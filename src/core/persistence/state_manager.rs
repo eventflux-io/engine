@@ -11,11 +11,16 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use log::{debug, error, info, warn};
+
 use super::state_holder::{
-    AccessPattern, ChangeLog, CheckpointId, ComponentId, CompressionType, SerializationHints,
-    StateError, StateHolder, StateSize, StateSnapshot,
+    CheckpointId, ComponentId, CompressionType, SerializationHints,
+    StateError, StateHolder, StateSnapshot,
 };
 use super::state_registry::StateRegistry;
+
+#[cfg(test)]
+use super::state_holder::{AccessPattern, ChangeLog, StateSize};
 
 /// Handle for tracking checkpoint operations
 #[derive(Debug, Clone)]
@@ -203,11 +208,11 @@ impl UnifiedStateManager {
             });
         }
 
-        println!(
+        debug!(
             "State management initialized with {} components",
             analysis.total_components
         );
-        println!("Recovery parallelism: {}", analysis.parallel_recovery_width);
+        debug!("Recovery parallelism: {}", analysis.parallel_recovery_width);
 
         Ok(())
     }
@@ -264,14 +269,14 @@ impl UnifiedStateManager {
             Ok(metadata) => {
                 metrics.record_checkpoint(duration, metadata.total_size, true);
                 metrics.last_checkpoint_id = Some(checkpoint_id);
-                println!(
+                info!(
                     "Checkpoint {} completed in {:?}, size: {} bytes",
                     checkpoint_id, duration, metadata.total_size
                 );
             }
             Err(e) => {
                 metrics.record_checkpoint(duration, 0, false);
-                eprintln!("Checkpoint {checkpoint_id} failed: {e}");
+                error!("Checkpoint {checkpoint_id} failed: {e}");
                 return Err(e);
             }
         }
@@ -310,7 +315,7 @@ impl UnifiedStateManager {
                             component_snapshots.insert(component_id.clone(), snapshot);
                         }
                         Err(e) => {
-                            eprintln!("Failed to checkpoint component {component_id}: {e}");
+                            error!("Failed to checkpoint component {component_id}: {e}");
                             return Err(e);
                         }
                     }
@@ -377,10 +382,10 @@ impl UnifiedStateManager {
                         match Self::recover_component(component, snapshot.clone()) {
                             Ok(()) => {
                                 recovered_components += 1;
-                                println!("Recovered component: {component_id}");
+                                info!("Recovered component: {component_id}");
                             }
                             Err(e) => {
-                                eprintln!("Failed to recover component {component_id}: {e}");
+                                error!("Failed to recover component {component_id}: {e}");
                                 return Err(e);
                             }
                         }
@@ -405,22 +410,34 @@ impl UnifiedStateManager {
             parallel_workers: self.config.recovery_parallelism,
         };
 
-        println!("Recovery completed: {recovered_components} components in {recovery_time:?}");
+        info!("Recovery completed: {recovered_components} components in {recovery_time:?}");
 
         Ok(stats)
     }
 
-    /// Recover a single component
+    /// Recover a single component from a snapshot
     fn recover_component(
         component: Arc<dyn StateHolder>,
         snapshot: StateSnapshot,
     ) -> Result<(), StateError> {
-        // Note: This requires mutable access to component
-        // In practice, we'd need to handle this differently or use interior mutability
-        // For now, this demonstrates the intended API
-        println!("Component recovery requires mutable access - implementation pending");
-        // In a real implementation, we'd need to handle mutable access to the component
-        // This is a limitation of the current design that needs to be addressed
+        // Verify version compatibility
+        let current_version = component.schema_version();
+        if !current_version.is_compatible_with(&snapshot.version) {
+            return Err(StateError::IncompatibleVersion {
+                current: current_version,
+                required: snapshot.version,
+            });
+        }
+
+        // Deserialize the snapshot into the component
+        // Note: StateHolder implementations use interior mutability (Arc<Mutex<T>>)
+        // so we can call deserialize_state with &self
+        component.deserialize_state(&snapshot)?;
+
+        info!(
+            "Successfully recovered component: {}",
+            snapshot.metadata.component_id
+        );
         Ok(())
     }
 
@@ -435,29 +452,29 @@ impl UnifiedStateManager {
 
         match migration.migration_strategy {
             MigrationStrategy::InPlace => {
-                println!(
+                info!(
                     "Starting in-place migration for component '{}' from {} to {}",
                     migration.component_id, migration.from_version, migration.to_version
                 );
 
                 // In-place migration would require careful coordination
                 // This is a placeholder for the complex migration logic
-                println!("In-place migration not yet implemented");
+                warn!("In-place migration not yet implemented");
                 Ok(())
             }
             MigrationStrategy::BlueGreen => {
-                println!(
+                info!(
                     "Starting blue-green migration for component '{}'",
                     migration.component_id
                 );
 
                 // Blue-green would involve creating a new component version
                 // This is a placeholder for the blue-green migration logic
-                println!("Blue-green migration not yet implemented");
+                warn!("Blue-green migration not yet implemented");
                 Ok(())
             }
             MigrationStrategy::CanaryRollout { percentage } => {
-                println!(
+                info!(
                     "Starting canary rollout migration for component '{}' at {}%",
                     migration.component_id,
                     percentage * 100.0
@@ -465,7 +482,7 @@ impl UnifiedStateManager {
 
                 // Canary rollout would gradually migrate traffic
                 // This is a placeholder for the canary migration logic
-                println!("Canary rollout migration not yet implemented");
+                warn!("Canary rollout migration not yet implemented");
                 Ok(())
             }
         }
@@ -505,7 +522,7 @@ impl UnifiedStateManager {
         }
 
         if removed_count > 0 {
-            println!("Cleaned up {removed_count} old checkpoints");
+            info!("Cleaned up {removed_count} old checkpoints");
         }
 
         Ok(removed_count)
@@ -545,7 +562,7 @@ mod tests {
             })
         }
 
-        fn deserialize_state(&mut self, snapshot: &StateSnapshot) -> Result<(), StateError> {
+        fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError> {
             if snapshot.data.len() != 8 {
                 return Err(StateError::InvalidStateData {
                     message: "Invalid data size".to_string(),
@@ -564,7 +581,7 @@ mod tests {
             Ok(ChangeLog::new(0, 1))
         }
 
-        fn apply_changelog(&mut self, _changes: &ChangeLog) -> Result<(), StateError> {
+        fn apply_changelog(&self, _changes: &ChangeLog) -> Result<(), StateError> {
             Ok(())
         }
 
