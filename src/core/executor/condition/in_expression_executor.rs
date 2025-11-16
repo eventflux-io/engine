@@ -61,8 +61,13 @@ impl ExpressionExecutor for InExpressionExecutor {
             let key = InMemoryCompiledCondition {
                 values: vec![value.clone()],
             };
-            let contains = table.contains(&key);
-            Some(AttributeValue::Bool(contains))
+            match table.contains(&key) {
+                Ok(contains) => Some(AttributeValue::Bool(contains)),
+                Err(e) => {
+                    log::error!("Table contains check failed: {}", e);
+                    Some(AttributeValue::Bool(false))
+                }
+            }
         } else {
             // If the table is not found, treat as false
             Some(AttributeValue::Bool(false))

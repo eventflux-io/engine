@@ -106,20 +106,31 @@ impl Processor for TableJoinProcessor {
         while let Some(mut ce) = chunk {
             chunk = ce.set_next(None);
             if let Some(se) = ce.as_any().downcast_ref::<StreamEvent>() {
-                let rows = self.table.find_rows_for_join(
+                match self.table.find_rows_for_join(
                     se,
                     self.compiled_condition.as_deref(),
                     self.condition_executor.as_deref(),
-                );
-                let mut matched = false;
-                for row in &rows {
-                    matched = true;
-                    let joined = self.build_joined_event(se, Some(row));
-                    self.forward(joined);
-                }
-                if !matched && matches!(self.join_type, JoinType::LeftOuterJoin) {
-                    let joined = self.build_joined_event(se, None);
-                    self.forward(joined);
+                ) {
+                    Ok(rows) => {
+                        let mut matched = false;
+                        for row in &rows {
+                            matched = true;
+                            let joined = self.build_joined_event(se, Some(row));
+                            self.forward(joined);
+                        }
+                        if !matched && matches!(self.join_type, JoinType::LeftOuterJoin) {
+                            let joined = self.build_joined_event(se, None);
+                            self.forward(joined);
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to find rows for join: {}", e);
+                        // For left outer join, still emit the event without join data
+                        if matches!(self.join_type, JoinType::LeftOuterJoin) {
+                            let joined = self.build_joined_event(se, None);
+                            self.forward(joined);
+                        }
+                    }
                 }
             }
         }
