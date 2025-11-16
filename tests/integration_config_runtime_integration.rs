@@ -213,6 +213,11 @@ async fn test_yaml_config_to_runtime_integration() {
         .add_callback("OutputStream", Box::new(event_collector.as_ref().clone()))
         .expect("Failed to add callback");
 
+    // Start the runtime after adding callbacks
+    eventflux_app_runtime
+        .start()
+        .expect("Failed to start runtime");
+
     // Get input handler and send test events
     let input_handler = eventflux_app_runtime
         .get_input_handler("InputStream")
