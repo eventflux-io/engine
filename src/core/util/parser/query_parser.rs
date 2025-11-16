@@ -64,7 +64,8 @@ impl QueryParser {
         // 1. Determine Query Name (from @info(name='foo') or generate)
         // Use deterministic index-based naming for state recovery compatibility
         // Include partition_id in default name to prevent collisions between
-        // top-level queries (query_0) and partition queries (query_0)
+        // top-level queries (query_0) and partition queries (partition_0_query_0, partition_1_query_0)
+        // Each partition receives a unique partition_id (e.g., "partition_0", "partition_1", or custom @info name)
         let query_name = api_query
             .annotations
             .iter()

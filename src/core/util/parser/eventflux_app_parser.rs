@@ -357,8 +357,9 @@ impl EventFluxAppParser {
         eventflux_app_context: &Arc<EventFluxAppContext>,
     ) -> Result<(), String> {
         // Parse Execution Elements (Queries, Partitions)
-        // Use counter to provide deterministic query indices for stable component IDs (needed for state recovery)
+        // Use counters to provide deterministic indices for stable component IDs (needed for state recovery)
         let mut query_index = 0;
+        let mut partition_index = 0;
         for exec_element in &api_eventflux_app.execution_element_list {
             match exec_element {
                 ApiExecutionElement::Query(api_query) => {
@@ -378,9 +379,14 @@ impl EventFluxAppParser {
                                       // TODO: eventflux_app_context.addEternalReferencedHolder(queryRuntime);
                 }
                 ApiExecutionElement::Partition(api_partition) => {
-                    let part_rt =
-                        PartitionParser::parse(builder, api_partition, eventflux_app_context)?;
+                    let part_rt = PartitionParser::parse(
+                        builder,
+                        api_partition,
+                        eventflux_app_context,
+                        partition_index,
+                    )?;
                     builder.add_partition_runtime(Arc::new(part_rt));
+                    partition_index += 1; // Increment for next partition
                 }
             }
         }
