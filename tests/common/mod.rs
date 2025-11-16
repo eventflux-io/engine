@@ -44,6 +44,9 @@ impl AppRunner {
     /// This is the simplest constructor for testing. It creates a default
     /// EventFluxManager with no custom configuration.
     ///
+    /// Creates the runtime, adds callbacks, then starts it. This ensures
+    /// start-trigger events can be observed.
+    ///
     /// # Arguments
     /// * `app_string` - SQL application definition string
     /// * `out_stream` - Output stream name to collect events from
@@ -70,6 +73,7 @@ impl AppRunner {
                 }),
             )
             .expect("add cb");
+        // Start after adding callbacks to observe start-trigger events
         runtime.start().expect("Failed to start runtime");
         Self {
             runtime,
@@ -82,6 +86,9 @@ impl AppRunner {
     ///
     /// Use this when you've already constructed the EventFluxApp programmatically
     /// instead of parsing from SQL.
+    ///
+    /// Creates the runtime, adds callbacks, then starts it. This ensures
+    /// start-trigger events can be observed.
     ///
     /// # Arguments
     /// * `app` - Pre-constructed EventFluxApp API object
@@ -97,9 +104,8 @@ impl AppRunner {
         out_stream: &str,
     ) -> Self {
         let manager = EventFluxManager::new();
-        // Use no-autostart to catch start triggers
         let runtime = manager
-            .create_eventflux_app_runtime_without_autostart(Arc::new(app), None)
+            .create_eventflux_app_runtime_from_api(Arc::new(app), None)
             .await
             .expect("runtime");
         let collected = Arc::new(Mutex::new(Vec::new()));
@@ -111,6 +117,7 @@ impl AppRunner {
                 }),
             )
             .expect("add cb");
+        // Start after adding callbacks to observe start-trigger events
         runtime.start().expect("Failed to start runtime");
         Self {
             runtime,
@@ -408,9 +415,8 @@ impl AppRunner {
     ) -> Self {
         let manager = EventFluxManager::new();
         manager.set_persistence_store(store);
-        // Use no-autostart to catch start triggers
         let runtime = manager
-            .create_eventflux_app_runtime_without_autostart(Arc::new(app), None)
+            .create_eventflux_app_runtime_from_api(Arc::new(app), None)
             .await
             .expect("runtime");
         let collected = Arc::new(Mutex::new(Vec::new()));
@@ -422,6 +428,7 @@ impl AppRunner {
                 }),
             )
             .expect("add cb");
+        // Start after adding callbacks to observe start-trigger events
         runtime.start().expect("Failed to start runtime");
         Self {
             runtime,
@@ -496,10 +503,13 @@ impl AppRunner {
     ///
     /// This is critical for state recovery scenarios where you need to:
     /// 1. Create the runtime (which creates all processors/windows)
-    /// 2. Restore state from checkpoint
-    /// 3. THEN start the runtime
+    /// 2. Add callbacks
+    /// 3. Restore state from checkpoint
+    /// 4. THEN start the runtime (caller must call runtime.start())
     ///
     /// If you start before restoring, the windows will have empty buffers!
+    ///
+    /// **Important**: Caller MUST call `runtime.start()` when ready.
     pub async fn new_with_manager_no_start(
         manager: EventFluxManager,
         app_string: &str,
@@ -518,7 +528,8 @@ impl AppRunner {
                 }),
             )
             .expect("add cb");
-        // NOTE: Do NOT call runtime.start() here!
+        // NOTE: Explicitly do NOT call runtime.start() here!
+        // The manager method no longer auto-starts, so the runtime is NOT started.
         Self {
             runtime,
             collected,
@@ -549,9 +560,8 @@ impl AppRunner {
         app: eventflux_rust::query_api::eventflux_app::EventFluxApp,
         out_stream: &str,
     ) -> Self {
-        // Use no-autostart to catch start triggers
         let runtime = manager
-            .create_eventflux_app_runtime_without_autostart(Arc::new(app), None)
+            .create_eventflux_app_runtime_from_api(Arc::new(app), None)
             .await
             .expect("runtime");
         let collected = Arc::new(Mutex::new(Vec::new()));
@@ -563,6 +573,7 @@ impl AppRunner {
                 }),
             )
             .expect("add cb");
+        // Start after adding callbacks to observe start-trigger events
         runtime.start().expect("Failed to start runtime");
         Self {
             runtime,
@@ -653,10 +664,7 @@ impl AppRunner {
     /// # Returns
     /// Revision ID that can be used with `restore_revision()`
     pub fn persist(&self) -> String {
-        self.runtime
-            .persist()
-            .expect("persist failed")
-            .revision
+        self.runtime.persist().expect("persist failed").revision
     }
 
     /// Restore runtime state from a specific revision.
