@@ -47,13 +47,16 @@ fn create_redis_store() -> Result<Arc<dyn PersistenceStore>, String> {
         ttl_seconds: None,
     };
 
-    match RedisPersistenceStore::new_with_config(config) {
-        Ok(store) => Ok(Arc::new(store)),
-        Err(_) => {
-            // Redis not available, skip test
-            Err("Redis not available".to_string())
-        }
-    }
+    // Create the store (this doesn't connect to Redis yet)
+    let store = RedisPersistenceStore::new_with_config(config)
+        .map_err(|e| format!("Failed to create Redis store: {}", e))?;
+
+    // Actually test connectivity - this will initialize the backend and perform a PING
+    store
+        .test_connection()
+        .map_err(|e| format!("Redis connectivity test failed: {}", e))?;
+
+    Ok(Arc::new(store))
 }
 
 /// Test helper to skip test if Redis is not available

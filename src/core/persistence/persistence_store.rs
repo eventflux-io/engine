@@ -255,12 +255,39 @@ impl RedisPersistenceStore {
         })
     }
 
+    /// Test Redis connectivity by initializing the backend and performing a PING
+    ///
+    /// Returns Ok(()) if Redis is available and responding, Err otherwise.
+    /// This is useful for test setup to skip tests when Redis is not available.
+    pub fn test_connection(&self) -> Result<(), String> {
+        let backend = Arc::clone(&self.backend);
+
+        if let Some(ref runtime) = self.runtime {
+            // Use dedicated runtime
+            runtime.block_on(async move {
+                let mut backend = backend.lock().await;
+                backend.initialize().await.map_err(|e| e.to_string())
+            })
+        } else {
+            // We're in an async context, use spawn_blocking
+            let handle = std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new()
+                    .map_err(|e| format!("Failed to create runtime: {}", e))?;
+                rt.block_on(async move {
+                    let mut backend = backend.lock().await;
+                    backend.initialize().await.map_err(|e| e.to_string())
+                })
+            });
+            handle.join().map_err(|_| "Thread panicked".to_string())?
+        }
+    }
+
     /// Get the revision key for Redis
     fn revision_key(eventflux_app_id: &str, revision: &str) -> String {
         format!("eventflux:app:{}:revision:{}", eventflux_app_id, revision)
     }
 
-    /// Get the last revision key for Redis  
+    /// Get the last revision key for Redis
     fn last_revision_key(eventflux_app_id: &str) -> String {
         format!("eventflux:app:{}:last_revision", eventflux_app_id)
     }
