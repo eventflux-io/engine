@@ -289,12 +289,13 @@ impl StateBackend for RedisBackend {
         pipe.atomic();
 
         // Add all SET operations to the pipeline
+        // Call .ignore() on each command so EXEC doesn't return an array of results
         for (key, value) in kvs {
             let redis_key = self.make_key(&key);
             if let Some(ttl) = self.config.ttl_seconds {
-                pipe.set_ex(&redis_key, &value, ttl);
+                pipe.set_ex(&redis_key, &value, ttl).ignore();
             } else {
-                pipe.set(&redis_key, &value);
+                pipe.set(&redis_key, &value).ignore();
             }
         }
 
