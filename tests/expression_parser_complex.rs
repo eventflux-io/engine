@@ -325,7 +325,8 @@ fn test_join_query_parsing() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
     junctions.insert(
@@ -338,7 +339,8 @@ fn test_join_query_parsing() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
     junctions.insert(
@@ -351,7 +353,8 @@ fn test_join_query_parsing() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
 
@@ -433,7 +436,8 @@ fn test_pattern_query_parsing() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
     junctions.insert(
@@ -446,7 +450,8 @@ fn test_pattern_query_parsing() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
     junctions.insert(
@@ -459,7 +464,8 @@ fn test_pattern_query_parsing() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
 
@@ -520,7 +526,8 @@ fn test_table_in_expression_query() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
     junctions.insert(
@@ -533,7 +540,8 @@ fn test_table_in_expression_query() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
     let mut table_defs = HashMap::new();
@@ -570,7 +578,8 @@ fn test_join_query_parsing_from_string() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
     junctions.insert(
@@ -583,7 +592,8 @@ fn test_join_query_parsing_from_string() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
     junctions.insert(
@@ -596,7 +606,8 @@ fn test_join_query_parsing_from_string() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
     let res = QueryParser::parse_query_test(
@@ -629,7 +640,8 @@ fn test_pattern_query_parsing_from_string() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
     junctions.insert(
@@ -642,7 +654,8 @@ fn test_pattern_query_parsing_from_string() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
     junctions.insert(
@@ -655,7 +668,8 @@ fn test_pattern_query_parsing_from_string() {
                 1024,
                 false,
                 None,
-            ).unwrap(),
+            )
+            .unwrap(),
         )),
     );
     let res = QueryParser::parse_query_test(
@@ -715,7 +729,7 @@ async fn test_app_runner_table_in_lookup() {
     // Table now requires explicit extension specification for durability safety
     let mut table_config = FlatConfig::new();
     table_config.set("extension", "cache", PropertySource::SqlWith);
-    table_config.set("max_size", "100", PropertySource::SqlWith);  // Cache requires max_size
+    table_config.set("max_size", "100", PropertySource::SqlWith); // Cache requires max_size
     let t_def = TableDefinition::new("T".to_string())
         .attribute("val".to_string(), AttrType::INT)
         .with_config(table_config);

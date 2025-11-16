@@ -304,7 +304,9 @@ impl StreamPreStateProcessor {
 
     /// Get stream event cloner (for CountPreStateProcessor)
     pub fn get_stream_event_cloner(&self) -> &StreamEventCloner {
-        self.stream_event_cloner.as_ref().expect("StreamEventCloner not initialized")
+        self.stream_event_cloner
+            .as_ref()
+            .expect("StreamEventCloner not initialized")
     }
 
     /// Set stream event cloner (for testing and initialization)
@@ -374,9 +376,9 @@ impl Processor for StreamPreStateProcessor {
             is_start_state: self.is_start_state,
             state_type: self.state_type,
             app_context: Arc::clone(&self.app_context),
-            query_context: Arc::clone(query_context),  // Use new query context
-            state: Arc::clone(&self.state),  // Shared state across clones
-            shared_state: Arc::clone(&self.shared_state),  // Shared state across clones
+            query_context: Arc::clone(query_context), // Use new query context
+            state: Arc::clone(&self.state),           // Shared state across clones
+            shared_state: Arc::clone(&self.shared_state), // Shared state across clones
             stream_event_cloner: self.stream_event_cloner.clone(),
             state_event_cloner: self.state_event_cloner.clone(),
             within_time: self.within_time,
@@ -384,7 +386,7 @@ impl Processor for StreamPreStateProcessor {
             success_condition: self.success_condition,
             next_processor: self.next_processor.clone(),
             this_state_post_processor: self.this_state_post_processor.clone(),
-            condition_fn: self.condition_fn.clone(),  // Arc is cloneable - preserves filter
+            condition_fn: self.condition_fn.clone(), // Arc is cloneable - preserves filter
         })
     }
 

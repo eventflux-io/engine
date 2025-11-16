@@ -237,14 +237,17 @@ fn test_query_parser_with_table_actions() {
     let mut junctions = HashMap::new();
     junctions.insert(
         "S".to_string(),
-        Arc::new(Mutex::new(StreamJunction::new(
-            "S".to_string(),
-            Arc::clone(&s_def),
-            Arc::clone(&app_ctx),
-            1024,
-            false,
-            None,
-        ).unwrap())),
+        Arc::new(Mutex::new(
+            StreamJunction::new(
+                "S".to_string(),
+                Arc::clone(&s_def),
+                Arc::clone(&app_ctx),
+                1024,
+                false,
+                None,
+            )
+            .unwrap(),
+        )),
     );
 
     let mut table_defs = HashMap::new();

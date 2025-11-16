@@ -30,12 +30,7 @@ pub struct PatternStepConfig {
 }
 
 impl PatternStepConfig {
-    pub fn new(
-        alias: String,
-        stream_name: String,
-        min_count: usize,
-        max_count: usize,
-    ) -> Self {
+    pub fn new(alias: String, stream_name: String, min_count: usize, max_count: usize) -> Self {
         Self {
             alias,
             stream_name,
@@ -139,8 +134,8 @@ impl PatternChainBuilder {
             let pre = Arc::new(Mutex::new(CountPreStateProcessor::new(
                 step.min_count,
                 step.max_count,
-                i,                 // state_id
-                i == 0,            // is_start_state
+                i,      // state_id
+                i == 0, // is_start_state
                 self.state_type,
                 app_context.clone(),
                 query_context.clone(),
@@ -173,19 +168,23 @@ impl PatternChainBuilder {
 
             // Wire Post -> Next Pre (for pattern chain forwarding A -> B)
             if i + 1 < self.steps.len() {
-                post.lock()
-                    .unwrap()
-                    .set_next_state_pre_processor(pre_processors_concrete[i + 1].clone() as Arc<Mutex<dyn PreStateProcessor>>);
+                post.lock().unwrap().set_next_state_pre_processor(
+                    pre_processors_concrete[i + 1].clone() as Arc<Mutex<dyn PreStateProcessor>>,
+                );
             }
 
             post_processors_concrete.push(post);
         }
 
         // Convert to trait objects for ProcessorChain
-        let pre_processors: Vec<Arc<Mutex<dyn PreStateProcessor>>> =
-            pre_processors_concrete.iter().map(|p| p.clone() as Arc<Mutex<dyn PreStateProcessor>>).collect();
-        let post_processors: Vec<Arc<Mutex<dyn PostStateProcessor>>> =
-            post_processors_concrete.iter().map(|p| p.clone() as Arc<Mutex<dyn PostStateProcessor>>).collect();
+        let pre_processors: Vec<Arc<Mutex<dyn PreStateProcessor>>> = pre_processors_concrete
+            .iter()
+            .map(|p| p.clone() as Arc<Mutex<dyn PreStateProcessor>>)
+            .collect();
+        let post_processors: Vec<Arc<Mutex<dyn PostStateProcessor>>> = post_processors_concrete
+            .iter()
+            .map(|p| p.clone() as Arc<Mutex<dyn PostStateProcessor>>)
+            .collect();
 
         // Clone first processor before moving the vector
         let first_processor = pre_processors[0].clone();
@@ -226,9 +225,9 @@ impl ProcessorChain {
         use crate::core::event::state::meta_state_event::MetaStateEvent;
         use crate::core::event::state::state_event_cloner::StateEventCloner;
         use crate::core::event::state::state_event_factory::StateEventFactory;
+        use crate::core::event::stream::meta_stream_event::MetaStreamEvent;
         use crate::core::event::stream::stream_event_cloner::StreamEventCloner;
         use crate::core::event::stream::stream_event_factory::StreamEventFactory;
-        use crate::core::event::stream::meta_stream_event::MetaStreamEvent;
 
         let num_steps = self.pre_processors_concrete.len();
 
@@ -251,8 +250,12 @@ impl ProcessorChain {
 
             // Set cloners on the processor
             let mut pre_locked = pre.lock().unwrap();
-            pre_locked.stream_processor.set_stream_event_cloner(stream_cloner);
-            pre_locked.stream_processor.set_state_event_cloner(state_cloner);
+            pre_locked
+                .stream_processor
+                .set_stream_event_cloner(stream_cloner);
+            pre_locked
+                .stream_processor
+                .set_state_event_cloner(state_cloner);
         }
     }
 

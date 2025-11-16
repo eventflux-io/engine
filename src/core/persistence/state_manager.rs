@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 use log::{debug, error, info, warn};
 
 use super::state_holder::{
-    CheckpointId, ComponentId, CompressionType, SerializationHints,
-    StateError, StateHolder, StateSnapshot,
+    CheckpointId, ComponentId, CompressionType, SerializationHints, StateError, StateHolder,
+    StateSnapshot,
 };
 use super::state_registry::StateRegistry;
 

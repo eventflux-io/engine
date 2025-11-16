@@ -405,7 +405,10 @@ impl StateHolder for TimeBatchWindowStateHolder {
                             }
                         }
                         Err(e) => {
-                            eprintln!("Warning: Failed to deserialize event during changelog apply: {:?}", e);
+                            eprintln!(
+                                "Warning: Failed to deserialize event during changelog apply: {:?}",
+                                e
+                            );
                             continue;
                         }
                     }
@@ -439,7 +442,9 @@ impl StateHolder for TimeBatchWindowStateHolder {
                 } => {
                     if key == b"start_time" {
                         // Handle start time update
-                        if let Ok(new_start_time) = crate::core::util::from_bytes::<Option<i64>>(new_value) {
+                        if let Ok(new_start_time) =
+                            crate::core::util::from_bytes::<Option<i64>>(new_value)
+                        {
                             *self.start_time.lock().unwrap() = new_start_time;
                         }
                     } else {

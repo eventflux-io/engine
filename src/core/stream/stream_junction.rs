@@ -420,10 +420,9 @@ impl StreamJunction {
 
         while let Some(mut current) = current_opt {
             // Try StreamEvent first (most common case)
-            if let Some(stream_event) =
-                current
-                    .as_any()
-                    .downcast_ref::<crate::core::event::stream::StreamEvent>()
+            if let Some(stream_event) = current
+                .as_any()
+                .downcast_ref::<crate::core::event::stream::StreamEvent>()
             {
                 // Use output_data if available (processed/projected data),
                 // otherwise fall back to before_window_data (raw input data)
@@ -442,15 +441,15 @@ impl StreamJunction {
                 events.push(event);
             }
             // Try StateEvent (used in patterns, joins, sequences)
-            else if let Some(state_event) =
-                current
-                    .as_any()
-                    .downcast_ref::<crate::core::event::state::StateEvent>()
+            else if let Some(state_event) = current
+                .as_any()
+                .downcast_ref::<crate::core::event::state::StateEvent>()
             {
                 // StateEvent contains multiple StreamEvents
                 // Use output_data from StateEvent if available (this is the joined/pattern-matched result)
                 if let Some(ref output_data) = state_event.output_data {
-                    let mut event = Event::new_with_data(state_event.timestamp, output_data.clone());
+                    let mut event =
+                        Event::new_with_data(state_event.timestamp, output_data.clone());
                     event.is_expired = matches!(
                         state_event.event_type,
                         crate::core::event::complex_event::ComplexEventType::Expired
@@ -466,13 +465,18 @@ impl StreamJunction {
                             // Traverse the chain of StreamEvents at this position
                             // stream_event_arc is &Arc<StreamEvent>, *stream_event_arc is Arc<StreamEvent> (via Deref)
                             // which derefs to StreamEvent, so &*stream_event_arc gives &StreamEvent
-                            let stream_event_ref: &crate::core::event::stream::StreamEvent = &*stream_event_arc;
-                            let mut current_in_chain: Option<&dyn crate::core::event::ComplexEvent> =
-                                Some(stream_event_ref);
+                            let stream_event_ref: &crate::core::event::stream::StreamEvent =
+                                &*stream_event_arc;
+                            let mut current_in_chain: Option<
+                                &dyn crate::core::event::ComplexEvent,
+                            > = Some(stream_event_ref);
 
                             while let Some(current) = current_in_chain {
                                 // Try to downcast to StreamEvent
-                                if let Some(se) = current.as_any().downcast_ref::<crate::core::event::stream::StreamEvent>() {
+                                if let Some(se) = current
+                                    .as_any()
+                                    .downcast_ref::<crate::core::event::stream::StreamEvent>(
+                                ) {
                                     let data = se
                                         .output_data
                                         .as_ref()
@@ -510,7 +514,10 @@ impl StreamJunction {
         }
 
         if self.shutdown.load(Ordering::Acquire) {
-            self.handle_backpressure_error(&format!("StreamJunction is shutting down ({} events dropped)", events.len()));
+            self.handle_backpressure_error(&format!(
+                "StreamJunction is shutting down ({} events dropped)",
+                events.len()
+            ));
             return Err(EventFluxError::SendError {
                 message: "StreamJunction is shutting down".to_string(),
             });
@@ -552,8 +559,10 @@ impl StreamJunction {
             }
 
             // Don't count processed events here - let the consumer count them
-            self.events_dropped.fetch_add(dropped as u64, Ordering::Relaxed);
-            self.processing_errors.fetch_add(errors as u64, Ordering::Relaxed);
+            self.events_dropped
+                .fetch_add(dropped as u64, Ordering::Relaxed);
+            self.processing_errors
+                .fetch_add(errors as u64, Ordering::Relaxed);
 
             // CRITICAL: Consistent with send_event() behavior - return error if ANY event failed
             // This allows upstream retry logic to work correctly
@@ -612,7 +621,10 @@ impl StreamJunction {
             log::warn!(
                 "[{}] Executor pool_size ({}) insufficient for requested {} consumer threads. \
                  Clamping to {} consumers to reserve threads for subscribers.",
-                stream_id, pool_size, requested_consumer_threads, clamped
+                stream_id,
+                pool_size,
+                requested_consumer_threads,
+                clamped
             );
             (clamped, false)
         } else {
@@ -838,7 +850,8 @@ impl StreamJunction {
                 } else {
                     log::warn!(
                         "[{}] Fault stream not configured: {}",
-                        self.stream_id, message
+                        self.stream_id,
+                        message
                     );
                 }
             }
@@ -855,7 +868,8 @@ impl StreamJunction {
                 } else {
                     log::warn!(
                         "[{}] Error store not configured: {}",
-                        self.stream_id, message
+                        self.stream_id,
+                        message
                     );
                 }
             }
@@ -1236,7 +1250,6 @@ mod tests {
         assert!(metrics.pipeline_metrics.throughput_events_per_sec > 10000.0);
     }
 
-
     #[test]
     fn test_junction_metrics_integration() {
         let (junction, _processor) = setup_junction(true);
@@ -1356,10 +1369,11 @@ mod tests {
         );
 
         // CRITICAL: Create single-threaded executor to reproduce starvation bug
-        let single_thread_executor = Arc::new(crate::core::util::executor_service::ExecutorService::new(
-            "single-thread-test",
-            1, // Only 1 thread - will cause starvation if not handled correctly
-        ));
+        let single_thread_executor =
+            Arc::new(crate::core::util::executor_service::ExecutorService::new(
+                "single-thread-test",
+                1, // Only 1 thread - will cause starvation if not handled correctly
+            ));
 
         let junction = Arc::new(Mutex::new(
             StreamJunction::new_with_executor(

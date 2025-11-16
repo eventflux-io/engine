@@ -67,7 +67,10 @@ impl SnapshotService {
     pub fn register_state_holder(&self, id: String, holder: Arc<Mutex<dyn StateHolder>>) {
         log::info!("SnapshotService: Registering state holder: {}", id);
         self.state_holders.lock().unwrap().insert(id, holder);
-        log::info!("SnapshotService: Total registered holders: {}", self.state_holders.lock().unwrap().len());
+        log::info!(
+            "SnapshotService: Total registered holders: {}",
+            self.state_holders.lock().unwrap().len()
+        );
     }
 
     /// Retrieve a copy of the internal state.

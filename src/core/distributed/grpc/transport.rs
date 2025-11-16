@@ -10,8 +10,8 @@
 use super::transport_client::TransportClient;
 use super::transport_server::Transport as TransportService;
 use super::{
-    ClusterInfo, CompressionType, HeartbeatRequest, HeartbeatResponse, MessageType,
-    NodeHealth, NodeStatus, TransportMessage,
+    ClusterInfo, CompressionType, HeartbeatRequest, HeartbeatResponse, MessageType, NodeHealth,
+    NodeStatus, TransportMessage,
 };
 
 use crate::core::distributed::transport::{

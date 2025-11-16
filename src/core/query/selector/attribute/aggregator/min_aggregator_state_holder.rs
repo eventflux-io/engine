@@ -225,11 +225,10 @@ impl StateHolder for MinAggregatorStateHolder {
             match operation {
                 StateOperation::Insert { value: new_val, .. } => {
                     // Deserialize the new value
-                    let new_value: Option<f64> = from_bytes(new_val).map_err(|e| {
-                        StateError::DeserializationError {
+                    let new_value: Option<f64> =
+                        from_bytes(new_val).map_err(|e| StateError::DeserializationError {
                             message: format!("Failed to deserialize new value: {e}"),
-                        }
-                    })?;
+                        })?;
 
                     // Update min value (insert is used when updating the min)
                     if let Some(new_v) = new_value {
@@ -245,13 +244,14 @@ impl StateHolder for MinAggregatorStateHolder {
                     // However, min typically doesn't support removal in the traditional sense
                     // This could be a no-op or reset depending on implementation
                 }
-                StateOperation::Update { new_value: new_val, .. } => {
+                StateOperation::Update {
+                    new_value: new_val, ..
+                } => {
                     // Deserialize new value (used for update/reset operations)
-                    let new_value: Option<f64> = from_bytes(new_val).map_err(|e| {
-                        StateError::DeserializationError {
+                    let new_value: Option<f64> =
+                        from_bytes(new_val).map_err(|e| StateError::DeserializationError {
                             message: format!("Failed to deserialize new value: {e}"),
-                        }
-                    })?;
+                        })?;
 
                     // Replace current value with new value
                     *value = new_value;

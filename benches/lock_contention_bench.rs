@@ -33,7 +33,10 @@ impl BenchProcessor {
 }
 
 impl Processor for BenchProcessor {
-    fn process(&self, _chunk: Option<Box<dyn eventflux_rust::core::event::complex_event::ComplexEvent>>) {
+    fn process(
+        &self,
+        _chunk: Option<Box<dyn eventflux_rust::core::event::complex_event::ComplexEvent>>,
+    ) {
         // Minimal processing - just consume the event
     }
 
@@ -82,10 +85,7 @@ impl Processor for BenchProcessor {
     }
 }
 
-fn create_junction(
-    subscriber_count: usize,
-    is_async: bool,
-) -> Arc<Mutex<StreamJunction>> {
+fn create_junction(subscriber_count: usize, is_async: bool) -> Arc<Mutex<StreamJunction>> {
     let ctx = Arc::new(EventFluxContext::new());
     let app = Arc::new(EventFluxApp::new("BenchApp".to_string()));
     let app_ctx = Arc::new(EventFluxAppContext::new(
@@ -96,8 +96,7 @@ fn create_junction(
     ));
 
     let stream_def = Arc::new(
-        StreamDefinition::new("BenchStream".to_string())
-            .attribute("id".to_string(), AttrType::INT),
+        StreamDefinition::new("BenchStream".to_string()).attribute("id".to_string(), AttrType::INT),
     );
 
     let config = JunctionConfig::new("BenchStream".to_string())
@@ -113,9 +112,10 @@ fn create_junction(
     }
 
     // Set to DROP mode for benchmarking to reduce noise
-    junction.lock().unwrap().set_on_error_action(
-        eventflux_rust::core::stream::stream_junction::OnErrorAction::DROP
-    );
+    junction
+        .lock()
+        .unwrap()
+        .set_on_error_action(eventflux_rust::core::stream::stream_junction::OnErrorAction::DROP);
 
     junction
 }

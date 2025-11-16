@@ -61,7 +61,11 @@ fn test_2b4_0_within_success() {
     // Verify output
     let outputs = collector.get_outputs();
     println!("  After B, outputs = {}", outputs.len());
-    assert_eq!(outputs.len(), 1, "Expected 1 output - B arrived within 10s window");
+    assert_eq!(
+        outputs.len(),
+        1,
+        "Expected 1 output - B arrived within 10s window"
+    );
 
     println!("SUCCESS: Pattern matched within WITHIN constraint");
 }
@@ -113,7 +117,11 @@ fn test_2b4_1_within_expired() {
     // Verify no output (B arrived too late, WITHIN constraint violated)
     let outputs = collector.get_outputs();
     println!("  After B, outputs = {}", outputs.len());
-    assert_eq!(outputs.len(), 0, "Expected no output - B arrived outside WITHIN window");
+    assert_eq!(
+        outputs.len(),
+        0,
+        "Expected no output - B arrived outside WITHIN window"
+    );
 
     println!("SUCCESS: Pattern rejected due to WITHIN constraint violation");
 }
@@ -123,7 +131,9 @@ fn test_2b4_1_within_expired() {
 /// Events: [A(t=0), X(t=3000), B(t=9000)] → MATCH (X ignored, B within 10s of A)
 #[test]
 fn test_2b4_2_within_pattern_mode() {
-    println!("\n=== Testing A -> B (Pattern, WITHIN 10s), events [A(t=0), X(t=3000), B(t=9000)] ===");
+    println!(
+        "\n=== Testing A -> B (Pattern, WITHIN 10s), events [A(t=0), X(t=3000), B(t=9000)] ==="
+    );
 
     let (mut chain, collector) = build_pattern_chain_with_within(
         vec![
@@ -131,7 +141,7 @@ fn test_2b4_2_within_pattern_mode() {
             ("e2".to_string(), "B".to_string(), 1, 1),
         ],
         StateType::Pattern, // Pattern mode ignores non-matching events
-        10000, // WITHIN 10 seconds (10000ms)
+        10000,              // WITHIN 10 seconds (10000ms)
     );
 
     // Send A at t=0
@@ -166,9 +176,15 @@ fn test_2b4_2_within_pattern_mode() {
     // Verify output (Pattern mode ignored X, B arrived within 10s of A)
     let outputs = collector.get_outputs();
     println!("  After B, outputs = {}", outputs.len());
-    assert_eq!(outputs.len(), 1, "Expected 1 output - Pattern ignored X, B within 10s of A");
+    assert_eq!(
+        outputs.len(),
+        1,
+        "Expected 1 output - Pattern ignored X, B within 10s of A"
+    );
 
-    println!("SUCCESS: Pattern mode ignored non-matching event and matched within WITHIN constraint");
+    println!(
+        "SUCCESS: Pattern mode ignored non-matching event and matched within WITHIN constraint"
+    );
 }
 
 /// Test 3: WITHIN constraint with Sequence mode - immediate failure breaks pattern
@@ -184,7 +200,7 @@ fn test_2b4_3_within_sequence_immediate_failure() {
             ("e2".to_string(), "B".to_string(), 1, 1),
         ],
         StateType::Sequence, // Sequence mode breaks on non-matching events
-        10000, // WITHIN 10 seconds (10000ms)
+        10000,               // WITHIN 10 seconds (10000ms)
     );
 
     // Send A at t=0
@@ -211,7 +227,11 @@ fn test_2b4_3_within_sequence_immediate_failure() {
     // Verify no output (sequence broken by C, not expired)
     let outputs = collector.get_outputs();
     println!("  After C, outputs = {}", outputs.len());
-    assert_eq!(outputs.len(), 0, "Expected no output - Sequence broken by C (immediate failure)");
+    assert_eq!(
+        outputs.len(),
+        0,
+        "Expected no output - Sequence broken by C (immediate failure)"
+    );
 
     println!("SUCCESS: Sequence mode failed immediately on wrong event (not due to expiry)");
 }

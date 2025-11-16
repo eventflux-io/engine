@@ -793,7 +793,10 @@ mod tests {
             props,
         );
 
-        assert!(config.is_ok(), "Sources should be allowed without format (e.g., timer uses binary passthrough)");
+        assert!(
+            config.is_ok(),
+            "Sources should be allowed without format (e.g., timer uses binary passthrough)"
+        );
     }
 
     #[test]

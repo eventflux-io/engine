@@ -124,7 +124,11 @@ fn test_2b2_1_count_quantifiers() {
             .unwrap()
             .process(Some(Box::new(event_a)));
         chain.update_state();
-        println!("  After A{}, outputs = {}", i + 1, collector.get_outputs().len());
+        println!(
+            "  After A{}, outputs = {}",
+            i + 1,
+            collector.get_outputs().len()
+        );
     }
 
     // Send two B events to processor[1]
@@ -135,7 +139,11 @@ fn test_2b2_1_count_quantifiers() {
             .unwrap()
             .process(Some(Box::new(event_b)));
         chain.update_state();
-        println!("  After B{}, outputs = {}", i + 1, collector.get_outputs().len());
+        println!(
+            "  After B{}, outputs = {}",
+            i + 1,
+            collector.get_outputs().len()
+        );
     }
 
     // Send two C events to processor[2]
@@ -146,7 +154,11 @@ fn test_2b2_1_count_quantifiers() {
             .unwrap()
             .process(Some(Box::new(event_c)));
         chain.update_state();
-        println!("  After C{}, outputs = {}", i + 1, collector.get_outputs().len());
+        println!(
+            "  After C{}, outputs = {}",
+            i + 1,
+            collector.get_outputs().len()
+        );
     }
 
     // Verify output
@@ -162,7 +174,10 @@ fn test_2b2_1_count_quantifiers() {
         "Position 0 should have event A"
     );
     let event_a_chain = state_evt.stream_events[0].as_ref().unwrap();
-    assert!(event_a_chain.next.is_some(), "A should be chained (2 events)");
+    assert!(
+        event_a_chain.next.is_some(),
+        "A should be chained (2 events)"
+    );
 
     // Check position 1 has B events
     assert!(
@@ -170,7 +185,10 @@ fn test_2b2_1_count_quantifiers() {
         "Position 1 should have event B"
     );
     let event_b_chain = state_evt.stream_events[1].as_ref().unwrap();
-    assert!(event_b_chain.next.is_some(), "B should be chained (2 events)");
+    assert!(
+        event_b_chain.next.is_some(),
+        "B should be chained (2 events)"
+    );
 
     // Check position 2 has C events
     assert!(
@@ -178,7 +196,10 @@ fn test_2b2_1_count_quantifiers() {
         "Position 2 should have event C"
     );
     let event_c_chain = state_evt.stream_events[2].as_ref().unwrap();
-    assert!(event_c_chain.next.is_some(), "C should be chained (2 events)");
+    assert!(
+        event_c_chain.next.is_some(),
+        "C should be chained (2 events)"
+    );
 
     println!("Final outputs count: {}", outputs.len());
 }
@@ -318,7 +339,11 @@ fn test_2b2_4_range_quantifiers() {
             .unwrap()
             .process(Some(Box::new(event_a)));
         chain.update_state();
-        println!("  After A{}, outputs = {}", i + 1, collector.get_outputs().len());
+        println!(
+            "  After A{}, outputs = {}",
+            i + 1,
+            collector.get_outputs().len()
+        );
     }
 
     // Send B to processor[1]
@@ -338,7 +363,11 @@ fn test_2b2_4_range_quantifiers() {
             .unwrap()
             .process(Some(Box::new(event_c)));
         chain.update_state();
-        println!("  After C{}, outputs = {}", i + 1, collector.get_outputs().len());
+        println!(
+            "  After C{}, outputs = {}",
+            i + 1,
+            collector.get_outputs().len()
+        );
     }
 
     // Verify output

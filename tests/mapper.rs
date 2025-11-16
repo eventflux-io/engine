@@ -15,11 +15,10 @@ struct CsvSourceMapper;
 
 impl SourceMapper for CsvSourceMapper {
     fn map(&self, input: &[u8]) -> Result<Vec<Event>, EventFluxError> {
-        let text = std::str::from_utf8(input)
-            .map_err(|e| EventFluxError::MappingFailed {
-                message: format!("Invalid UTF-8: {}", e),
-                source: Some(Box::new(e)),
-            })?;
+        let text = std::str::from_utf8(input).map_err(|e| EventFluxError::MappingFailed {
+            message: format!("Invalid UTF-8: {}", e),
+            source: Some(Box::new(e)),
+        })?;
 
         let events: Vec<Event> = text
             .lines()

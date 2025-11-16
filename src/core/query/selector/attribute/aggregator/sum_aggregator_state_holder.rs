@@ -252,11 +252,10 @@ impl StateHolder for SumAggregatorStateHolder {
             match operation {
                 StateOperation::Insert { value, .. } => {
                     // Deserialize the value that was added
-                    let added_value: f64 = from_bytes(value).map_err(|e| {
-                        StateError::DeserializationError {
+                    let added_value: f64 =
+                        from_bytes(value).map_err(|e| StateError::DeserializationError {
                             message: format!("Failed to deserialize added value: {e}"),
-                        }
-                    })?;
+                        })?;
 
                     // Add to sum and increment count
                     *sum += added_value;
@@ -264,11 +263,10 @@ impl StateHolder for SumAggregatorStateHolder {
                 }
                 StateOperation::Delete { old_value, .. } => {
                     // Deserialize the value that was removed
-                    let removed_value: f64 = from_bytes(old_value).map_err(|e| {
-                        StateError::DeserializationError {
+                    let removed_value: f64 =
+                        from_bytes(old_value).map_err(|e| StateError::DeserializationError {
                             message: format!("Failed to deserialize removed value: {e}"),
-                        }
-                    })?;
+                        })?;
 
                     // Subtract from sum and decrement count
                     *sum -= removed_value;
@@ -278,11 +276,10 @@ impl StateHolder for SumAggregatorStateHolder {
                 }
                 StateOperation::Update { new_value, .. } => {
                     // Deserialize new state (used for reset operations)
-                    let new_state: (f64, u64) = from_bytes(new_value).map_err(|e| {
-                        StateError::DeserializationError {
+                    let new_state: (f64, u64) =
+                        from_bytes(new_value).map_err(|e| StateError::DeserializationError {
                             message: format!("Failed to deserialize new state: {e}"),
-                        }
-                    })?;
+                        })?;
 
                     // Replace current state with new state
                     *sum = new_state.0;

@@ -99,14 +99,17 @@ fn test_fault_stream_routing() {
     let fault_def = Arc::new(
         StreamDefinition::new("Fault".to_string()).attribute("a".to_string(), AttrType::INT),
     );
-    let fault_junction = Arc::new(Mutex::new(StreamJunction::new(
-        "Fault".to_string(),
-        Arc::clone(&fault_def),
-        Arc::new(app_ctx.clone()),
-        64,
-        false,
-        None,
-    ).unwrap()));
+    let fault_junction = Arc::new(Mutex::new(
+        StreamJunction::new(
+            "Fault".to_string(),
+            Arc::clone(&fault_def),
+            Arc::new(app_ctx.clone()),
+            64,
+            false,
+            None,
+        )
+        .unwrap(),
+    ));
     let mut main_junction = StreamJunction::new(
         "In".to_string(),
         Arc::clone(&def),
@@ -114,7 +117,8 @@ fn test_fault_stream_routing() {
         64,
         true,
         Some(Arc::clone(&fault_junction)),
-    ).unwrap();
+    )
+    .unwrap();
     main_junction.set_on_error_action(OnErrorAction::STREAM);
     let rec = Arc::new(Mutex::new(Vec::new()));
     fault_junction
@@ -152,7 +156,8 @@ fn test_error_store_routing() {
         64,
         true,
         None,
-    ).unwrap();
+    )
+    .unwrap();
     junction.set_on_error_action(OnErrorAction::STORE);
     junction.stop_processing();
     junction.send_event(Event::new_with_data(0, vec![AttributeValue::Int(2)]));

@@ -254,7 +254,10 @@ impl StateHolder for LengthBatchWindowStateHolder {
     fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError> {
         use crate::core::util::from_bytes;
 
-        log::info!("LengthBatchWindow: deserialize_state called for component {}", self.component_id);
+        log::info!(
+            "LengthBatchWindow: deserialize_state called for component {}",
+            self.component_id
+        );
 
         // Verify integrity
         if !snapshot.verify_integrity() {
@@ -271,8 +274,11 @@ impl StateHolder for LengthBatchWindowStateHolder {
                 message: format!("Failed to deserialize length batch window state: {e}"),
             })?;
 
-        log::info!("LengthBatchWindow: Deserialized {} current batch events, {} expired events",
-            state_data.current_batch.len(), state_data.expired_batch.len());
+        log::info!(
+            "LengthBatchWindow: Deserialized {} current batch events, {} expired events",
+            state_data.current_batch.len(),
+            state_data.expired_batch.len()
+        );
 
         // Deserialize and restore current batch events
         {
@@ -311,7 +317,10 @@ impl StateHolder for LengthBatchWindowStateHolder {
         // Restore metadata (batch_length is configuration and doesn't need to be restored)
         *self.total_events_processed.lock().unwrap() = state_data.total_events_processed;
 
-        log::info!("LengthBatchWindow: Successfully restored state for component {}", self.component_id);
+        log::info!(
+            "LengthBatchWindow: Successfully restored state for component {}",
+            self.component_id
+        );
         Ok(())
     }
 
@@ -357,7 +366,10 @@ impl StateHolder for LengthBatchWindowStateHolder {
                             }
                         }
                         Err(e) => {
-                            eprintln!("Warning: Failed to deserialize event during changelog apply: {:?}", e);
+                            eprintln!(
+                                "Warning: Failed to deserialize event during changelog apply: {:?}",
+                                e
+                            );
                             continue;
                         }
                     }

@@ -222,11 +222,10 @@ impl StateHolder for CountAggregatorStateHolder {
                 }
                 StateOperation::Update { new_value, .. } => {
                     // Deserialize new count (used for reset operations)
-                    let new_count: i64 = from_bytes(new_value).map_err(|e| {
-                        StateError::DeserializationError {
+                    let new_count: i64 =
+                        from_bytes(new_value).map_err(|e| StateError::DeserializationError {
                             message: format!("Failed to deserialize new count: {e}"),
-                        }
-                    })?;
+                        })?;
 
                     // Replace current count with new count
                     *count = new_count;

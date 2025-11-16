@@ -60,17 +60,9 @@ impl EventFluxAppParser {
             default_stream_async,
         )?;
 
-        Self::process_table_definitions(
-            api_eventflux_app,
-            &mut builder,
-            &eventflux_app_context,
-        )?;
+        Self::process_table_definitions(api_eventflux_app, &mut builder, &eventflux_app_context)?;
 
-        Self::process_window_definitions(
-            api_eventflux_app,
-            &mut builder,
-            &eventflux_app_context,
-        )?;
+        Self::process_window_definitions(api_eventflux_app, &mut builder, &eventflux_app_context)?;
 
         Self::process_aggregation_definitions(
             api_eventflux_app,
@@ -78,11 +70,7 @@ impl EventFluxAppParser {
             &eventflux_app_context,
         )?;
 
-        Self::process_execution_elements(
-            api_eventflux_app,
-            &mut builder,
-            &eventflux_app_context,
-        )?;
+        Self::process_execution_elements(api_eventflux_app, &mut builder, &eventflux_app_context)?;
 
         Ok(builder)
     }
@@ -178,7 +166,12 @@ impl EventFluxAppParser {
                 eventflux_app_context.clone(),
                 None,
             )
-            .map_err(|e| format!("Failed to create stream junction for '{}': {}", stream_id, e))?;
+            .map_err(|e| {
+                format!(
+                    "Failed to create stream junction for '{}': {}",
+                    stream_id, e
+                )
+            })?;
 
             builder.add_stream_junction(stream_id.clone(), stream_junction);
         }
@@ -382,14 +375,11 @@ impl EventFluxAppParser {
                     )?;
                     builder.add_query_runtime(Arc::new(query_runtime));
                     query_index += 1; // Increment for next query
-                    // TODO: eventflux_app_context.addEternalReferencedHolder(queryRuntime);
+                                      // TODO: eventflux_app_context.addEternalReferencedHolder(queryRuntime);
                 }
                 ApiExecutionElement::Partition(api_partition) => {
-                    let part_rt = PartitionParser::parse(
-                        builder,
-                        api_partition,
-                        eventflux_app_context,
-                    )?;
+                    let part_rt =
+                        PartitionParser::parse(builder, api_partition, eventflux_app_context)?;
                     builder.add_partition_runtime(Arc::new(part_rt));
                 }
             }

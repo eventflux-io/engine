@@ -241,30 +241,27 @@ impl StateHolder for DistinctCountAggregatorStateHolder {
             match operation {
                 StateOperation::Insert { key, value } => {
                     // Deserialize key and count
-                    let key_str =
-                        String::from_utf8(key.clone()).map_err(|e| {
-                            StateError::DeserializationError {
-                                message: format!("Failed to deserialize key: {e}"),
-                            }
-                        })?;
-
-                    let count: i64 = from_bytes(value).map_err(|e| {
+                    let key_str = String::from_utf8(key.clone()).map_err(|e| {
                         StateError::DeserializationError {
-                            message: format!("Failed to deserialize count: {e}"),
+                            message: format!("Failed to deserialize key: {e}"),
                         }
                     })?;
+
+                    let count: i64 =
+                        from_bytes(value).map_err(|e| StateError::DeserializationError {
+                            message: format!("Failed to deserialize count: {e}"),
+                        })?;
 
                     // Insert new distinct value with its count
                     map.insert(key_str, count);
                 }
                 StateOperation::Delete { key, .. } => {
                     // Deserialize key
-                    let key_str =
-                        String::from_utf8(key.clone()).map_err(|e| {
-                            StateError::DeserializationError {
-                                message: format!("Failed to deserialize key: {e}"),
-                            }
-                        })?;
+                    let key_str = String::from_utf8(key.clone()).map_err(|e| {
+                        StateError::DeserializationError {
+                            message: format!("Failed to deserialize key: {e}"),
+                        }
+                    })?;
 
                     // Remove distinct value from map
                     map.remove(&key_str);
@@ -273,12 +270,11 @@ impl StateHolder for DistinctCountAggregatorStateHolder {
                     // Check if this is a reset operation
                     if key == b"reset" {
                         // Deserialize new map (used for reset operations)
-                        let new_map: HashMap<String, i64> =
-                            from_bytes(new_value).map_err(|e| {
-                                StateError::DeserializationError {
-                                    message: format!("Failed to deserialize new map: {e}"),
-                                }
-                            })?;
+                        let new_map: HashMap<String, i64> = from_bytes(new_value).map_err(|e| {
+                            StateError::DeserializationError {
+                                message: format!("Failed to deserialize new map: {e}"),
+                            }
+                        })?;
 
                         // Replace current map with new map
                         *map = new_map;

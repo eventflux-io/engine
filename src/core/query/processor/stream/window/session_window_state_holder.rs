@@ -17,9 +17,8 @@ use super::session_window_processor::{SessionContainer, SessionEventChunk, Sessi
 
 use crate::core::event::stream::stream_event::StreamEvent;
 use crate::core::persistence::state_holder::{
-    AccessPattern, ChangeLog, CheckpointId, CompressionType, SchemaVersion,
-    SerializationHints, StateError, StateHolder, StateMetadata, StateOperation, StateSize,
-    StateSnapshot,
+    AccessPattern, ChangeLog, CheckpointId, CompressionType, SchemaVersion, SerializationHints,
+    StateError, StateHolder, StateMetadata, StateOperation, StateSize, StateSnapshot,
 };
 use crate::core::util::compression::{
     CompressibleStateHolder, CompressionHints, DataCharacteristics, DataSizeRange,
@@ -468,7 +467,8 @@ impl StateHolder for SessionWindowStateHolder {
                                         // Remove matching event from current session
                                         container.current_session.events.retain(|e| {
                                             !(e.timestamp == event_to_remove.timestamp
-                                                && e.before_window_data == event_to_remove.before_window_data)
+                                                && e.before_window_data
+                                                    == event_to_remove.before_window_data)
                                         });
                                     }
                                 }
@@ -497,7 +497,8 @@ impl StateHolder for SessionWindowStateHolder {
                                     if let Ok(old_event) = self.deserialize_event(old_value) {
                                         container.current_session.events.retain(|e| {
                                             !(e.timestamp == old_event.timestamp
-                                                && e.before_window_data == old_event.before_window_data)
+                                                && e.before_window_data
+                                                    == old_event.before_window_data)
                                         });
                                     }
                                 }

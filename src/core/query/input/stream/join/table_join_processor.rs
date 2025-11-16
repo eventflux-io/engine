@@ -59,9 +59,9 @@ impl TableJoinProcessor {
         // This ensures callbacks and downstream processors receive the joined payload
         let mut event = StreamEvent::new(
             stream.timestamp,
-            total_attr_count,  // before_window_data
-            0,                 // on_after_window_data
-            total_attr_count,  // output_data - FIXED: was 0, now has proper size
+            total_attr_count, // before_window_data
+            0,                // on_after_window_data
+            total_attr_count, // output_data - FIXED: was 0, now has proper size
         );
 
         // Preserve event type (Current/Expired) from upstream event

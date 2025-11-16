@@ -68,25 +68,36 @@ impl SourceStreamHandler {
     /// Begins processing events from the source. This operation is idempotent;
     /// calling start() on an already-running source is a no-op and returns Ok.
     pub fn start(&self) -> Result<(), EventFluxError> {
-        log::info!("[SourceStreamHandler] start() called for stream '{}'", self.stream_id);
+        log::info!(
+            "[SourceStreamHandler] start() called for stream '{}'",
+            self.stream_id
+        );
 
         // Check if already running - if so, this is a no-op
         if self.is_running.load(Ordering::SeqCst) {
-            log::debug!("[SourceStreamHandler] Stream '{}' already running, skipping", self.stream_id);
+            log::debug!(
+                "[SourceStreamHandler] Stream '{}' already running, skipping",
+                self.stream_id
+            );
             return Ok(());
         }
 
         // Atomically transition to running state
         if self.is_running.swap(true, Ordering::SeqCst) {
             // Another thread started it between our check and swap
-            log::debug!("[SourceStreamHandler] Stream '{}' was started by another thread", self.stream_id);
+            log::debug!(
+                "[SourceStreamHandler] Stream '{}' was started by another thread",
+                self.stream_id
+            );
             return Ok(());
         }
 
         // Get mapper from handler (custom format) or use PassthroughMapper (binary default)
         let mapper = self.mapper.clone().unwrap_or_else(|| {
             // No format specified - use efficient binary passthrough
-            Arc::new(Mutex::new(Box::new(PassthroughMapper::new()) as Box<dyn SourceMapper>))
+            Arc::new(Mutex::new(
+                Box::new(PassthroughMapper::new()) as Box<dyn SourceMapper>
+            ))
         });
 
         // Create adapter: Source → bytes → SourceCallback → SourceMapper → Events → InputHandler
@@ -95,7 +106,10 @@ impl SourceStreamHandler {
             Arc::clone(&self.input_handler),
         ));
 
-        log::info!("[SourceStreamHandler] Starting source for stream '{}'", self.stream_id);
+        log::info!(
+            "[SourceStreamHandler] Starting source for stream '{}'",
+            self.stream_id
+        );
         // Start the source with callback
         self.source.lock().unwrap().start(callback);
         Ok(())

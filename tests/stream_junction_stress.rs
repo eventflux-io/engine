@@ -100,21 +100,28 @@ fn setup_junction(
     let def = Arc::new(
         StreamDefinition::new("InputStream".to_string()).attribute("a".to_string(), AttrType::INT),
     );
-    let junction = Arc::new(Mutex::new(StreamJunction::new(
-        "InputStream".to_string(),
-        Arc::clone(&def),
-        Arc::clone(&app_ctx),
-        4096,
-        async_mode,
-        None,
-    ).unwrap()));
+    let junction = Arc::new(Mutex::new(
+        StreamJunction::new(
+            "InputStream".to_string(),
+            Arc::clone(&def),
+            Arc::clone(&app_ctx),
+            4096,
+            async_mode,
+            None,
+        )
+        .unwrap(),
+    ));
     let rec = Arc::new(Mutex::new(Vec::new()));
     let p = Arc::new(Mutex::new(RecordingProcessor {
         events: Arc::clone(&rec),
     }));
     junction.lock().unwrap().subscribe(p);
     if async_mode {
-        junction.lock().unwrap().start_processing().expect("Failed to start async processing");
+        junction
+            .lock()
+            .unwrap()
+            .start_processing()
+            .expect("Failed to start async processing");
     }
     (junction, rec)
 }

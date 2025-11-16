@@ -385,8 +385,10 @@ mod tests {
     fn test_format_support_validation() {
         // Timer uses internal binary format only (no external formats)
         let factory = TimerSourceFactory;
-        assert!(factory.supported_formats().is_empty(),
-            "Timer should not support external formats (uses binary passthrough)");
+        assert!(
+            factory.supported_formats().is_empty(),
+            "Timer should not support external formats (uses binary passthrough)"
+        );
 
         // Kafka supports external formats
         let kafka_factory = KafkaSourceFactory;

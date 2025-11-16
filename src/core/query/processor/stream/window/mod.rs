@@ -629,7 +629,6 @@ impl LengthBatchWindowProcessor {
         app_ctx: Arc<EventFluxAppContext>,
         query_ctx: Arc<EventFluxQueryContext>,
     ) -> Self {
-
         let buffer = Arc::new(Mutex::new(Vec::new()));
         let expired = Arc::new(Mutex::new(Vec::new()));
 

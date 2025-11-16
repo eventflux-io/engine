@@ -40,7 +40,10 @@ pub trait StreamCallback: Debug + Send + Sync {
             // Convert ComplexEvent to Event by extracting data
             // Try output_data first (for processed events with selectors),
             // then fall back to before_window_data (for source events)
-            let data = if let Some(stream_event) = current_complex_event.as_any().downcast_ref::<crate::core::event::stream::StreamEvent>() {
+            let data = if let Some(stream_event) = current_complex_event
+                .as_any()
+                .downcast_ref::<crate::core::event::stream::StreamEvent>(
+            ) {
                 // For StreamEvent, prefer output_data if non-empty, else use before_window_data
                 if let Some(ref output) = stream_event.output_data {
                     if !output.is_empty() {
@@ -51,13 +54,17 @@ pub trait StreamCallback: Debug + Send + Sync {
                 } else {
                     stream_event.before_window_data.clone()
                 }
-            } else if let Some(state_event) = current_complex_event.as_any().downcast_ref::<crate::core::event::state::StateEvent>() {
+            } else if let Some(state_event) = current_complex_event
+                .as_any()
+                .downcast_ref::<crate::core::event::state::StateEvent>(
+            ) {
                 // For StateEvent, use output_data or empty
                 state_event.output_data.clone().unwrap_or_default()
             } else {
                 log::warn!("[StreamCallback] Unknown event type, using get_output_data()");
                 // Unknown event type, try output_data
-                current_complex_event.get_output_data()
+                current_complex_event
+                    .get_output_data()
                     .map(|d| d.to_vec())
                     .unwrap_or_default()
             };

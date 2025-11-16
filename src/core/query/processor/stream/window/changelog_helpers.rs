@@ -38,7 +38,10 @@ pub fn apply_operation_to_simple_window(
                     Ok(())
                 }
                 Err(e) => {
-                    log::warn!("Failed to deserialize event during changelog apply: {:?}", e);
+                    log::warn!(
+                        "Failed to deserialize event during changelog apply: {:?}",
+                        e
+                    );
                     Err(e)
                 }
             }
@@ -107,8 +110,10 @@ mod tests {
         let serialized = bincode::serialize(&event).unwrap();
 
         let deserialize_fn = |data: &[u8]| {
-            bincode::deserialize::<StreamEvent>(data).map_err(|_| StateError::DeserializationError {
-                message: "Failed".to_string(),
+            bincode::deserialize::<StreamEvent>(data).map_err(|_| {
+                StateError::DeserializationError {
+                    message: "Failed".to_string(),
+                }
             })
         };
 
@@ -132,8 +137,10 @@ mod tests {
         let serialized = bincode::serialize(&event).unwrap();
 
         let deserialize_fn = |data: &[u8]| {
-            bincode::deserialize::<StreamEvent>(data).map_err(|_| StateError::DeserializationError {
-                message: "Failed".to_string(),
+            bincode::deserialize::<StreamEvent>(data).map_err(|_| {
+                StateError::DeserializationError {
+                    message: "Failed".to_string(),
+                }
             })
         };
 

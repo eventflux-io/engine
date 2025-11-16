@@ -32,14 +32,17 @@ fn timer_source_to_log_sink() {
         StreamDefinition::new("FooStream".to_string())
             .attribute("message".to_string(), AttrType::STRING),
     );
-    let junction = Arc::new(Mutex::new(StreamJunction::new(
-        "FooStream".to_string(),
-        Arc::clone(&stream_def),
-        Arc::clone(&app_ctx),
-        64,
-        false,
-        None,
-    ).unwrap()));
+    let junction = Arc::new(Mutex::new(
+        StreamJunction::new(
+            "FooStream".to_string(),
+            Arc::clone(&stream_def),
+            Arc::clone(&app_ctx),
+            64,
+            false,
+            None,
+        )
+        .unwrap(),
+    ));
 
     let publisher = StreamJunction::construct_publisher(Arc::clone(&junction));
     let input_handler = Arc::new(Mutex::new(InputHandler::new(

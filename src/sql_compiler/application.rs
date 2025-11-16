@@ -322,7 +322,10 @@ mod tests {
         "#;
 
         let result = parse_sql_application(sql);
-        assert!(result.is_ok(), "Should allow missing format for sources like timer");
+        assert!(
+            result.is_ok(),
+            "Should allow missing format for sources like timer"
+        );
 
         // Note: Sources that require format (like Kafka) will fail at initialization time,
         // not at SQL parsing time. This allows binary passthrough sources (timer) to work.

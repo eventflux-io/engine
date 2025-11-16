@@ -42,8 +42,7 @@ pub fn create_test_contexts() -> (Arc<EventFluxAppContext>, Arc<EventFluxQueryCo
 /// Create a stream definition for testing
 pub fn create_stream_definition(name: &str) -> Arc<StreamDefinition> {
     Arc::new(
-        StreamDefinition::new(name.to_string())
-            .attribute("value".to_string(), AttributeType::LONG)
+        StreamDefinition::new(name.to_string()).attribute("value".to_string(), AttributeType::LONG),
     )
 }
 
@@ -62,7 +61,8 @@ pub fn build_pattern_chain(
     let mut builder = PatternChainBuilder::new(state_type);
 
     // Collect stream definitions before consuming steps
-    let stream_defs: Vec<Arc<StreamDefinition>> = steps.iter()
+    let stream_defs: Vec<Arc<StreamDefinition>> = steps
+        .iter()
         .map(|(_, stream_name, _, _)| create_stream_definition(stream_name))
         .collect();
 
@@ -71,7 +71,9 @@ pub fn build_pattern_chain(
         builder.add_step(PatternStepConfig::new(alias, stream_name, min, max));
     }
 
-    let mut chain = builder.build(app_ctx, query_ctx).expect("Failed to build chain");
+    let mut chain = builder
+        .build(app_ctx, query_ctx)
+        .expect("Failed to build chain");
 
     // Initialize chain
     chain.init();
@@ -110,7 +112,8 @@ pub fn build_pattern_chain_with_within(
     let mut builder = PatternChainBuilder::new(state_type);
 
     // Collect stream definitions before consuming steps
-    let stream_defs: Vec<Arc<StreamDefinition>> = steps.iter()
+    let stream_defs: Vec<Arc<StreamDefinition>> = steps
+        .iter()
         .map(|(_, stream_name, _, _)| create_stream_definition(stream_name))
         .collect();
 
@@ -119,7 +122,9 @@ pub fn build_pattern_chain_with_within(
         builder.add_step(PatternStepConfig::new(alias, stream_name, min, max));
     }
 
-    let mut chain = builder.build(app_ctx, query_ctx).expect("Failed to build chain");
+    let mut chain = builder
+        .build(app_ctx, query_ctx)
+        .expect("Failed to build chain");
 
     // Initialize chain
     chain.init();
@@ -179,7 +184,10 @@ impl OutputCollector {
     }
 
     /// Create a wrapper post processor that captures outputs
-    pub fn create_wrapper(&self, original: Arc<Mutex<dyn PostStateProcessor>>) -> CollectorPostProcessor {
+    pub fn create_wrapper(
+        &self,
+        original: Arc<Mutex<dyn PostStateProcessor>>,
+    ) -> CollectorPostProcessor {
         CollectorPostProcessor {
             original,
             outputs: self.outputs.clone(),
@@ -195,10 +203,7 @@ pub struct CollectorPostProcessor {
 }
 
 impl PostStateProcessor for CollectorPostProcessor {
-    fn process(
-        &mut self,
-        chunk: Option<Box<dyn ComplexEvent>>,
-    ) -> Option<Box<dyn ComplexEvent>> {
+    fn process(&mut self, chunk: Option<Box<dyn ComplexEvent>>) -> Option<Box<dyn ComplexEvent>> {
         if let Some(ref event) = chunk {
             if let Some(state_event) = event.as_any().downcast_ref::<StateEvent>() {
                 println!("  -> Captured StateEvent!");
@@ -226,21 +231,30 @@ impl PostStateProcessor for CollectorPostProcessor {
         &mut self,
         next_state_pre_processor: Arc<Mutex<dyn eventflux_rust::core::query::input::stream::state::pre_state_processor::PreStateProcessor>>,
     ) {
-        self.original.lock().unwrap().set_next_state_pre_processor(next_state_pre_processor);
+        self.original
+            .lock()
+            .unwrap()
+            .set_next_state_pre_processor(next_state_pre_processor);
     }
 
     fn set_next_every_state_pre_processor(
         &mut self,
         next_every_state_pre_processor: Arc<Mutex<dyn eventflux_rust::core::query::input::stream::state::pre_state_processor::PreStateProcessor>>,
     ) {
-        self.original.lock().unwrap().set_next_every_state_pre_processor(next_every_state_pre_processor);
+        self.original
+            .lock()
+            .unwrap()
+            .set_next_every_state_pre_processor(next_every_state_pre_processor);
     }
 
     fn set_callback_pre_state_processor(
         &mut self,
         callback_pre_state_processor: Arc<Mutex<dyn eventflux_rust::core::query::input::stream::state::pre_state_processor::PreStateProcessor>>,
     ) {
-        self.original.lock().unwrap().set_callback_pre_state_processor(callback_pre_state_processor);
+        self.original
+            .lock()
+            .unwrap()
+            .set_callback_pre_state_processor(callback_pre_state_processor);
     }
 
     fn is_event_returned(&self) -> bool {
@@ -251,7 +265,7 @@ impl PostStateProcessor for CollectorPostProcessor {
         self.original.lock().unwrap().clear_processed_event();
     }
 
-    fn this_state_pre_processor(&self) -> Option<Arc<Mutex<dyn eventflux_rust::core::query::input::stream::state::pre_state_processor::PreStateProcessor>>> {
+    fn this_state_pre_processor(&self) -> Option<Arc<Mutex<dyn eventflux_rust::core::query::input::stream::state::pre_state_processor::PreStateProcessor>>>{
         self.original.lock().unwrap().this_state_pre_processor()
     }
 }

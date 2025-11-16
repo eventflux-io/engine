@@ -652,10 +652,7 @@ async fn test_redis_aggregator_recovery_identical() {
     if let Some(last_event) = original_output.last() {
         // Total should be 100 + 200 + 50 = 350
         if let Some(AttributeValue::Int(total)) = last_event.get(0) {
-            assert_eq!(
-                *total, 350,
-                "Original SUM should be 350 (100+200+50)"
-            );
+            assert_eq!(*total, 350, "Original SUM should be 350 (100+200+50)");
         }
 
         // Count should be 3

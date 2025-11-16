@@ -76,7 +76,11 @@ fn test_2b3_0_pattern_ignores_non_matching() {
     // Verify output
     let outputs = collector.get_outputs();
     println!("  After B, outputs = {}", outputs.len());
-    assert_eq!(outputs.len(), 1, "Expected 1 output - Pattern mode ignores non-matching events");
+    assert_eq!(
+        outputs.len(),
+        1,
+        "Expected 1 output - Pattern mode ignores non-matching events"
+    );
 
     // Verify StateEvent contains A and B
     let state_evt = &outputs[0];
@@ -172,7 +176,11 @@ fn test_2b3_1_sequence_vs_pattern() {
 
     let pat_outputs = pat_collector.get_outputs();
     println!("  Pattern mode outputs: {}", pat_outputs.len());
-    assert_eq!(pat_outputs.len(), 1, "Pattern mode: X is ignored, pattern matches");
+    assert_eq!(
+        pat_outputs.len(),
+        1,
+        "Pattern mode: X is ignored, pattern matches"
+    );
 
     println!("SUCCESS: Sequence breaks on X, Pattern ignores X and matches");
 }
@@ -247,7 +255,11 @@ fn test_2b3_2_three_step_pattern_with_noise() {
     // Verify output
     let outputs = collector.get_outputs();
     println!("  After C, outputs = {}", outputs.len());
-    assert_eq!(outputs.len(), 1, "Expected 1 output - Pattern completed despite noise");
+    assert_eq!(
+        outputs.len(),
+        1,
+        "Expected 1 output - Pattern completed despite noise"
+    );
 
     // Verify StateEvent contains all three steps
     let state_evt = &outputs[0];
@@ -305,10 +317,17 @@ fn test_2b3_3_pattern_with_many_non_matching() {
 
         // Log progress every 100 events
         if (i + 1) % 100 == 0 {
-            println!("  Sent {} non-matching events, outputs = {}", i + 1, collector.get_outputs().len());
+            println!(
+                "  Sent {} non-matching events, outputs = {}",
+                i + 1,
+                collector.get_outputs().len()
+            );
         }
     }
-    println!("  After 1000 X events, outputs = {}", collector.get_outputs().len());
+    println!(
+        "  After 1000 X events, outputs = {}",
+        collector.get_outputs().len()
+    );
 
     // Send B to processor[1] (should match and complete the pattern)
     let event_b = create_stream_event(3000);
@@ -322,7 +341,11 @@ fn test_2b3_3_pattern_with_many_non_matching() {
     // Verify output
     let outputs = collector.get_outputs();
     println!("  After B, outputs = {}", outputs.len());
-    assert_eq!(outputs.len(), 1, "Expected 1 output - Pattern matched despite 1000 non-matching events");
+    assert_eq!(
+        outputs.len(),
+        1,
+        "Expected 1 output - Pattern matched despite 1000 non-matching events"
+    );
 
     // Verify StateEvent contains A and B
     let state_evt = &outputs[0];
