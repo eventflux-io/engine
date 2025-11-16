@@ -15,9 +15,15 @@ fn test_cache_insert_and_eviction() {
     table.insert(&r2).unwrap();
     table.insert(&r3).unwrap();
     // r1 should be evicted
-    assert!(!table.contains(&InMemoryCompiledCondition { values: r1 }).unwrap());
-    assert!(table.contains(&InMemoryCompiledCondition { values: r2.clone() }).unwrap());
-    assert!(table.contains(&InMemoryCompiledCondition { values: r3.clone() }).unwrap());
+    assert!(!table
+        .contains(&InMemoryCompiledCondition { values: r1 })
+        .unwrap());
+    assert!(table
+        .contains(&InMemoryCompiledCondition { values: r2.clone() })
+        .unwrap());
+    assert!(table
+        .contains(&InMemoryCompiledCondition { values: r3.clone() })
+        .unwrap());
 }
 
 #[test]
@@ -29,13 +35,21 @@ fn test_cache_update_delete_find() {
     let cond = InMemoryCompiledCondition { values: r1.clone() };
     let us = InMemoryCompiledUpdateSet { values: r2.clone() };
     assert!(table.update(&cond, &us).unwrap());
-    assert!(!table.contains(&InMemoryCompiledCondition { values: r1 }).unwrap());
-    assert!(table.contains(&InMemoryCompiledCondition { values: r2.clone() }).unwrap());
+    assert!(!table
+        .contains(&InMemoryCompiledCondition { values: r1 })
+        .unwrap());
+    assert!(table
+        .contains(&InMemoryCompiledCondition { values: r2.clone() })
+        .unwrap());
     assert_eq!(
-        table.find(&InMemoryCompiledCondition { values: r2.clone() }).unwrap(),
+        table
+            .find(&InMemoryCompiledCondition { values: r2.clone() })
+            .unwrap(),
         Some(r2.clone())
     );
-    assert!(table.delete(&InMemoryCompiledCondition { values: r2.clone() }).unwrap());
+    assert!(table
+        .delete(&InMemoryCompiledCondition { values: r2.clone() })
+        .unwrap());
     assert!(table
         .find(&InMemoryCompiledCondition { values: r2 })
         .unwrap()

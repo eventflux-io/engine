@@ -94,7 +94,10 @@ pub trait Table: Debug + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the underlying storage operation fails (e.g., database error).
-    fn insert(&self, values: &[AttributeValue]) -> Result<(), crate::core::exception::EventFluxError>;
+    fn insert(
+        &self,
+        values: &[AttributeValue],
+    ) -> Result<(), crate::core::exception::EventFluxError>;
 
     /// Updates rows matching `condition` using the values from `update_set`.
     /// Returns `true` if any row was updated.
@@ -105,7 +108,7 @@ pub trait Table: Debug + Send + Sync {
     fn update(
         &self,
         condition: &dyn CompiledCondition,
-        update_set: &dyn CompiledUpdateSet
+        update_set: &dyn CompiledUpdateSet,
     ) -> Result<bool, crate::core::exception::EventFluxError>;
 
     /// Deletes rows matching `condition` from the table.
@@ -114,21 +117,30 @@ pub trait Table: Debug + Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the underlying storage operation fails (e.g., database error).
-    fn delete(&self, condition: &dyn CompiledCondition) -> Result<bool, crate::core::exception::EventFluxError>;
+    fn delete(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<bool, crate::core::exception::EventFluxError>;
 
     /// Finds the first row matching `condition` and returns a clone of it.
     ///
     /// # Errors
     ///
     /// Returns an error if the underlying storage operation fails (e.g., database error).
-    fn find(&self, condition: &dyn CompiledCondition) -> Result<Option<Vec<AttributeValue>>, crate::core::exception::EventFluxError>;
+    fn find(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<Option<Vec<AttributeValue>>, crate::core::exception::EventFluxError>;
 
     /// Returns `true` if the table contains any row matching `condition`.
     ///
     /// # Errors
     ///
     /// Returns an error if the underlying storage operation fails (e.g., database error).
-    fn contains(&self, condition: &dyn CompiledCondition) -> Result<bool, crate::core::exception::EventFluxError>;
+    fn contains(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<bool, crate::core::exception::EventFluxError>;
 
     /// Retrieve all rows currently stored in the table.
     ///
@@ -254,7 +266,8 @@ pub trait Table: Debug + Send + Sync {
 
 impl Clone for Box<dyn Table> {
     fn clone(&self) -> Self {
-        self.clone_table().expect("Failed to clone table - this should not happen for in-memory tables")
+        self.clone_table()
+            .expect("Failed to clone table - this should not happen for in-memory tables")
     }
 }
 
@@ -299,7 +312,10 @@ impl InMemoryTable {
 }
 
 impl Table for InMemoryTable {
-    fn insert(&self, values: &[AttributeValue]) -> Result<(), crate::core::exception::EventFluxError> {
+    fn insert(
+        &self,
+        values: &[AttributeValue],
+    ) -> Result<(), crate::core::exception::EventFluxError> {
         let key = Self::row_to_key(values);
         let mut rows = self.rows.write().unwrap();
         let new_index = rows.len();
@@ -369,7 +385,10 @@ impl Table for InMemoryTable {
         Ok(true)
     }
 
-    fn delete(&self, condition: &dyn CompiledCondition) -> Result<bool, crate::core::exception::EventFluxError> {
+    fn delete(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<bool, crate::core::exception::EventFluxError> {
         let cond = match condition
             .as_any()
             .downcast_ref::<InMemoryCompiledCondition>()
@@ -405,11 +424,16 @@ impl Table for InMemoryTable {
         Ok(true)
     }
 
-    fn find(&self, condition: &dyn CompiledCondition) -> Result<Option<Vec<AttributeValue>>, crate::core::exception::EventFluxError> {
+    fn find(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<Option<Vec<AttributeValue>>, crate::core::exception::EventFluxError> {
         let cond = condition
             .as_any()
             .downcast_ref::<InMemoryCompiledCondition>()
-            .ok_or_else(|| crate::core::exception::EventFluxError::Other("Invalid condition type".to_string()))?;
+            .ok_or_else(|| {
+                crate::core::exception::EventFluxError::Other("Invalid condition type".to_string())
+            })?;
 
         // O(1) index lookup instead of O(n) linear scan
         let key = Self::row_to_key(&cond.values);
@@ -424,7 +448,10 @@ impl Table for InMemoryTable {
         Ok(None)
     }
 
-    fn contains(&self, condition: &dyn CompiledCondition) -> Result<bool, crate::core::exception::EventFluxError> {
+    fn contains(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<bool, crate::core::exception::EventFluxError> {
         let cond = match condition
             .as_any()
             .downcast_ref::<InMemoryCompiledCondition>()

@@ -13,9 +13,11 @@ fn test_insert_and_contains() {
         AttributeValue::String("a".to_string()),
     ];
     table.insert(&row).unwrap();
-    assert!(table.contains(&InMemoryCompiledCondition {
-        values: row.clone()
-    }).unwrap());
+    assert!(table
+        .contains(&InMemoryCompiledCondition {
+            values: row.clone()
+        })
+        .unwrap());
 }
 
 #[test]
@@ -24,7 +26,9 @@ fn test_contains_false() {
     let row1 = vec![AttributeValue::Int(2)];
     let row2 = vec![AttributeValue::Int(3)];
     table.insert(&row1).unwrap();
-    assert!(!table.contains(&InMemoryCompiledCondition { values: row2 }).unwrap());
+    assert!(!table
+        .contains(&InMemoryCompiledCondition { values: row2 })
+        .unwrap());
 }
 
 #[test]
@@ -40,8 +44,12 @@ fn test_update() {
         values: new.clone(),
     };
     assert!(table.update(&cond, &us).unwrap());
-    assert!(!table.contains(&InMemoryCompiledCondition { values: old }).unwrap());
-    assert!(table.contains(&InMemoryCompiledCondition { values: new }).unwrap());
+    assert!(!table
+        .contains(&InMemoryCompiledCondition { values: old })
+        .unwrap());
+    assert!(table
+        .contains(&InMemoryCompiledCondition { values: new })
+        .unwrap());
 }
 
 #[test]
@@ -51,13 +59,19 @@ fn test_delete() {
     let row2 = vec![AttributeValue::Int(2)];
     table.insert(&row1).unwrap();
     table.insert(&row2).unwrap();
-    assert!(table.delete(&InMemoryCompiledCondition {
-        values: row1.clone()
-    }).unwrap());
-    assert!(!table.contains(&InMemoryCompiledCondition { values: row1 }).unwrap());
-    assert!(table.contains(&InMemoryCompiledCondition {
-        values: row2.clone()
-    }).unwrap());
+    assert!(table
+        .delete(&InMemoryCompiledCondition {
+            values: row1.clone()
+        })
+        .unwrap());
+    assert!(!table
+        .contains(&InMemoryCompiledCondition { values: row1 })
+        .unwrap());
+    assert!(table
+        .contains(&InMemoryCompiledCondition {
+            values: row2.clone()
+        })
+        .unwrap());
 }
 
 #[test]
@@ -65,9 +79,11 @@ fn test_find() {
     let table = InMemoryTable::new();
     let row = vec![AttributeValue::Int(42)];
     table.insert(&row).unwrap();
-    let found = table.find(&InMemoryCompiledCondition {
-        values: row.clone(),
-    }).unwrap();
+    let found = table
+        .find(&InMemoryCompiledCondition {
+            values: row.clone(),
+        })
+        .unwrap();
     assert_eq!(found, Some(row.clone()));
     assert!(table
         .find(&InMemoryCompiledCondition {

@@ -184,7 +184,10 @@ impl EventFluxContext {
         self.persistence_store.read().unwrap().clone()
     }
 
-    pub fn set_persistence_store(&self, persistence_store: Arc<dyn PersistenceStore>) -> Result<(), crate::core::exception::error::EventFluxError> {
+    pub fn set_persistence_store(
+        &self,
+        persistence_store: Arc<dyn PersistenceStore>,
+    ) -> Result<(), crate::core::exception::error::EventFluxError> {
         // Mirroring Java logic: only one persistence store allowed
         if self.incremental_persistence_store.read().unwrap().is_some() {
             return Err(crate::core::exception::error::EventFluxError::configuration(
@@ -201,7 +204,10 @@ impl EventFluxContext {
         self.incremental_persistence_store.read().unwrap().clone()
     }
 
-    pub fn set_incremental_persistence_store(&self, store: Arc<dyn IncrementalPersistenceStore>) -> Result<(), crate::core::exception::error::EventFluxError> {
+    pub fn set_incremental_persistence_store(
+        &self,
+        store: Arc<dyn IncrementalPersistenceStore>,
+    ) -> Result<(), crate::core::exception::error::EventFluxError> {
         if self.persistence_store.read().unwrap().is_some() {
             return Err(crate::core::exception::error::EventFluxError::configuration(
                 "Only one type of persistence store can exist. Persistence store already registered!"

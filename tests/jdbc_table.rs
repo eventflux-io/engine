@@ -74,9 +74,11 @@ fn test_jdbc_table_crud() {
         AttributeValue::String("b".into()),
     ];
     table.insert(&row1).unwrap();
-    assert!(table.contains(&InMemoryCompiledCondition {
-        values: row1.clone()
-    }).unwrap());
+    assert!(table
+        .contains(&InMemoryCompiledCondition {
+            values: row1.clone()
+        })
+        .unwrap());
 
     let row2 = vec![
         AttributeValue::String("x".into()),
@@ -89,13 +91,21 @@ fn test_jdbc_table_crud() {
         values: row2.clone(),
     };
     assert!(table.update(&cond, &us).unwrap());
-    assert!(!table.contains(&InMemoryCompiledCondition { values: row1 }).unwrap());
-    assert!(table.contains(&InMemoryCompiledCondition {
-        values: row2.clone()
-    }).unwrap());
+    assert!(!table
+        .contains(&InMemoryCompiledCondition { values: row1 })
+        .unwrap());
+    assert!(table
+        .contains(&InMemoryCompiledCondition {
+            values: row2.clone()
+        })
+        .unwrap());
 
-    assert!(table.delete(&InMemoryCompiledCondition {
-        values: row2.clone()
-    }).unwrap());
-    assert!(!table.contains(&InMemoryCompiledCondition { values: row2 }).unwrap());
+    assert!(table
+        .delete(&InMemoryCompiledCondition {
+            values: row2.clone()
+        })
+        .unwrap());
+    assert!(!table
+        .contains(&InMemoryCompiledCondition { values: row2 })
+        .unwrap());
 }

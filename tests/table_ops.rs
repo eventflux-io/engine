@@ -141,28 +141,36 @@ fn test_table_input_handler_update_delete_find() {
         0,
         vec![AttributeValue::String("a".into())],
     )]);
-    assert!(table.contains(&InMemoryCompiledCondition {
-        values: vec![AttributeValue::String("a".into())]
-    }).unwrap());
+    assert!(table
+        .contains(&InMemoryCompiledCondition {
+            values: vec![AttributeValue::String("a".into())]
+        })
+        .unwrap());
     assert!(handler.update(
         vec![AttributeValue::String("a".into())],
         vec![AttributeValue::String("b".into())]
     ));
-    assert!(table.contains(&InMemoryCompiledCondition {
-        values: vec![AttributeValue::String("b".into())]
-    }).unwrap());
+    assert!(table
+        .contains(&InMemoryCompiledCondition {
+            values: vec![AttributeValue::String("b".into())]
+        })
+        .unwrap());
     assert!(handler.delete(vec![AttributeValue::String("b".into())]));
-    assert!(!table.contains(&InMemoryCompiledCondition {
-        values: vec![AttributeValue::String("b".into())]
-    }).unwrap());
+    assert!(!table
+        .contains(&InMemoryCompiledCondition {
+            values: vec![AttributeValue::String("b".into())]
+        })
+        .unwrap());
     handler.add(vec![Event::new_with_data(
         0,
         vec![AttributeValue::String("x".into())],
     )]);
     assert_eq!(
-        table.find(&InMemoryCompiledCondition {
-            values: vec![AttributeValue::String("x".into())]
-        }).unwrap(),
+        table
+            .find(&InMemoryCompiledCondition {
+                values: vec![AttributeValue::String("x".into())]
+            })
+            .unwrap(),
         Some(vec![AttributeValue::String("x".into())])
     );
 }
@@ -196,20 +204,26 @@ fn test_table_input_handler_jdbc() {
         0,
         vec![AttributeValue::String("a".into())],
     )]);
-    assert!(table.contains(&InMemoryCompiledCondition {
-        values: vec![AttributeValue::String("a".into())]
-    }).unwrap());
+    assert!(table
+        .contains(&InMemoryCompiledCondition {
+            values: vec![AttributeValue::String("a".into())]
+        })
+        .unwrap());
     assert!(handler.update(
         vec![AttributeValue::String("a".into())],
         vec![AttributeValue::String("b".into())]
     ));
-    assert!(table.contains(&InMemoryCompiledCondition {
-        values: vec![AttributeValue::String("b".into())]
-    }).unwrap());
+    assert!(table
+        .contains(&InMemoryCompiledCondition {
+            values: vec![AttributeValue::String("b".into())]
+        })
+        .unwrap());
     assert!(handler.delete(vec![AttributeValue::String("b".into())]));
-    assert!(!table.contains(&InMemoryCompiledCondition {
-        values: vec![AttributeValue::String("b".into())]
-    }).unwrap());
+    assert!(!table
+        .contains(&InMemoryCompiledCondition {
+            values: vec![AttributeValue::String("b".into())]
+        })
+        .unwrap());
 }
 
 #[test]

@@ -91,7 +91,10 @@ impl CacheTable {
 }
 
 impl Table for CacheTable {
-    fn insert(&self, values: &[AttributeValue]) -> Result<(), crate::core::exception::EventFluxError> {
+    fn insert(
+        &self,
+        values: &[AttributeValue],
+    ) -> Result<(), crate::core::exception::EventFluxError> {
         let mut rows = self.rows.write().unwrap();
         rows.push_back(values.to_vec());
         self.trim_if_needed(&mut rows);
@@ -120,7 +123,10 @@ impl Table for CacheTable {
         }
     }
 
-    fn delete(&self, condition: &dyn CompiledCondition) -> Result<bool, crate::core::exception::EventFluxError> {
+    fn delete(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<bool, crate::core::exception::EventFluxError> {
         match condition
             .as_any()
             .downcast_ref::<InMemoryCompiledCondition>()
@@ -130,7 +136,10 @@ impl Table for CacheTable {
         }
     }
 
-    fn find(&self, condition: &dyn CompiledCondition) -> Result<Option<Vec<AttributeValue>>, crate::core::exception::EventFluxError> {
+    fn find(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<Option<Vec<AttributeValue>>, crate::core::exception::EventFluxError> {
         match condition
             .as_any()
             .downcast_ref::<InMemoryCompiledCondition>()
@@ -140,7 +149,10 @@ impl Table for CacheTable {
         }
     }
 
-    fn contains(&self, condition: &dyn CompiledCondition) -> Result<bool, crate::core::exception::EventFluxError> {
+    fn contains(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<bool, crate::core::exception::EventFluxError> {
         match condition
             .as_any()
             .downcast_ref::<InMemoryCompiledCondition>()

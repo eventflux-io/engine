@@ -219,16 +219,20 @@ fn expression_to_sql_join(
 }
 
 impl Table for JdbcTable {
-    fn insert(&self, values: &[AttributeValue]) -> Result<(), crate::core::exception::EventFluxError> {
+    fn insert(
+        &self,
+        values: &[AttributeValue],
+    ) -> Result<(), crate::core::exception::EventFluxError> {
         let placeholders = (0..values.len()).map(|_| "?").collect::<Vec<_>>().join(",");
         let sql = format!("INSERT INTO {} VALUES ({})", self.table_name, placeholders);
         let params: Vec<Value> = values.iter().map(Self::av_to_val).collect();
 
-        let conn = self.conn.lock()
-            .map_err(|e| crate::core::exception::EventFluxError::DatabaseRuntime {
+        let conn = self.conn.lock().map_err(|e| {
+            crate::core::exception::EventFluxError::DatabaseRuntime {
                 message: format!("Failed to acquire connection lock: {}", e),
                 source: None,
-            })?;
+            }
+        })?;
 
         conn.execute(&sql, params_from_iter(params.iter()))
             .map_err(|e| {
@@ -242,30 +246,40 @@ impl Table for JdbcTable {
     fn all_rows(&self) -> Result<Vec<Vec<AttributeValue>>, crate::core::exception::EventFluxError> {
         let sql = format!("SELECT * FROM {}", self.table_name);
 
-        let conn = self.conn.lock()
-            .map_err(|e| crate::core::exception::EventFluxError::DatabaseRuntime {
+        let conn = self.conn.lock().map_err(|e| {
+            crate::core::exception::EventFluxError::DatabaseRuntime {
                 message: format!("Failed to acquire connection lock: {}", e),
                 source: None,
-            })?;
+            }
+        })?;
 
-        let mut stmt = conn.prepare(&sql)
-            .map_err(|e| {
-                log::error!("JDBC prepare failed for all_rows on table '{}': {}", self.table_name, e);
-                crate::core::exception::EventFluxError::from(e)
-            })?;
+        let mut stmt = conn.prepare(&sql).map_err(|e| {
+            log::error!(
+                "JDBC prepare failed for all_rows on table '{}': {}",
+                self.table_name,
+                e
+            );
+            crate::core::exception::EventFluxError::from(e)
+        })?;
 
-        let mut rows = stmt.query([])
-            .map_err(|e| {
-                log::error!("JDBC query failed for all_rows on table '{}': {}", self.table_name, e);
-                crate::core::exception::EventFluxError::from(e)
-            })?;
+        let mut rows = stmt.query([]).map_err(|e| {
+            log::error!(
+                "JDBC query failed for all_rows on table '{}': {}",
+                self.table_name,
+                e
+            );
+            crate::core::exception::EventFluxError::from(e)
+        })?;
 
         let mut out = Vec::new();
-        while let Some(row) = rows.next()
-            .map_err(|e| {
-                log::error!("JDBC row iteration failed for all_rows on table '{}': {}", self.table_name, e);
-                crate::core::exception::EventFluxError::from(e)
-            })? {
+        while let Some(row) = rows.next().map_err(|e| {
+            log::error!(
+                "JDBC row iteration failed for all_rows on table '{}': {}",
+                self.table_name,
+                e
+            );
+            crate::core::exception::EventFluxError::from(e)
+        })? {
             out.push(Self::row_to_attr(row));
         }
         Ok(out)
@@ -287,13 +301,15 @@ impl Table for JdbcTable {
             let mut params: Vec<Value> = us.params.iter().map(Self::av_to_val).collect();
             params.extend(cond.params.iter().map(Self::av_to_val));
 
-            let conn = self.conn.lock()
-                .map_err(|e| crate::core::exception::EventFluxError::DatabaseRuntime {
+            let conn = self.conn.lock().map_err(|e| {
+                crate::core::exception::EventFluxError::DatabaseRuntime {
                     message: format!("Failed to acquire connection lock: {}", e),
                     source: None,
-                })?;
+                }
+            })?;
 
-            let count = conn.execute(&sql, params_from_iter(params.iter()))
+            let count = conn
+                .execute(&sql, params_from_iter(params.iter()))
                 .map_err(|e| {
                     log::error!("JDBC update failed on table '{}': {}", self.table_name, e);
                     crate::core::exception::EventFluxError::from(e)
@@ -330,21 +346,30 @@ impl Table for JdbcTable {
         let mut params: Vec<Value> = us_vals.iter().map(Self::av_to_val).collect();
         params.extend(cond_vals.iter().map(Self::av_to_val));
 
-        let conn = self.conn.lock()
-            .map_err(|e| crate::core::exception::EventFluxError::DatabaseRuntime {
+        let conn = self.conn.lock().map_err(|e| {
+            crate::core::exception::EventFluxError::DatabaseRuntime {
                 message: format!("Failed to acquire connection lock: {}", e),
                 source: None,
-            })?;
+            }
+        })?;
 
-        let count = conn.execute(&sql, params_from_iter(params.iter()))
+        let count = conn
+            .execute(&sql, params_from_iter(params.iter()))
             .map_err(|e| {
-                log::error!("JDBC update (fallback) failed on table '{}': {}", self.table_name, e);
+                log::error!(
+                    "JDBC update (fallback) failed on table '{}': {}",
+                    self.table_name,
+                    e
+                );
                 crate::core::exception::EventFluxError::from(e)
             })?;
         Ok(count > 0)
     }
 
-    fn delete(&self, condition: &dyn CompiledCondition) -> Result<bool, crate::core::exception::EventFluxError> {
+    fn delete(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<bool, crate::core::exception::EventFluxError> {
         if let Some(cond) = condition.as_any().downcast_ref::<JdbcCompiledCondition>() {
             let sql = format!(
                 "DELETE FROM {} WHERE {}",
@@ -352,13 +377,15 @@ impl Table for JdbcTable {
             );
             let params: Vec<Value> = cond.params.iter().map(Self::av_to_val).collect();
 
-            let conn = self.conn.lock()
-                .map_err(|e| crate::core::exception::EventFluxError::DatabaseRuntime {
+            let conn = self.conn.lock().map_err(|e| {
+                crate::core::exception::EventFluxError::DatabaseRuntime {
                     message: format!("Failed to acquire connection lock: {}", e),
                     source: None,
-                })?;
+                }
+            })?;
 
-            let count = conn.execute(&sql, params_from_iter(params.iter()))
+            let count = conn
+                .execute(&sql, params_from_iter(params.iter()))
                 .map_err(|e| {
                     log::error!("JDBC delete failed on table '{}': {}", self.table_name, e);
                     crate::core::exception::EventFluxError::from(e)
@@ -380,21 +407,30 @@ impl Table for JdbcTable {
         let sql = format!("DELETE FROM {} WHERE {}", self.table_name, where_clause);
         let params: Vec<Value> = values.iter().map(Self::av_to_val).collect();
 
-        let conn = self.conn.lock()
-            .map_err(|e| crate::core::exception::EventFluxError::DatabaseRuntime {
+        let conn = self.conn.lock().map_err(|e| {
+            crate::core::exception::EventFluxError::DatabaseRuntime {
                 message: format!("Failed to acquire connection lock: {}", e),
                 source: None,
-            })?;
+            }
+        })?;
 
-        let count = conn.execute(&sql, params_from_iter(params.iter()))
+        let count = conn
+            .execute(&sql, params_from_iter(params.iter()))
             .map_err(|e| {
-                log::error!("JDBC delete (fallback) failed on table '{}': {}", self.table_name, e);
+                log::error!(
+                    "JDBC delete (fallback) failed on table '{}': {}",
+                    self.table_name,
+                    e
+                );
                 crate::core::exception::EventFluxError::from(e)
             })?;
         Ok(count > 0)
     }
 
-    fn find(&self, condition: &dyn CompiledCondition) -> Result<Option<Vec<AttributeValue>>, crate::core::exception::EventFluxError> {
+    fn find(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<Option<Vec<AttributeValue>>, crate::core::exception::EventFluxError> {
         if let Some(cond) = condition.as_any().downcast_ref::<JdbcCompiledCondition>() {
             let sql = format!(
                 "SELECT * FROM {} WHERE {} LIMIT 1",
@@ -402,27 +438,39 @@ impl Table for JdbcTable {
             );
             let params: Vec<Value> = cond.params.iter().map(Self::av_to_val).collect();
 
-            let conn = self.conn.lock()
-                .map_err(|e| crate::core::exception::EventFluxError::DatabaseRuntime {
+            let conn = self.conn.lock().map_err(|e| {
+                crate::core::exception::EventFluxError::DatabaseRuntime {
                     message: format!("Failed to acquire connection lock: {}", e),
                     source: None,
-                })?;
+                }
+            })?;
 
-            let mut stmt = conn.prepare(&sql)
-                .map_err(|e| {
-                    log::error!("JDBC prepare failed for find on table '{}': {}", self.table_name, e);
-                    crate::core::exception::EventFluxError::from(e)
-                })?;
+            let mut stmt = conn.prepare(&sql).map_err(|e| {
+                log::error!(
+                    "JDBC prepare failed for find on table '{}': {}",
+                    self.table_name,
+                    e
+                );
+                crate::core::exception::EventFluxError::from(e)
+            })?;
 
-            let mut rows = stmt.query(params_from_iter(params.iter()))
-                .map_err(|e| {
-                    log::error!("JDBC query failed for find on table '{}': {}", self.table_name, e);
-                    crate::core::exception::EventFluxError::from(e)
-                })?;
+            let mut rows = stmt.query(params_from_iter(params.iter())).map_err(|e| {
+                log::error!(
+                    "JDBC query failed for find on table '{}': {}",
+                    self.table_name,
+                    e
+                );
+                crate::core::exception::EventFluxError::from(e)
+            })?;
 
-            return rows.next()
+            return rows
+                .next()
                 .map_err(|e| {
-                    log::error!("JDBC row fetch failed for find on table '{}': {}", self.table_name, e);
+                    log::error!(
+                        "JDBC row fetch failed for find on table '{}': {}",
+                        self.table_name,
+                        e
+                    );
                     crate::core::exception::EventFluxError::from(e)
                 })
                 .map(|opt_row| opt_row.map(|row| Self::row_to_attr(row)));
@@ -445,33 +493,47 @@ impl Table for JdbcTable {
         );
         let params: Vec<Value> = values.iter().map(Self::av_to_val).collect();
 
-        let conn = self.conn.lock()
-            .map_err(|e| crate::core::exception::EventFluxError::DatabaseRuntime {
+        let conn = self.conn.lock().map_err(|e| {
+            crate::core::exception::EventFluxError::DatabaseRuntime {
                 message: format!("Failed to acquire connection lock: {}", e),
                 source: None,
-            })?;
+            }
+        })?;
 
-        let mut stmt = conn.prepare(&sql)
-            .map_err(|e| {
-                log::error!("JDBC prepare failed for find (fallback) on table '{}': {}", self.table_name, e);
-                crate::core::exception::EventFluxError::from(e)
-            })?;
+        let mut stmt = conn.prepare(&sql).map_err(|e| {
+            log::error!(
+                "JDBC prepare failed for find (fallback) on table '{}': {}",
+                self.table_name,
+                e
+            );
+            crate::core::exception::EventFluxError::from(e)
+        })?;
 
-        let mut rows = stmt.query(params_from_iter(params.iter()))
-            .map_err(|e| {
-                log::error!("JDBC query failed for find (fallback) on table '{}': {}", self.table_name, e);
-                crate::core::exception::EventFluxError::from(e)
-            })?;
+        let mut rows = stmt.query(params_from_iter(params.iter())).map_err(|e| {
+            log::error!(
+                "JDBC query failed for find (fallback) on table '{}': {}",
+                self.table_name,
+                e
+            );
+            crate::core::exception::EventFluxError::from(e)
+        })?;
 
         rows.next()
             .map_err(|e| {
-                log::error!("JDBC row fetch failed for find (fallback) on table '{}': {}", self.table_name, e);
+                log::error!(
+                    "JDBC row fetch failed for find (fallback) on table '{}': {}",
+                    self.table_name,
+                    e
+                );
                 crate::core::exception::EventFluxError::from(e)
             })
             .map(|opt_row| opt_row.map(|row| Self::row_to_attr(row)))
     }
 
-    fn contains(&self, condition: &dyn CompiledCondition) -> Result<bool, crate::core::exception::EventFluxError> {
+    fn contains(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<bool, crate::core::exception::EventFluxError> {
         Ok(self.find(condition)?.is_some())
     }
 
@@ -502,30 +564,40 @@ impl Table for JdbcTable {
                 }
             }
 
-            let conn = self.conn.lock()
-                .map_err(|e| crate::core::exception::EventFluxError::DatabaseRuntime {
+            let conn = self.conn.lock().map_err(|e| {
+                crate::core::exception::EventFluxError::DatabaseRuntime {
                     message: format!("Failed to acquire connection lock: {}", e),
                     source: None,
-                })?;
+                }
+            })?;
 
-            let mut stmt = conn.prepare(&sql)
-                .map_err(|e| {
-                    log::error!("JDBC prepare failed for find_rows_for_join on table '{}': {}", self.table_name, e);
-                    crate::core::exception::EventFluxError::from(e)
-                })?;
+            let mut stmt = conn.prepare(&sql).map_err(|e| {
+                log::error!(
+                    "JDBC prepare failed for find_rows_for_join on table '{}': {}",
+                    self.table_name,
+                    e
+                );
+                crate::core::exception::EventFluxError::from(e)
+            })?;
 
-            let mut rows = stmt.query(params_from_iter(params.iter()))
-                .map_err(|e| {
-                    log::error!("JDBC query failed for find_rows_for_join on table '{}': {}", self.table_name, e);
-                    crate::core::exception::EventFluxError::from(e)
-                })?;
+            let mut rows = stmt.query(params_from_iter(params.iter())).map_err(|e| {
+                log::error!(
+                    "JDBC query failed for find_rows_for_join on table '{}': {}",
+                    self.table_name,
+                    e
+                );
+                crate::core::exception::EventFluxError::from(e)
+            })?;
 
             let mut out = Vec::new();
-            while let Some(row) = rows.next()
-                .map_err(|e| {
-                    log::error!("JDBC row iteration failed for find_rows_for_join on table '{}': {}", self.table_name, e);
-                    crate::core::exception::EventFluxError::from(e)
-                })? {
+            while let Some(row) = rows.next().map_err(|e| {
+                log::error!(
+                    "JDBC row iteration failed for find_rows_for_join on table '{}': {}",
+                    self.table_name,
+                    e
+                );
+                crate::core::exception::EventFluxError::from(e)
+            })? {
                 out.push(Self::row_to_attr(row));
             }
             return Ok(out);
@@ -534,31 +606,41 @@ impl Table for JdbcTable {
         // Fallback to in-memory style evaluation
         let sql = format!("SELECT * FROM {}", self.table_name);
 
-        let conn = self.conn.lock()
-            .map_err(|e| crate::core::exception::EventFluxError::DatabaseRuntime {
+        let conn = self.conn.lock().map_err(|e| {
+            crate::core::exception::EventFluxError::DatabaseRuntime {
                 message: format!("Failed to acquire connection lock: {}", e),
                 source: None,
-            })?;
+            }
+        })?;
 
-        let mut stmt = conn.prepare(&sql)
-            .map_err(|e| {
-                log::error!("JDBC prepare failed for find_rows_for_join (fallback) on table '{}': {}", self.table_name, e);
-                crate::core::exception::EventFluxError::from(e)
-            })?;
+        let mut stmt = conn.prepare(&sql).map_err(|e| {
+            log::error!(
+                "JDBC prepare failed for find_rows_for_join (fallback) on table '{}': {}",
+                self.table_name,
+                e
+            );
+            crate::core::exception::EventFluxError::from(e)
+        })?;
 
-        let mut rows_iter = stmt.query([])
-            .map_err(|e| {
-                log::error!("JDBC query failed for find_rows_for_join (fallback) on table '{}': {}", self.table_name, e);
-                crate::core::exception::EventFluxError::from(e)
-            })?;
+        let mut rows_iter = stmt.query([]).map_err(|e| {
+            log::error!(
+                "JDBC query failed for find_rows_for_join (fallback) on table '{}': {}",
+                self.table_name,
+                e
+            );
+            crate::core::exception::EventFluxError::from(e)
+        })?;
 
         let mut matched = Vec::new();
         let stream_attr_count = stream_event.before_window_data.len();
-        while let Some(row) = rows_iter.next()
-            .map_err(|e| {
-                log::error!("JDBC row iteration failed for find_rows_for_join (fallback) on table '{}': {}", self.table_name, e);
-                crate::core::exception::EventFluxError::from(e)
-            })? {
+        while let Some(row) = rows_iter.next().map_err(|e| {
+            log::error!(
+                "JDBC row iteration failed for find_rows_for_join (fallback) on table '{}': {}",
+                self.table_name,
+                e
+            );
+            crate::core::exception::EventFluxError::from(e)
+        })? {
             let vals = Self::row_to_attr(row);
             if let Some(exec) = condition_executor {
                 let mut joined =
