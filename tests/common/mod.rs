@@ -371,7 +371,7 @@ impl AppRunner {
         store: Arc<dyn PersistenceStore>,
     ) -> Self {
         let manager = EventFluxManager::new();
-        manager.set_persistence_store(store);
+        manager.set_persistence_store(store).unwrap();
         let runtime = manager
             .create_eventflux_app_runtime_from_string(app_string)
             .await
@@ -414,7 +414,7 @@ impl AppRunner {
         store: Arc<dyn PersistenceStore>,
     ) -> Self {
         let manager = EventFluxManager::new();
-        manager.set_persistence_store(store);
+        manager.set_persistence_store(store).unwrap();
         let runtime = manager
             .create_eventflux_app_runtime_from_api(Arc::new(app), None)
             .await

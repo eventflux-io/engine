@@ -65,7 +65,10 @@ async fn main() {
 
     let mut manager = EventFluxManager::new();
     if let Some(s) = store {
-        manager.set_persistence_store(s);
+        if let Err(e) = manager.set_persistence_store(s) {
+            eprintln!("Failed to set persistence store: {e}");
+            std::process::exit(1);
+        }
     }
     if let Some(cfg) = cli.config {
         let config_manager = ConfigManager::from_file(cfg);

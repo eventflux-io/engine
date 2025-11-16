@@ -69,7 +69,7 @@ async fn test_runtime_persist_restore() {
     let store = Arc::new(InMemoryPersistenceStore::new());
     let manager = EventFluxManager::new();
     let store_arc: Arc<dyn PersistenceStore> = store.clone();
-    manager.set_persistence_store(store_arc);
+    manager.set_persistence_store(store_arc).unwrap();
 
     let mut app = EventFluxApp::new("PersistApp".to_string());
     let in_def =

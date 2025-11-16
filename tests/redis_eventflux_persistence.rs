@@ -74,7 +74,7 @@ async fn test_redis_persistence_basic() {
     // MIGRATED: @app:name replaced with YAML configuration
     let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
     let manager = EventFluxManager::new_with_config_manager(config_manager);
-    manager.set_persistence_store(Arc::clone(&store));
+    manager.set_persistence_store(Arc::clone(&store)).unwrap();
 
     // MIGRATED: Old EventFluxQL replaced with SQL
     let app = "\
@@ -106,7 +106,7 @@ async fn test_redis_length_window_state_persistence() {
     // MIGRATED: @app:name replaced with YAML configuration
     let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
     let manager = EventFluxManager::new_with_config_manager(config_manager);
-    manager.set_persistence_store(Arc::clone(&store));
+    manager.set_persistence_store(Arc::clone(&store)).unwrap();
 
     // MIGRATED: Old EventFluxQL replaced with SQL
     // Test basic window filtering (aggregation state persistence not yet implemented)
@@ -125,7 +125,7 @@ async fn test_redis_length_window_state_persistence() {
     // Second instance with same config
     let config_manager2 = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
     let manager2 = EventFluxManager::new_with_config_manager(config_manager2);
-    manager2.set_persistence_store(Arc::clone(&store));
+    manager2.set_persistence_store(Arc::clone(&store)).unwrap();
 
     let runner2 = AppRunner::new_with_manager(manager2, app, "Out").await;
     runner2.restore_revision(&rev);
@@ -150,7 +150,7 @@ async fn test_redis_persist_across_app_restarts() {
     // Test basic persistence across app restarts (aggregation state persistence not yet implemented)
     let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
     let manager = EventFluxManager::new_with_config_manager(config_manager);
-    manager.set_persistence_store(Arc::clone(&store));
+    manager.set_persistence_store(Arc::clone(&store)).unwrap();
 
     // MIGRATED: Old EventFluxQL replaced with SQL
     let app = "\
@@ -169,7 +169,7 @@ async fn test_redis_persist_across_app_restarts() {
     // Second app instance (simulating restart)
     let config_manager2 = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
     let manager2 = EventFluxManager::new_with_config_manager(config_manager2);
-    manager2.set_persistence_store(Arc::clone(&store));
+    manager2.set_persistence_store(Arc::clone(&store)).unwrap();
 
     let runner2 = AppRunner::new_with_manager(manager2, app, "Out").await;
     runner2.restore_revision(&rev);
@@ -193,7 +193,7 @@ async fn test_redis_multiple_windows_persistence() {
     // MIGRATED: @app:name replaced with YAML configuration
     let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
     let manager = EventFluxManager::new_with_config_manager(config_manager);
-    manager.set_persistence_store(Arc::clone(&store));
+    manager.set_persistence_store(Arc::clone(&store)).unwrap();
 
     // MIGRATED: Old EventFluxQL replaced with SQL
     let app = "\
@@ -265,7 +265,7 @@ async fn test_redis_aggregation_state_persistence() {
     // MIGRATED: @app:name replaced with YAML configuration
     let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
     let manager = EventFluxManager::new_with_config_manager(config_manager);
-    manager.set_persistence_store(Arc::clone(&store));
+    manager.set_persistence_store(Arc::clone(&store)).unwrap();
 
     // MIGRATED: Old EventFluxQL replaced with SQL
     let app = "\
@@ -435,7 +435,7 @@ async fn test_redis_state_recovery_identical() {
 
     let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
     let manager = EventFluxManager::new_with_config_manager(config_manager);
-    manager.set_persistence_store(Arc::clone(&store));
+    manager.set_persistence_store(Arc::clone(&store)).unwrap();
 
     // Use a lengthBatch window of 5 events
     // This will only output when we have exactly 5 events (completes the batch)
@@ -502,7 +502,7 @@ async fn test_redis_state_recovery_identical() {
     // Step 6: Create a completely new runtime instance WITHOUT auto-starting
     let config_manager2 = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
     let manager2 = EventFluxManager::new_with_config_manager(config_manager2);
-    manager2.set_persistence_store(Arc::clone(&store));
+    manager2.set_persistence_store(Arc::clone(&store)).unwrap();
 
     // Create runtime WITHOUT starting it (critical for state recovery!)
     let runner2 = AppRunner::new_with_manager_no_start(manager2, app, "Out").await;
@@ -591,7 +591,7 @@ async fn test_redis_aggregator_recovery_identical() {
 
     let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
     let manager = EventFluxManager::new_with_config_manager(config_manager);
-    manager.set_persistence_store(Arc::clone(&store));
+    manager.set_persistence_store(Arc::clone(&store)).unwrap();
 
     // Use a lengthBatch window with aggregations (COUNT and SUM) without GROUP BY
     // lengthBatch outputs all events when the batch is complete (3 events)
@@ -671,7 +671,7 @@ async fn test_redis_aggregator_recovery_identical() {
     // Step 6: Create a completely new runtime instance WITHOUT auto-starting
     let config_manager2 = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
     let manager2 = EventFluxManager::new_with_config_manager(config_manager2);
-    manager2.set_persistence_store(Arc::clone(&store));
+    manager2.set_persistence_store(Arc::clone(&store)).unwrap();
 
     // Create runtime WITHOUT starting it (critical for state recovery!)
     let runner2 = AppRunner::new_with_manager_no_start(manager2, app, "Out").await;

@@ -348,8 +348,8 @@ impl EventFluxManager {
     // set_data_source was a placeholder, replaced by add_data_source
     // pub fn set_data_source(&self, name: &str, ds_placeholder: DataSourcePlaceholder) -> Result<(), String> { ... }
 
-    pub fn set_persistence_store(&self, store: Arc<dyn PersistenceStore>) {
-        self.eventflux_context.set_persistence_store(store);
+    pub fn set_persistence_store(&self, store: Arc<dyn PersistenceStore>) -> Result<(), crate::core::exception::error::EventFluxError> {
+        self.eventflux_context.set_persistence_store(store)
     }
 
     /// Set the configuration manager for dynamic configuration loading
