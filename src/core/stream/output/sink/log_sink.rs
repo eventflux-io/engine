@@ -62,8 +62,9 @@ impl LogSink {
 impl Sink for LogSink {
     fn publish(&self, payload: &[u8]) -> Result<(), EventFluxError> {
         // Deserialize events from binary format
-        let events = PassthroughMapper::deserialize(payload)
-            .map_err(|e| EventFluxError::app_runtime(format!("LogSink deserialization failed: {}", e)))?;
+        let events = PassthroughMapper::deserialize(payload).map_err(|e| {
+            EventFluxError::app_runtime(format!("LogSink deserialization failed: {}", e))
+        })?;
 
         let prefix = self.get_prefix();
         for e in &events {

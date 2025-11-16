@@ -102,6 +102,15 @@ impl EventFluxManager {
 
     // Added eventflux_app_str_opt for cases where it's available (from string parsing)
     // or not (when an ApiEventFluxApp is provided directly).
+    /// Create an EventFluxAppRuntime from an API EventFluxApp.
+    ///
+    /// Creates the runtime but does NOT start it automatically. This allows callers to:
+    /// 1. Add callbacks (including for start triggers)
+    /// 2. Restore state from checkpoints
+    /// 3. Perform other setup
+    /// 4. Then explicitly call `runtime.start()` when ready
+    ///
+    /// **Important**: Callers MUST call `runtime.start()` to begin processing events.
     pub async fn create_eventflux_app_runtime_from_api(
         &self,
         api_eventflux_app: Arc<ApiEventFluxApp>,
@@ -143,19 +152,31 @@ impl EventFluxManager {
             app_config,
         )?);
 
-        // Start the runtime and clean up on failure to prevent resource leaks
-        if let Err(e) = runtime.start() {
-            // Clean up any partially started components (sources, sinks, triggers, partitions)
-            // to prevent thread leaks and inconsistent state
-            runtime.shutdown();
-            return Err(e.to_string());
-        }
-
+        // Register runtime in the map (caller is responsible for starting)
         self.eventflux_app_runtime_map
             .lock()
             .expect("Mutex poisoned")
-            .insert(app_name.clone(), Arc::clone(&runtime)); // Use app_name for map key
+            .insert(app_name.clone(), Arc::clone(&runtime));
+
         Ok(runtime)
+    }
+
+    /// Deprecated: Use `create_eventflux_app_runtime_from_api()` instead.
+    ///
+    /// This method is now identical to `create_eventflux_app_runtime_from_api()`
+    /// since the main method no longer auto-starts. Kept for backward compatibility.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use create_eventflux_app_runtime_from_api() instead - it no longer auto-starts"
+    )]
+    pub async fn create_eventflux_app_runtime_without_autostart(
+        &self,
+        api_eventflux_app: Arc<ApiEventFluxApp>,
+        eventflux_app_str_opt: Option<String>,
+    ) -> Result<Arc<EventFluxAppRuntime>, String> {
+        // Delegate to main method (which no longer auto-starts)
+        self.create_eventflux_app_runtime_from_api(api_eventflux_app, eventflux_app_str_opt)
+            .await
     }
 
     pub fn get_eventflux_app_runtime(&self, app_name: &str) -> Option<Arc<EventFluxAppRuntime>> {
@@ -327,8 +348,11 @@ impl EventFluxManager {
     // set_data_source was a placeholder, replaced by add_data_source
     // pub fn set_data_source(&self, name: &str, ds_placeholder: DataSourcePlaceholder) -> Result<(), String> { ... }
 
-    pub fn set_persistence_store(&self, store: Arc<dyn PersistenceStore>) {
-        self.eventflux_context.set_persistence_store(store);
+    pub fn set_persistence_store(
+        &self,
+        store: Arc<dyn PersistenceStore>,
+    ) -> Result<(), crate::core::exception::error::EventFluxError> {
+        self.eventflux_context.set_persistence_store(store)
     }
 
     /// Set the configuration manager for dynamic configuration loading

@@ -94,16 +94,16 @@ async fn cache_table_crud_via_app_runner() {
     let cond = table.compile_condition(cond_expr);
     let us = parse_set_clause("set v = 'b'").unwrap();
     let us_comp = table.compile_update_set(us);
-    assert!(table.update(&*cond, &*us_comp));
+    assert!(table.update(&*cond, &*us_comp).unwrap());
     let cond_b_expr = parse_expression("'b'").unwrap();
     let cond_b = table.compile_condition(cond_b_expr);
-    assert!(table.contains(&*cond_b));
+    assert!(table.contains(&*cond_b).unwrap());
     assert_eq!(
-        table.find(&*cond_b),
+        table.find(&*cond_b).unwrap(),
         Some(vec![AttributeValue::String("b".into())])
     );
-    assert!(table.delete(&*cond_b));
-    assert!(!table.contains(&*cond_b));
+    assert!(table.delete(&*cond_b).unwrap());
+    assert!(!table.contains(&*cond_b).unwrap());
     // runner already shut down above
 }
 
@@ -137,18 +137,18 @@ async fn jdbc_table_crud_via_app_runner() {
     let table = ctx.get_table("J").unwrap();
     let cond_expr = parse_expression("v == 'x'").unwrap();
     let cond = table.compile_condition(cond_expr);
-    assert!(table.contains(&*cond));
+    assert!(table.contains(&*cond).unwrap());
     let us = parse_set_clause("set v = 'y'").unwrap();
     let us_comp = table.compile_update_set(us);
-    assert!(table.update(&*cond, &*us_comp));
+    assert!(table.update(&*cond, &*us_comp).unwrap());
     let cond_y_expr = parse_expression("v == 'y'").unwrap();
     let cond_y = table.compile_condition(cond_y_expr);
     assert_eq!(
-        table.find(&*cond_y),
+        table.find(&*cond_y).unwrap(),
         Some(vec![AttributeValue::String("y".into())])
     );
-    assert!(table.delete(&*cond_y));
-    assert!(!table.contains(&*cond_y));
+    assert!(table.delete(&*cond_y).unwrap());
+    assert!(!table.contains(&*cond_y).unwrap());
     let _ = runner.shutdown();
 }
 
@@ -264,19 +264,19 @@ async fn cache_and_jdbc_tables_eviction_and_queries() {
     let jdbc = ctx.get_table("J3").unwrap();
 
     let cond_a = cache.compile_condition(parse_expression("'a'").unwrap());
-    assert!(cache.contains(&*cond_a));
+    assert!(cache.contains(&*cond_a).unwrap());
     let us_x = cache.compile_update_set(parse_set_clause("set v = 'x'").unwrap());
-    assert!(cache.update(&*cond_a, &*us_x));
+    assert!(cache.update(&*cond_a, &*us_x).unwrap());
     let cond_x = cache.compile_condition(parse_expression("'x'").unwrap());
-    assert!(cache.contains(&*cond_x));
+    assert!(cache.contains(&*cond_x).unwrap());
 
     let cond_b_j = jdbc.compile_condition(parse_expression("v == 'b'").unwrap());
-    assert!(jdbc.contains(&*cond_b_j));
+    assert!(jdbc.contains(&*cond_b_j).unwrap());
     let us_y = jdbc.compile_update_set(parse_set_clause("set v = 'y'").unwrap());
-    assert!(jdbc.update(&*cond_b_j, &*us_y));
+    assert!(jdbc.update(&*cond_b_j, &*us_y).unwrap());
     let cond_y = jdbc.compile_condition(parse_expression("v == 'y'").unwrap());
     assert_eq!(
-        jdbc.find(&*cond_y),
+        jdbc.find(&*cond_y).unwrap(),
         Some(vec![AttributeValue::String("y".into())])
     );
 
@@ -285,17 +285,17 @@ async fn cache_and_jdbc_tables_eviction_and_queries() {
 
     let cond_b = cache.compile_condition(parse_expression("'b'").unwrap());
     let cond_c = cache.compile_condition(parse_expression("'c'").unwrap());
-    assert!(cache.contains(&*cond_b));
-    assert!(cache.contains(&*cond_c));
-    assert!(!cache.contains(&*cond_x));
+    assert!(cache.contains(&*cond_b).unwrap());
+    assert!(cache.contains(&*cond_c).unwrap());
+    assert!(!cache.contains(&*cond_x).unwrap());
 
-    assert!(jdbc.contains(&*cond_y));
-    assert!(jdbc.delete(&*cond_y));
-    assert!(!jdbc.contains(&*cond_y));
+    assert!(jdbc.contains(&*cond_y).unwrap());
+    assert!(jdbc.delete(&*cond_y).unwrap());
+    assert!(!jdbc.contains(&*cond_y).unwrap());
     let cond_a_j = jdbc.compile_condition(parse_expression("v == 'a'").unwrap());
     let cond_c_j = jdbc.compile_condition(parse_expression("v == 'c'").unwrap());
-    assert!(jdbc.contains(&*cond_a_j));
-    assert!(jdbc.contains(&*cond_c_j));
+    assert!(jdbc.contains(&*cond_a_j).unwrap());
+    assert!(jdbc.contains(&*cond_c_j).unwrap());
 
     let _ = runner.shutdown();
 }

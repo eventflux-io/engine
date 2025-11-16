@@ -432,8 +432,9 @@ impl EventFluxAppRuntime {
         let mapper = handler.mapper().unwrap_or_else(|| {
             // No format specified - use efficient binary passthrough for debug sinks
             Arc::new(Mutex::new(Box::new(
-                crate::core::stream::output::mapper::PassthroughMapper::new()
-            ) as Box<dyn crate::core::stream::output::mapper::SinkMapper>))
+                crate::core::stream::output::mapper::PassthroughMapper::new(),
+            )
+                as Box<dyn crate::core::stream::output::mapper::SinkMapper>))
         });
 
         // Create adapter with sink and mapper
@@ -574,7 +575,7 @@ impl EventFluxAppRuntime {
     pub fn start(&self) -> Result<(), crate::core::exception::EventFluxError> {
         use crate::core::exception::EventFluxError;
 
-        // 1. State validation - prevent duplicate start
+        // 1. State validation - idempotent start
         {
             let mut state = self.state.write().unwrap();
             match *state {
@@ -582,13 +583,18 @@ impl EventFluxAppRuntime {
                     *state = RuntimeState::Starting;
                 }
                 RuntimeState::Running => {
-                    return Err(EventFluxError::app_runtime(
-                        "Runtime is already running".to_string(),
-                    ));
+                    // Idempotent: already running, nothing to do
+                    log::debug!("Runtime already running, start() is no-op");
+                    return Ok(());
                 }
                 RuntimeState::Starting => {
+                    // Concurrent start attempt - treat as idempotent
+                    log::debug!("Runtime already starting, start() is no-op");
+                    return Ok(());
+                }
+                RuntimeState::Stopped => {
                     return Err(EventFluxError::app_runtime(
-                        "Runtime is already starting".to_string(),
+                        "Cannot restart a stopped runtime".to_string(),
                     ));
                 }
                 _ => {
@@ -617,10 +623,7 @@ impl EventFluxAppRuntime {
                     }
                 }
                 Err(errors) => {
-                    log::error!(
-                        "Failed to auto-attach sources ({} error(s)):",
-                        errors.len()
-                    );
+                    log::error!("Failed to auto-attach sources ({} error(s)):", errors.len());
                     for (i, e) in errors.iter().enumerate() {
                         log::error!("  {}. {}", i + 1, e);
                     }
@@ -640,10 +643,7 @@ impl EventFluxAppRuntime {
                     }
                 }
                 Err(errors) => {
-                    log::error!(
-                        "Failed to auto-attach sinks ({} error(s)):",
-                        errors.len()
-                    );
+                    log::error!("Failed to auto-attach sinks ({} error(s)):", errors.len());
                     for (idx, err) in errors.iter().enumerate() {
                         log::error!("  {}. {}", idx + 1, err);
                     }
@@ -663,10 +663,7 @@ impl EventFluxAppRuntime {
                     }
                 }
                 Err(errors) => {
-                    log::error!(
-                        "Failed to auto-attach tables ({} error(s)):",
-                        errors.len()
-                    );
+                    log::error!("Failed to auto-attach tables ({} error(s)):", errors.len());
                     for (idx, err) in errors.iter().enumerate() {
                         log::error!("  {}. {}", idx + 1, err);
                     }
@@ -733,7 +730,10 @@ impl EventFluxAppRuntime {
             log::error!("Failed to start sinks: {}", e);
             self.rollback_startup();
             *self.state.write().unwrap() = RuntimeState::Failed;
-            return Err(EventFluxError::app_runtime(format!("Failed to start sinks: {}", e)));
+            return Err(EventFluxError::app_runtime(format!(
+                "Failed to start sinks: {}",
+                e
+            )));
         }
 
         if self.scheduler.is_some() {
@@ -952,7 +952,8 @@ impl EventFluxAppRuntime {
                         Err(e) => {
                             log::error!(
                                 "[EventFluxAppRuntime] Failed to attach SQL source '{}': {}",
-                                stream_id, e
+                                stream_id,
+                                e
                             );
                             errors.push(e);
                         }
@@ -965,7 +966,8 @@ impl EventFluxAppRuntime {
                     Err(e) => {
                         log::error!(
                             "[EventFluxAppRuntime] Failed to attach SQL sink '{}': {}",
-                            stream_id, e
+                            stream_id,
+                            e
                         );
                         errors.push(e);
                     }
@@ -1137,7 +1139,9 @@ impl EventFluxAppRuntime {
 
         log::info!(
             "[EventFluxAppRuntime] Auto-attached SQL source '{}' (extension={}, format={:?})",
-            stream_name, extension, format
+            stream_name,
+            extension,
+            format
         );
 
         Ok(())
@@ -1239,7 +1243,9 @@ impl EventFluxAppRuntime {
 
         log::info!(
             "[EventFluxAppRuntime] Auto-attached SQL sink '{}' (extension={}, format={:?})",
-            stream_name, extension, format
+            stream_name,
+            extension,
+            format
         );
 
         Ok(())
@@ -1302,7 +1308,9 @@ impl EventFluxAppRuntime {
                     Err(e) => {
                         log::error!(
                             "[EventFluxAppRuntime] Failed to attach source '{}' to stream '{}': {}",
-                            source_config.source_type, stream_name, e
+                            source_config.source_type,
+                            stream_name,
+                            e
                         );
                         errors.push(e);
                     }
@@ -1341,13 +1349,12 @@ impl EventFluxAppRuntime {
             })?;
 
         // Merge remaining SourceConfig fields (security, error_handling, rate_limit)
-        Self::merge_source_config_into_properties(source_config, &mut properties)
-            .map_err(|e| {
-                EventFluxError::configuration(format!(
-                    "Failed to merge source config for stream '{}': {}",
-                    stream_name, e
-                ))
-            })?;
+        Self::merge_source_config_into_properties(source_config, &mut properties).map_err(|e| {
+            EventFluxError::configuration(format!(
+                "Failed to merge source config for stream '{}': {}",
+                stream_name, e
+            ))
+        })?;
 
         let stream_type_config = StreamTypeConfig::new(
             StreamType::Source,
@@ -1468,13 +1475,16 @@ impl EventFluxAppRuntime {
                         successes.push(stream_name.clone());
                         log::info!(
                             "[EventFluxAppRuntime] Successfully attached sink '{}' to stream '{}'",
-                            sink_config.sink_type, stream_name
+                            sink_config.sink_type,
+                            stream_name
                         );
                     }
                     Err(e) => {
                         log::error!(
                             "[EventFluxAppRuntime] Failed to attach sink '{}' to stream '{}': {}",
-                            sink_config.sink_type, stream_name, e
+                            sink_config.sink_type,
+                            stream_name,
+                            e
                         );
                         errors.push(e);
                     }
@@ -1578,7 +1588,9 @@ impl EventFluxAppRuntime {
 
         // Attach sink to junction for event delivery
         self.attach_sink_to_junction(stream_name, Arc::clone(&handler))
-            .map_err(|e| EventFluxError::app_runtime(format!("Failed to attach sink to junction: {}", e)))?;
+            .map_err(|e| {
+                EventFluxError::app_runtime(format!("Failed to attach sink to junction: {}", e))
+            })?;
 
         Ok(())
     }
@@ -1601,7 +1613,6 @@ impl EventFluxAppRuntime {
         app_config: &ApplicationConfig,
     ) -> Result<Vec<String>, Vec<crate::core::exception::EventFluxError>> {
         use crate::core::config::types::application_config::DefinitionConfig;
-        use crate::core::exception::EventFluxError;
 
         let mut errors = Vec::new();
         let mut successes = Vec::new();
@@ -1621,13 +1632,15 @@ impl EventFluxAppRuntime {
                         successes.push(table_name.clone());
                         log::info!(
                             "[EventFluxAppRuntime] Successfully attached table '{}' (extension={})",
-                            table_name, table_config.store.store_type
+                            table_name,
+                            table_config.store.store_type
                         );
                     }
                     Err(e) => {
                         log::error!(
                             "[EventFluxAppRuntime] Failed to attach table '{}': {}",
-                            table_name, e
+                            table_name,
+                            e
                         );
                         errors.push(e);
                     }
@@ -1652,7 +1665,6 @@ impl EventFluxAppRuntime {
         table_name: &str,
         table_config: &crate::core::config::types::application_config::TableConfig,
     ) -> Result<(), crate::core::exception::EventFluxError> {
-        use crate::core::config::stream_config::TableTypeConfig;
         use crate::core::exception::EventFluxError;
         use crate::core::stream::stream_initializer::{initialize_table, InitializedStream};
 

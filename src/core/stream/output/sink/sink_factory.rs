@@ -5,8 +5,8 @@
 //! Provides automatic sink creation from configuration
 
 use crate::core::config::{types::application_config::SinkConfig, ProcessorConfigReader};
-use crate::core::stream::output::sink::{LogSink, Sink, SinkCallbackAdapter};
-use crate::core::stream::output::mapper::{PassthroughMapper, SinkMapper};
+use crate::core::stream::output::mapper::PassthroughMapper;
+use crate::core::stream::output::sink::{LogSink, SinkCallbackAdapter};
 use crate::core::stream::output::stream_callback::StreamCallback;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

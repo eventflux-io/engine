@@ -115,9 +115,15 @@ fn test_integration_1_complex_count_quantifiers() {
     // - After A1, A2: state with 2 As waiting for 2 Bs
     // - After B1, B2: First match (2 As, 2 Bs)
     // - Potentially more matches with A3
-    assert!(outputs.len() >= 1, "Expected at least 1 output from A{{2,3}} -> B{{2}} pattern");
+    assert!(
+        outputs.len() >= 1,
+        "Expected at least 1 output from A{{2,3}} -> B{{2}} pattern"
+    );
 
-    println!("SUCCESS: Complex count quantifiers produced {} match(es)", outputs.len());
+    println!(
+        "SUCCESS: Complex count quantifiers produced {} match(es)",
+        outputs.len()
+    );
 }
 
 /// Test 2: Pattern mode with WITHIN time constraint
@@ -191,7 +197,11 @@ fn test_integration_2_pattern_with_within() {
     // Verify output
     let outputs = collector.get_outputs();
     println!("  Final outputs = {}", outputs.len());
-    assert_eq!(outputs.len(), 1, "Expected 1 output - Pattern ignored X,Y and C arrived within 20s");
+    assert_eq!(
+        outputs.len(),
+        1,
+        "Expected 1 output - Pattern ignored X,Y and C arrived within 20s"
+    );
 
     println!("SUCCESS: Pattern mode with WITHIN constraint produced match");
 }
@@ -275,9 +285,15 @@ fn test_integration_3_concurrent_instances() {
 
     // With A{2} -> B{2}, we expect at least 1 match from (A1,A2) -> (B1,B2)
     // Potentially more with overlapping instances
-    assert!(outputs.len() >= 1, "Expected at least 1 output from concurrent A{{2}} -> B{{2}} instances");
+    assert!(
+        outputs.len() >= 1,
+        "Expected at least 1 output from concurrent A{{2}} -> B{{2}} instances"
+    );
 
-    println!("SUCCESS: Concurrent pattern instances produced {} match(es)", outputs.len());
+    println!(
+        "SUCCESS: Concurrent pattern instances produced {} match(es)",
+        outputs.len()
+    );
 }
 
 /// Test 4: Sequence mode vs Pattern mode comparison
@@ -303,15 +319,24 @@ fn test_integration_4_sequence_vs_pattern_comparison() {
         println!("  Test 4a: Sequence mode [A, B, C] → MATCH");
 
         let event_a = create_stream_event(1000);
-        chain.pre_processors[0].lock().unwrap().process(Some(Box::new(event_a)));
+        chain.pre_processors[0]
+            .lock()
+            .unwrap()
+            .process(Some(Box::new(event_a)));
         chain.update_state();
 
         let event_b = create_stream_event(2000);
-        chain.pre_processors[1].lock().unwrap().process(Some(Box::new(event_b)));
+        chain.pre_processors[1]
+            .lock()
+            .unwrap()
+            .process(Some(Box::new(event_b)));
         chain.update_state();
 
         let event_c = create_stream_event(3000);
-        chain.pre_processors[2].lock().unwrap().process(Some(Box::new(event_c)));
+        chain.pre_processors[2]
+            .lock()
+            .unwrap()
+            .process(Some(Box::new(event_c)));
         chain.update_state();
 
         let outputs = collector.get_outputs();
@@ -333,30 +358,49 @@ fn test_integration_4_sequence_vs_pattern_comparison() {
         println!("  Test 4b: Pattern mode [A, X, B, Y, C] → MATCH (X, Y ignored)");
 
         let event_a = create_stream_event(1000);
-        chain.pre_processors[0].lock().unwrap().process(Some(Box::new(event_a)));
+        chain.pre_processors[0]
+            .lock()
+            .unwrap()
+            .process(Some(Box::new(event_a)));
         chain.update_state();
 
         // X is ignored in Pattern mode
         let event_x = create_stream_event(1500);
-        chain.pre_processors[0].lock().unwrap().process(Some(Box::new(event_x)));
+        chain.pre_processors[0]
+            .lock()
+            .unwrap()
+            .process(Some(Box::new(event_x)));
         chain.update_state();
 
         let event_b = create_stream_event(2000);
-        chain.pre_processors[1].lock().unwrap().process(Some(Box::new(event_b)));
+        chain.pre_processors[1]
+            .lock()
+            .unwrap()
+            .process(Some(Box::new(event_b)));
         chain.update_state();
 
         // Y is ignored in Pattern mode
         let event_y = create_stream_event(2500);
-        chain.pre_processors[0].lock().unwrap().process(Some(Box::new(event_y)));
+        chain.pre_processors[0]
+            .lock()
+            .unwrap()
+            .process(Some(Box::new(event_y)));
         chain.update_state();
 
         let event_c = create_stream_event(3000);
-        chain.pre_processors[2].lock().unwrap().process(Some(Box::new(event_c)));
+        chain.pre_processors[2]
+            .lock()
+            .unwrap()
+            .process(Some(Box::new(event_c)));
         chain.update_state();
 
         let outputs = collector.get_outputs();
         println!("    Pattern mode outputs = {}", outputs.len());
-        assert_eq!(outputs.len(), 1, "Expected 1 output - Pattern ignores X and Y");
+        assert_eq!(
+            outputs.len(),
+            1,
+            "Expected 1 output - Pattern ignores X and Y"
+        );
     }
 
     println!("SUCCESS: Sequence and Pattern modes validated");
@@ -453,7 +497,11 @@ fn test_integration_5_four_step_chain() {
     // Verify output
     let outputs = collector.get_outputs();
     println!("  Final outputs = {}", outputs.len());
-    assert_eq!(outputs.len(), 1, "Expected 1 output from four-step pattern chain");
+    assert_eq!(
+        outputs.len(),
+        1,
+        "Expected 1 output from four-step pattern chain"
+    );
 
     println!("SUCCESS: Four-step pattern chain completed with non-matching events ignored");
 }

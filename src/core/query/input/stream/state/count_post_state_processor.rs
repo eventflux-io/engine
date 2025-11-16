@@ -116,15 +116,18 @@ impl PostStateProcessor for CountPostStateProcessor {
     }
 
     fn set_next_state_pre_processor(&mut self, processor: Arc<Mutex<dyn PreStateProcessor>>) {
-        self.stream_processor.set_next_state_pre_processor(processor);
+        self.stream_processor
+            .set_next_state_pre_processor(processor);
     }
 
     fn set_callback_pre_state_processor(&mut self, processor: Arc<Mutex<dyn PreStateProcessor>>) {
-        self.stream_processor.set_callback_pre_state_processor(processor);
+        self.stream_processor
+            .set_callback_pre_state_processor(processor);
     }
 
     fn set_next_every_state_pre_processor(&mut self, processor: Arc<Mutex<dyn PreStateProcessor>>) {
-        self.stream_processor.set_next_every_state_pre_processor(processor);
+        self.stream_processor
+            .set_next_every_state_pre_processor(processor);
     }
 
     fn set_next_processor(&mut self, processor: Arc<Mutex<dyn PostStateProcessor>>) {

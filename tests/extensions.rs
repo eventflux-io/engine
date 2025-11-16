@@ -219,22 +219,28 @@ fn setup_query_env(
         StreamDefinition::new("Out".to_string()).attribute("v".to_string(), AttrType::INT),
     );
 
-    let in_j = Arc::new(Mutex::new(StreamJunction::new(
-        "Input".to_string(),
-        Arc::clone(&in_def),
-        Arc::clone(&app_ctx),
-        1024,
-        false,
-        None,
-    ).unwrap()));
-    let out_j = Arc::new(Mutex::new(StreamJunction::new(
-        "Out".to_string(),
-        Arc::clone(&out_def),
-        Arc::clone(&app_ctx),
-        1024,
-        false,
-        None,
-    ).unwrap()));
+    let in_j = Arc::new(Mutex::new(
+        StreamJunction::new(
+            "Input".to_string(),
+            Arc::clone(&in_def),
+            Arc::clone(&app_ctx),
+            1024,
+            false,
+            None,
+        )
+        .unwrap(),
+    ));
+    let out_j = Arc::new(Mutex::new(
+        StreamJunction::new(
+            "Out".to_string(),
+            Arc::clone(&out_def),
+            Arc::clone(&app_ctx),
+            1024,
+            false,
+            None,
+        )
+        .unwrap(),
+    ));
 
     let mut map = HashMap::new();
     map.insert("Input".to_string(), in_j);
@@ -320,6 +326,7 @@ fn test_query_parser_uses_custom_window_factory() {
         &HashMap::new(),
         &HashMap::new(),
         None,
+        0, // query_index
     )
     .unwrap();
     let head = runtime.processor_chain_head.expect("head");

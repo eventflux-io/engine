@@ -56,9 +56,8 @@ impl Default for PassthroughMapper {
 impl SinkMapper for PassthroughMapper {
     fn map(&self, events: &[Event]) -> Result<Vec<u8>, EventFluxError> {
         // Use bincode for efficient binary serialization
-        bincode::serialize(events).map_err(|e| {
-            EventFluxError::app_runtime(format!("Failed to serialize events: {}", e))
-        })
+        bincode::serialize(events)
+            .map_err(|e| EventFluxError::app_runtime(format!("Failed to serialize events: {}", e)))
     }
 
     fn clone_box(&self) -> Box<dyn SinkMapper> {

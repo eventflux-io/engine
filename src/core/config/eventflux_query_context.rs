@@ -5,7 +5,7 @@ use super::eventflux_app_context::EventFluxAppContext;
 use crate::core::persistence::StateHolder;
 use crate::core::util::id_generator::IdGenerator;
 use crate::query_api::execution::query::output::OutputEventType;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex}; // From query_api, as Java uses it.
                              // use crate::core::util::statistics::LatencyTracker; // TODO: Define LatencyTracker
                              // use crate::core::util::IdGenerator; // TODO: Define IdGenerator
@@ -28,6 +28,7 @@ pub struct EventFluxQueryContext {
     pub latency_tracker: Option<LatencyTrackerPlaceholder>, // transient in Java, Option in Rust
     pub id_generator: IdGenerator,                          // new-ed in Java constructor
     pub stateful: AtomicBool,                               // whether any state holders registered
+    pub aggregator_counter: AtomicUsize,                    // counter for unique aggregator IDs
 }
 
 impl Clone for EventFluxQueryContext {
@@ -41,6 +42,7 @@ impl Clone for EventFluxQueryContext {
             latency_tracker: self.latency_tracker.clone(),
             id_generator: self.id_generator.clone(),
             stateful: AtomicBool::new(self.stateful.load(Ordering::SeqCst)),
+            aggregator_counter: AtomicUsize::new(self.aggregator_counter.load(Ordering::SeqCst)),
         }
     }
 }
@@ -61,6 +63,7 @@ impl EventFluxQueryContext {
             latency_tracker: None,
             id_generator: IdGenerator::default(),
             stateful: AtomicBool::new(false),
+            aggregator_counter: AtomicUsize::new(0),
         }
     }
 
@@ -112,6 +115,12 @@ impl EventFluxQueryContext {
 
     pub fn is_stateful(&self) -> bool {
         self.stateful.load(Ordering::SeqCst)
+    }
+
+    /// Get the next unique aggregator ID for this query.
+    /// Each call returns an incremented counter, ensuring unique IDs per aggregator instance.
+    pub fn next_aggregator_id(&self) -> usize {
+        self.aggregator_counter.fetch_add(1, Ordering::SeqCst)
     }
 
     /// Register a state holder with the application's `SnapshotService`.

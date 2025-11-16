@@ -22,8 +22,8 @@
 //! All stream handlers are created behind Arc for shared ownership across
 //! multiple threads during query processing.
 
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::core::config::eventflux_context::EventFluxContext;
 use crate::core::config::stream_config::{
@@ -42,17 +42,17 @@ use crate::query_api::execution::query::Query;
 /// Fully initialized stream with source and mapper components
 pub struct InitializedSource {
     pub source: Box<dyn Source>,
-    pub mapper: Option<Box<dyn SourceMapper>>,  // Optional - None = use PassthroughMapper
+    pub mapper: Option<Box<dyn SourceMapper>>, // Optional - None = use PassthroughMapper
     pub extension: String,
-    pub format: Option<String>,  // Optional - None = no format (binary passthrough)
+    pub format: Option<String>, // Optional - None = no format (binary passthrough)
 }
 
 /// Fully initialized sink stream with sink and mapper components
 pub struct InitializedSink {
     pub sink: Box<dyn Sink>,
-    pub mapper: Option<Box<dyn SinkMapper>>,  // Optional - None = use PassthroughMapper
+    pub mapper: Option<Box<dyn SinkMapper>>, // Optional - None = use PassthroughMapper
     pub extension: String,
-    pub format: Option<String>,  // Optional - None = no format (binary passthrough)
+    pub format: Option<String>, // Optional - None = no format (binary passthrough)
 }
 
 /// Fully initialized table with backing store
@@ -192,9 +192,11 @@ fn initialize_source_stream(
         }
 
         // 3. Look up mapper factory by format
-        Some(context
-            .get_source_mapper_factory(format)
-            .ok_or_else(|| EventFluxError::extension_not_found("source mapper", format))?)
+        Some(
+            context
+                .get_source_mapper_factory(format)
+                .ok_or_else(|| EventFluxError::extension_not_found("source mapper", format))?,
+        )
     } else {
         // No format specified - validate that source supports binary passthrough
         let supported_formats = source_factory.supported_formats();
@@ -234,7 +236,9 @@ fn initialize_source_stream(
 
     // 5. Create fully initialized instances (fail-fast validation)
     let source = source_factory.create_initialized(&stream_config.properties)?;
-    let mapper = mapper_factory.map(|factory| factory.create_initialized(&stream_config.properties)).transpose()?;
+    let mapper = mapper_factory
+        .map(|factory| factory.create_initialized(&stream_config.properties))
+        .transpose()?;
 
     // 6. Phase 2 Validation: Verify external connectivity (FAIL-FAST)
     // This ensures "What's the point of deploying if transports aren't ready?"
@@ -277,9 +281,11 @@ fn initialize_sink_stream(
         }
 
         // 3. Look up mapper factory by format
-        Some(context
-            .get_sink_mapper_factory(format)
-            .ok_or_else(|| EventFluxError::extension_not_found("sink mapper", format))?)
+        Some(
+            context
+                .get_sink_mapper_factory(format)
+                .ok_or_else(|| EventFluxError::extension_not_found("sink mapper", format))?,
+        )
     } else {
         // No format specified - validate that sink supports binary passthrough
         let supported_formats = sink_factory.supported_formats();
@@ -319,7 +325,9 @@ fn initialize_sink_stream(
 
     // 5. Create fully initialized instances (fail-fast validation)
     let sink = sink_factory.create_initialized(&stream_config.properties)?;
-    let mapper = mapper_factory.map(|factory| factory.create_initialized(&stream_config.properties)).transpose()?;
+    let mapper = mapper_factory
+        .map(|factory| factory.create_initialized(&stream_config.properties))
+        .transpose()?;
 
     // 6. Phase 2 Validation: Verify external connectivity (FAIL-FAST)
     // This ensures "What's the point of deploying if transports aren't ready?"
@@ -585,7 +593,7 @@ fn initialize_source_stream_with_handler(
             // Create SourceStreamHandler
             let handler = Arc::new(SourceStreamHandler::new(
                 source.source,
-                source.mapper,  // Already Option<Box<dyn SourceMapper>>
+                source.mapper, // Already Option<Box<dyn SourceMapper>>
                 input_handler,
                 stream_name.to_string(),
             ));
@@ -618,7 +626,7 @@ fn initialize_sink_stream_with_handler(
             // Create SinkStreamHandler
             let handler = Arc::new(SinkStreamHandler::new(
                 sink.sink,
-                sink.mapper,  // Already Option<Box<dyn SinkMapper>>
+                sink.mapper, // Already Option<Box<dyn SinkMapper>>
                 stream_name.to_string(),
             ));
 

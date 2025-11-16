@@ -8,7 +8,6 @@
 //! EventFluxAppRuntime and adds distributed capabilities based on configuration.
 //! It maintains API compatibility while enabling distributed features.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -102,11 +101,11 @@ impl DistributedRuntime {
         }
 
         // Start core runtime and propagate errors
-        self.core_runtime.start().map_err(|e| {
-            DistributedError::ConfigurationError {
+        self.core_runtime
+            .start()
+            .map_err(|e| DistributedError::ConfigurationError {
                 message: format!("Failed to start core runtime: {}", e),
-            }
-        })?;
+            })?;
 
         // Register queries with processing engine
         for (query_id, query_runtime) in self.core_runtime.query_runtimes.iter().enumerate() {

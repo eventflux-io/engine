@@ -17,9 +17,8 @@ use super::session_window_processor::{SessionContainer, SessionEventChunk, Sessi
 
 use crate::core::event::stream::stream_event::StreamEvent;
 use crate::core::persistence::state_holder::{
-    AccessPattern, ChangeLog, CheckpointId, ComponentId, CompressionType, SchemaVersion,
-    SerializationHints, StateError, StateHolder, StateMetadata, StateOperation, StateSize,
-    StateSnapshot,
+    AccessPattern, ChangeLog, CheckpointId, CompressionType, SchemaVersion, SerializationHints,
+    StateError, StateHolder, StateMetadata, StateOperation, StateSize, StateSnapshot,
 };
 use crate::core::util::compression::{
     CompressibleStateHolder, CompressionHints, DataCharacteristics, DataSizeRange,
@@ -342,7 +341,7 @@ impl StateHolder for SessionWindowStateHolder {
         })
     }
 
-    fn deserialize_state(&mut self, snapshot: &StateSnapshot) -> Result<(), StateError> {
+    fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError> {
         // Verify checksum
         if !snapshot.verify_integrity() {
             return Err(StateError::ChecksumMismatch);
@@ -420,33 +419,103 @@ impl StateHolder for SessionWindowStateHolder {
         Ok(changelog)
     }
 
-    fn apply_changelog(&mut self, changes: &ChangeLog) -> Result<(), StateError> {
-        // For session windows, applying a changelog would require
-        // replaying the operations to rebuild the state
-        // This is a simplified implementation
+    fn apply_changelog(&self, changes: &ChangeLog) -> Result<(), StateError> {
+        let mut state = self.state.lock().unwrap();
 
         for operation in &changes.operations {
             match operation {
-                StateOperation::Insert { key, .. } => {
-                    // Session creation or event addition
+                StateOperation::Insert { key, value } => {
                     let key_str = String::from_utf8_lossy(key);
+
                     if key_str.contains(":event:") {
-                        // Event addition - would need to deserialize and add to session
-                        *self.total_events_processed.lock().unwrap() += 1;
+                        // Event addition - parse session key and deserialize event
+                        if let Some(session_key) = key_str.split(":event:").next() {
+                            if !value.is_empty() {
+                                if let Ok(event) = self.deserialize_event(value) {
+                                    // Get or create the session container
+                                    let container = state
+                                        .session_map
+                                        .entry(session_key.to_string())
+                                        .or_insert_with(SessionContainer::new);
+
+                                    // Add event to current session
+                                    container.current_session.add_event(Arc::new(event));
+                                    *self.total_events_processed.lock().unwrap() += 1;
+                                }
+                            }
+                        }
                     } else {
-                        // Session creation
+                        // Session creation - create new empty session container
+                        let session_key = String::from_utf8_lossy(key).to_string();
+                        state
+                            .session_map
+                            .entry(session_key)
+                            .or_insert_with(SessionContainer::new);
                         *self.total_sessions_processed.lock().unwrap() += 1;
                     }
                 }
-                StateOperation::Delete { .. } => {
-                    // Session expiry
+
+                StateOperation::Delete { key, old_value } => {
+                    let key_str = String::from_utf8_lossy(key);
+
+                    if key_str.contains(":event:") {
+                        // Event removal - parse session key and remove event
+                        if let Some(session_key) = key_str.split(":event:").next() {
+                            if let Some(container) = state.session_map.get_mut(session_key) {
+                                if !old_value.is_empty() {
+                                    if let Ok(event_to_remove) = self.deserialize_event(old_value) {
+                                        // Remove matching event from current session
+                                        container.current_session.events.retain(|e| {
+                                            !(e.timestamp == event_to_remove.timestamp
+                                                && e.before_window_data
+                                                    == event_to_remove.before_window_data)
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Session expiry - remove the entire session
+                        let session_key = String::from_utf8_lossy(key).to_string();
+                        state.session_map.remove(&session_key);
+                    }
                 }
-                StateOperation::Update { .. } => {
-                    // Session update (not typically used for session windows)
+
+                StateOperation::Update {
+                    key,
+                    old_value,
+                    new_value,
+                } => {
+                    let key_str = String::from_utf8_lossy(key);
+
+                    if key_str.contains(":event:") {
+                        // Event update - remove old and add new
+                        if let Some(session_key) = key_str.split(":event:").next() {
+                            if let Some(container) = state.session_map.get_mut(session_key) {
+                                // Remove old event
+                                if !old_value.is_empty() {
+                                    if let Ok(old_event) = self.deserialize_event(old_value) {
+                                        container.current_session.events.retain(|e| {
+                                            !(e.timestamp == old_event.timestamp
+                                                && e.before_window_data
+                                                    == old_event.before_window_data)
+                                        });
+                                    }
+                                }
+
+                                // Add new event
+                                if !new_value.is_empty() {
+                                    if let Ok(new_event) = self.deserialize_event(new_value) {
+                                        container.current_session.add_event(Arc::new(new_event));
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
+
                 StateOperation::Clear => {
                     // Clear all state
-                    let mut state = self.state.lock().unwrap();
                     state.session_map.clear();
                     state.expired_event_chunk.clear();
                 }

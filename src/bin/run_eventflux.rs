@@ -65,7 +65,10 @@ async fn main() {
 
     let mut manager = EventFluxManager::new();
     if let Some(s) = store {
-        manager.set_persistence_store(s);
+        if let Err(e) = manager.set_persistence_store(s) {
+            eprintln!("Failed to set persistence store: {e}");
+            std::process::exit(1);
+        }
     }
     if let Some(cfg) = cli.config {
         let config_manager = ConfigManager::from_file(cfg);
@@ -93,7 +96,16 @@ async fn main() {
     };
 
     for stream_id in runtime.stream_junction_map.keys() {
-        let _ = runtime.add_callback(stream_id, Box::new(LogStreamCallback::new(stream_id.clone())));
+        let _ = runtime.add_callback(
+            stream_id,
+            Box::new(LogStreamCallback::new(stream_id.clone())),
+        );
+    }
+
+    // Start the runtime after adding callbacks
+    if let Err(e) = runtime.start() {
+        eprintln!("Failed to start runtime: {e}");
+        std::process::exit(1);
     }
 
     println!(

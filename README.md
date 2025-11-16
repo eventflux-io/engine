@@ -340,7 +340,30 @@ comprehensive configuration reference.
 * **Integration Testing**: The `tests` directory contains end-to-end tests covering windows, joins, patterns, sequences,
   incremental aggregations and the scheduler. These tests parse EventFlux applications and run them through a helper
   `AppRunner` to verify expected outputs.
+* **Performance Testing**: Long-running performance and stress tests are isolated in `tests/performance_tests.rs` and only
+  run when explicitly enabled with the `perf-tests` feature flag. This keeps normal test runs fast while still allowing
+  comprehensive performance validation.
 * **Benchmarking**: Not yet performed.
+
+### Running Performance Tests
+
+Performance tests are excluded from normal `cargo test` runs to keep development workflows fast. To run performance tests:
+
+```bash
+# Run all performance tests
+cargo test --features perf-tests --test performance_tests
+
+# Run specific performance test
+cargo test --features perf-tests --test performance_tests test_junction_backpressure
+
+# Run normal tests (excludes performance tests)
+cargo test
+```
+
+Performance tests include:
+- **Backpressure Testing**: Validates event pipeline behavior under high load (50K events)
+- **Throughput Testing**: Measures events/second processing capability
+- **Resource Testing**: Validates memory and CPU usage under sustained load
 
 ## Registering Tables and UDFs
 

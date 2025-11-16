@@ -5,7 +5,6 @@ pub mod sink_factory;
 pub mod sink_trait;
 
 use crate::core::event::event::Event;
-use crate::core::exception::EventFluxError;
 use crate::core::stream::output::mapper::SinkMapper;
 use crate::core::stream::output::stream_callback::StreamCallback;
 use std::sync::{Arc, Mutex};

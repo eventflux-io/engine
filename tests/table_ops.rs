@@ -86,7 +86,8 @@ fn test_table_input_handler_add() {
         .unwrap()
         .contains(&InMemoryCompiledCondition {
             values: vec![AttributeValue::Int(5)]
-        }));
+        })
+        .unwrap());
 }
 
 #[test]
@@ -118,7 +119,8 @@ fn test_insert_into_table_processor() {
         .unwrap()
         .contains(&InMemoryCompiledCondition {
             values: vec![AttributeValue::Int(7)]
-        }));
+        })
+        .unwrap());
 }
 
 #[test]
@@ -139,28 +141,36 @@ fn test_table_input_handler_update_delete_find() {
         0,
         vec![AttributeValue::String("a".into())],
     )]);
-    assert!(table.contains(&InMemoryCompiledCondition {
-        values: vec![AttributeValue::String("a".into())]
-    }));
+    assert!(table
+        .contains(&InMemoryCompiledCondition {
+            values: vec![AttributeValue::String("a".into())]
+        })
+        .unwrap());
     assert!(handler.update(
         vec![AttributeValue::String("a".into())],
         vec![AttributeValue::String("b".into())]
     ));
-    assert!(table.contains(&InMemoryCompiledCondition {
-        values: vec![AttributeValue::String("b".into())]
-    }));
+    assert!(table
+        .contains(&InMemoryCompiledCondition {
+            values: vec![AttributeValue::String("b".into())]
+        })
+        .unwrap());
     assert!(handler.delete(vec![AttributeValue::String("b".into())]));
-    assert!(!table.contains(&InMemoryCompiledCondition {
-        values: vec![AttributeValue::String("b".into())]
-    }));
+    assert!(!table
+        .contains(&InMemoryCompiledCondition {
+            values: vec![AttributeValue::String("b".into())]
+        })
+        .unwrap());
     handler.add(vec![Event::new_with_data(
         0,
         vec![AttributeValue::String("x".into())],
     )]);
     assert_eq!(
-        table.find(&InMemoryCompiledCondition {
-            values: vec![AttributeValue::String("x".into())]
-        }),
+        table
+            .find(&InMemoryCompiledCondition {
+                values: vec![AttributeValue::String("x".into())]
+            })
+            .unwrap(),
         Some(vec![AttributeValue::String("x".into())])
     );
 }
@@ -194,20 +204,26 @@ fn test_table_input_handler_jdbc() {
         0,
         vec![AttributeValue::String("a".into())],
     )]);
-    assert!(table.contains(&InMemoryCompiledCondition {
-        values: vec![AttributeValue::String("a".into())]
-    }));
+    assert!(table
+        .contains(&InMemoryCompiledCondition {
+            values: vec![AttributeValue::String("a".into())]
+        })
+        .unwrap());
     assert!(handler.update(
         vec![AttributeValue::String("a".into())],
         vec![AttributeValue::String("b".into())]
     ));
-    assert!(table.contains(&InMemoryCompiledCondition {
-        values: vec![AttributeValue::String("b".into())]
-    }));
+    assert!(table
+        .contains(&InMemoryCompiledCondition {
+            values: vec![AttributeValue::String("b".into())]
+        })
+        .unwrap());
     assert!(handler.delete(vec![AttributeValue::String("b".into())]));
-    assert!(!table.contains(&InMemoryCompiledCondition {
-        values: vec![AttributeValue::String("b".into())]
-    }));
+    assert!(!table
+        .contains(&InMemoryCompiledCondition {
+            values: vec![AttributeValue::String("b".into())]
+        })
+        .unwrap());
 }
 
 #[test]
@@ -237,14 +253,17 @@ fn test_query_parser_with_table_actions() {
     let mut junctions = HashMap::new();
     junctions.insert(
         "S".to_string(),
-        Arc::new(Mutex::new(StreamJunction::new(
-            "S".to_string(),
-            Arc::clone(&s_def),
-            Arc::clone(&app_ctx),
-            1024,
-            false,
-            None,
-        ).unwrap())),
+        Arc::new(Mutex::new(
+            StreamJunction::new(
+                "S".to_string(),
+                Arc::clone(&s_def),
+                Arc::clone(&app_ctx),
+                1024,
+                false,
+                None,
+            )
+            .unwrap(),
+        )),
     );
 
     let mut table_defs = HashMap::new();
@@ -252,7 +271,7 @@ fn test_query_parser_with_table_actions() {
 
     let q1 = parse_query("from S select val insert into table T").unwrap();
     assert!(
-        eventflux_rust::core::util::parser::QueryParser::parse_query(
+        eventflux_rust::core::util::parser::QueryParser::parse_query_test(
             &q1,
             &app_ctx,
             &junctions,
@@ -265,7 +284,7 @@ fn test_query_parser_with_table_actions() {
 
     let q2 = parse_query("from S select val update table T").unwrap();
     assert!(
-        eventflux_rust::core::util::parser::QueryParser::parse_query(
+        eventflux_rust::core::util::parser::QueryParser::parse_query_test(
             &q2,
             &app_ctx,
             &junctions,
@@ -278,7 +297,7 @@ fn test_query_parser_with_table_actions() {
 
     let q3 = parse_query("from S select val delete table T").unwrap();
     assert!(
-        eventflux_rust::core::util::parser::QueryParser::parse_query(
+        eventflux_rust::core::util::parser::QueryParser::parse_query_test(
             &q3,
             &app_ctx,
             &junctions,

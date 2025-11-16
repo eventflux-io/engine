@@ -8,10 +8,10 @@
 //! using Tonic. It supports streaming, compression, load balancing, and health checks.
 
 use super::transport_client::TransportClient;
-use super::transport_server::{Transport as TransportService, TransportServer};
+use super::transport_server::Transport as TransportService;
 use super::{
-    ClusterInfo, CompressionType, EventRequest, HeartbeatRequest, HeartbeatResponse, MessageType,
-    NodeHealth, NodeStatus, TransportMessage,
+    ClusterInfo, CompressionType, HeartbeatRequest, HeartbeatResponse, MessageType, NodeHealth,
+    NodeStatus, TransportMessage,
 };
 
 use crate::core::distributed::transport::{
@@ -21,15 +21,13 @@ use crate::core::distributed::transport::{
 use crate::core::distributed::{DistributedError, DistributedResult};
 
 use async_trait::async_trait;
-use futures::{Stream, StreamExt};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::time::Duration;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity, Server, ServerTlsConfig};
-use tonic::{Request, Response, Status, Streaming};
-use tower::service_fn;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig};
+use tonic::{Request, Response, Status};
 
 /// gRPC transport implementation using Tonic
 pub struct GrpcTransport {

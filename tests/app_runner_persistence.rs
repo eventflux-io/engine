@@ -63,7 +63,7 @@ async fn persist_shutdown_restore_state() {
     // MIGRATED: Use YAML configuration for app naming
     let config_manager = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
     let manager = EventFluxManager::new_with_config_manager(config_manager);
-    manager.set_persistence_store(Arc::clone(&store));
+    manager.set_persistence_store(Arc::clone(&store)).unwrap();
 
     let app = "\
         CREATE STREAM In (v INT);\n\
@@ -81,7 +81,7 @@ async fn persist_shutdown_restore_state() {
     // Second instance with same config
     let config_manager2 = ConfigManager::from_file("tests/fixtures/app-with-name.yaml");
     let manager2 = EventFluxManager::new_with_config_manager(config_manager2);
-    manager2.set_persistence_store(Arc::clone(&store));
+    manager2.set_persistence_store(Arc::clone(&store)).unwrap();
 
     let runner2 = AppRunner::new_with_manager(manager2, app, "Out").await;
     runner2.restore_revision(&rev);

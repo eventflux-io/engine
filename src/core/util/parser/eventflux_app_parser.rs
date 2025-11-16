@@ -60,17 +60,9 @@ impl EventFluxAppParser {
             default_stream_async,
         )?;
 
-        Self::process_table_definitions(
-            api_eventflux_app,
-            &mut builder,
-            &eventflux_app_context,
-        )?;
+        Self::process_table_definitions(api_eventflux_app, &mut builder, &eventflux_app_context)?;
 
-        Self::process_window_definitions(
-            api_eventflux_app,
-            &mut builder,
-            &eventflux_app_context,
-        )?;
+        Self::process_window_definitions(api_eventflux_app, &mut builder, &eventflux_app_context)?;
 
         Self::process_aggregation_definitions(
             api_eventflux_app,
@@ -78,11 +70,7 @@ impl EventFluxAppParser {
             &eventflux_app_context,
         )?;
 
-        Self::process_execution_elements(
-            api_eventflux_app,
-            &mut builder,
-            &eventflux_app_context,
-        )?;
+        Self::process_execution_elements(api_eventflux_app, &mut builder, &eventflux_app_context)?;
 
         Ok(builder)
     }
@@ -178,7 +166,12 @@ impl EventFluxAppParser {
                 eventflux_app_context.clone(),
                 None,
             )
-            .map_err(|e| format!("Failed to create stream junction for '{}': {}", stream_id, e))?;
+            .map_err(|e| {
+                format!(
+                    "Failed to create stream junction for '{}': {}",
+                    stream_id, e
+                )
+            })?;
 
             builder.add_stream_junction(stream_id.clone(), stream_junction);
         }
@@ -364,6 +357,9 @@ impl EventFluxAppParser {
         eventflux_app_context: &Arc<EventFluxAppContext>,
     ) -> Result<(), String> {
         // Parse Execution Elements (Queries, Partitions)
+        // Use counters to provide deterministic indices for stable component IDs (needed for state recovery)
+        let mut query_index = 0;
+        let mut partition_index = 0;
         for exec_element in &api_eventflux_app.execution_element_list {
             match exec_element {
                 ApiExecutionElement::Query(api_query) => {
@@ -376,17 +372,21 @@ impl EventFluxAppParser {
                         &builder.table_definition_map,
                         &builder.aggregation_map,
                         None,
+                        query_index,
                     )?;
                     builder.add_query_runtime(Arc::new(query_runtime));
-                    // TODO: eventflux_app_context.addEternalReferencedHolder(queryRuntime);
+                    query_index += 1; // Increment for next query
+                                      // TODO: eventflux_app_context.addEternalReferencedHolder(queryRuntime);
                 }
                 ApiExecutionElement::Partition(api_partition) => {
                     let part_rt = PartitionParser::parse(
                         builder,
                         api_partition,
                         eventflux_app_context,
+                        partition_index,
                     )?;
                     builder.add_partition_runtime(Arc::new(part_rt));
+                    partition_index += 1; // Increment for next partition
                 }
             }
         }

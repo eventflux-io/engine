@@ -15,8 +15,8 @@ pub mod stream_pre_state; // Three-list state management for pattern processing
 pub mod stream_pre_state_processor; // Base implementation of PreStateProcessor // AND/OR PostStateProcessor implementation
 
 // Pattern processing Phase 2: Count Quantifiers
-pub mod count_pre_state_processor; // Count quantifier patterns (A{n}, A{m,n}, A+, A*)
 pub mod count_post_state_processor; // Count quantifier validation
+pub mod count_pre_state_processor; // Count quantifier patterns (A{n}, A{m,n}, A+, A*)
 pub mod pattern_chain_builder; // Pattern chain factory for multi-processor chains
 
 // Runtime infrastructure (Week 6)

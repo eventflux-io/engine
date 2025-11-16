@@ -120,15 +120,11 @@ impl JsonSourceMapper {
                 source: None,
             })?;
 
-        // Sort keys for consistent ordering
-        let mut sorted_keys: Vec<_> = obj.keys().collect();
-        sorted_keys.sort();
-
+        // Preserve JSON key order (serde_json maintains insertion order)
+        // This allows the JSON input to match schema field order
         let mut event_data = Vec::new();
-        for key in sorted_keys {
-            if let Some(value) = obj.get(key) {
-                event_data.push(json_value_to_attribute(value, self.date_format.as_deref())?);
-            }
+        for (key, value) in obj.iter() {
+            event_data.push(json_value_to_attribute(value, self.date_format.as_deref())?);
         }
 
         // Use current timestamp in milliseconds
@@ -141,6 +137,9 @@ impl JsonSourceMapper {
     }
 
     /// Extract fields using explicit JSONPath mappings
+    ///
+    /// NOTE: Since mappings come from a HashMap with non-deterministic iteration order,
+    /// we sort field names alphabetically to ensure deterministic and predictable ordering.
     fn extract_with_mappings(
         &self,
         json: &JsonValue,
@@ -148,11 +147,13 @@ impl JsonSourceMapper {
     ) -> Result<Vec<Event>, EventFluxError> {
         let mut event_data = Vec::new();
 
-        // Extract fields in a consistent order (sorted by field name)
-        let mut sorted_mappings: Vec<_> = mappings.iter().collect();
-        sorted_mappings.sort_by_key(|(field_name, _)| *field_name);
+        // Sort field names alphabetically for deterministic ordering
+        // (HashMap iteration order is non-deterministic)
+        let mut sorted_fields: Vec<_> = mappings.keys().collect();
+        sorted_fields.sort();
 
-        for (_field_name, json_path) in sorted_mappings {
+        for field_name in sorted_fields {
+            let json_path = &mappings[field_name];
             let value = extract_json_path(json, json_path, self.max_nesting_depth)?;
             event_data.push(json_value_to_attribute(
                 &value,
@@ -1064,5 +1065,70 @@ mod tests {
             }
             _ => panic!("Expected Long timestamp, got {:?}", events[0].data[0]),
         }
+    }
+
+    // P1.9 - Field Ordering Tests
+    // These tests verify that JSON field order is preserved, not alphabetically sorted
+
+    #[test]
+    fn test_auto_mapping_preserves_json_field_order() {
+        // Test JSON with fields in non-alphabetical order
+        // If alphabetically sorted: amount, symbol, timestamp
+        // If order preserved: symbol, timestamp, amount
+        let json_str = r#"{"symbol": "AAPL", "timestamp": 1234567890, "amount": 100.5}"#;
+        let mapper = JsonSourceMapper::new();
+
+        let events = mapper.map(json_str.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].data.len(), 3);
+
+        // Verify fields are in JSON insertion order (symbol, timestamp, amount)
+        // NOT alphabetical order (amount, symbol, timestamp)
+        match &events[0].data[0] {
+            AttributeValue::String(s) if s == "AAPL" => {}
+            _ => panic!(
+                "Expected first field to be 'AAPL', got {:?}",
+                events[0].data[0]
+            ),
+        }
+        // The numeric value could be Int or Long depending on size
+        match &events[0].data[1] {
+            AttributeValue::Long(1234567890) | AttributeValue::Int(1234567890) => {}
+            _ => panic!(
+                "Expected second field to be timestamp 1234567890, got {:?}",
+                events[0].data[1]
+            ),
+        }
+        match &events[0].data[2] {
+            AttributeValue::Double(amt) if (*amt - 100.5).abs() < 0.001 => {}
+            _ => panic!(
+                "Expected third field to be amount 100.5, got {:?}",
+                events[0].data[2]
+            ),
+        }
+    }
+
+    #[test]
+    fn test_auto_mapping_different_ordering() {
+        // Another test with clearly reverse alphabetical order
+        // Alphabetical: id, name, priority
+        // Actual order: priority, name, id
+        let json_str = r#"{"priority": 1, "name": "Task", "id": "T123"}"#;
+        let mapper = JsonSourceMapper::new();
+
+        let events = mapper.map(json_str.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].data.len(), 3);
+
+        // Verify order is: priority, name, id (NOT alphabetical)
+        assert!(matches!(events[0].data[0], AttributeValue::Int(1)));
+        assert!(matches!(
+            events[0].data[1],
+            AttributeValue::String(ref s) if s == "Task"
+        ));
+        assert!(matches!(
+            events[0].data[2],
+            AttributeValue::String(ref s) if s == "T123"
+        ));
     }
 }

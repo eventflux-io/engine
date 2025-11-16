@@ -61,30 +61,39 @@ fn setup_context() -> (
             .attribute("r".to_string(), AttrType::INT),
     );
 
-    let left_junction = Arc::new(Mutex::new(StreamJunction::new(
-        "LeftStream".to_string(),
-        Arc::clone(&left_def),
-        Arc::clone(&app_ctx),
-        1024,
-        false,
-        None,
-    ).unwrap()));
-    let right_junction = Arc::new(Mutex::new(StreamJunction::new(
-        "RightStream".to_string(),
-        Arc::clone(&right_def),
-        Arc::clone(&app_ctx),
-        1024,
-        false,
-        None,
-    ).unwrap()));
-    let out_junction = Arc::new(Mutex::new(StreamJunction::new(
-        "OutStream".to_string(),
-        Arc::clone(&out_def),
-        Arc::clone(&app_ctx),
-        1024,
-        false,
-        None,
-    ).unwrap()));
+    let left_junction = Arc::new(Mutex::new(
+        StreamJunction::new(
+            "LeftStream".to_string(),
+            Arc::clone(&left_def),
+            Arc::clone(&app_ctx),
+            1024,
+            false,
+            None,
+        )
+        .unwrap(),
+    ));
+    let right_junction = Arc::new(Mutex::new(
+        StreamJunction::new(
+            "RightStream".to_string(),
+            Arc::clone(&right_def),
+            Arc::clone(&app_ctx),
+            1024,
+            false,
+            None,
+        )
+        .unwrap(),
+    ));
+    let out_junction = Arc::new(Mutex::new(
+        StreamJunction::new(
+            "OutStream".to_string(),
+            Arc::clone(&out_def),
+            Arc::clone(&app_ctx),
+            1024,
+            false,
+            None,
+        )
+        .unwrap(),
+    ));
 
     let mut map = HashMap::new();
     map.insert("LeftStream".to_string(), left_junction);
@@ -136,7 +145,7 @@ fn build_join_query(join_type: JoinType) -> Query {
 fn test_parse_inner_join() {
     let (app_ctx, junctions) = setup_context();
     let q = build_join_query(JoinType::InnerJoin);
-    assert!(QueryParser::parse_query(
+    assert!(QueryParser::parse_query_test(
         &q,
         &app_ctx,
         &junctions,
@@ -151,7 +160,7 @@ fn test_parse_inner_join() {
 fn test_parse_left_outer_join() {
     let (app_ctx, junctions) = setup_context();
     let q = build_join_query(JoinType::LeftOuterJoin);
-    assert!(QueryParser::parse_query(
+    assert!(QueryParser::parse_query_test(
         &q,
         &app_ctx,
         &junctions,
@@ -204,7 +213,7 @@ fn collect_from_out_stream(
 fn test_inner_join_runtime() {
     let (app_ctx, junctions) = setup_context();
     let q = build_join_query(JoinType::InnerJoin);
-    assert!(QueryParser::parse_query(
+    assert!(QueryParser::parse_query_test(
         &q,
         &app_ctx,
         &junctions,
@@ -240,7 +249,7 @@ fn test_inner_join_runtime() {
 fn test_left_outer_join_runtime() {
     let (app_ctx, junctions) = setup_context();
     let q = build_join_query(JoinType::LeftOuterJoin);
-    assert!(QueryParser::parse_query(
+    assert!(QueryParser::parse_query_test(
         &q,
         &app_ctx,
         &junctions,

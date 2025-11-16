@@ -305,7 +305,7 @@ impl StateHolder for TimeBatchWindowStateHolder {
         })
     }
 
-    fn deserialize_state(&mut self, snapshot: &StateSnapshot) -> Result<(), StateError> {
+    fn deserialize_state(&self, snapshot: &StateSnapshot) -> Result<(), StateError> {
         use crate::core::util::from_bytes;
 
         // Verify integrity
@@ -357,8 +357,7 @@ impl StateHolder for TimeBatchWindowStateHolder {
         // Restore timing state
         *self.start_time.lock().unwrap() = state_data.start_time;
 
-        // Restore metadata
-        self.duration_ms = state_data.duration_ms;
+        // Restore metadata (duration_ms is configuration and doesn't need to be restored)
         *self.total_events_processed.lock().unwrap() = state_data.total_events_processed;
 
         Ok(())
@@ -385,16 +384,96 @@ impl StateHolder for TimeBatchWindowStateHolder {
         Ok(changelog)
     }
 
-    fn apply_changelog(&mut self, changes: &ChangeLog) -> Result<(), StateError> {
-        // For time batch windows, we could apply incremental changes
-        // For now, this is a simplified implementation
-        // Note: Applying {} state operations to time batch window
+    fn apply_changelog(&self, changes: &ChangeLog) -> Result<(), StateError> {
+        let mut buffer = self.buffer.lock().unwrap();
+        let mut expired = self.expired.lock().unwrap();
 
-        // In a full implementation, we would:
-        // 1. Parse each operation
-        // 2. Apply inserts/deletes to the buffers
-        // 3. Handle time-based batch operations
-        // 4. Update start time changes properly
+        for operation in &changes.operations {
+            match operation {
+                StateOperation::Insert { key, value } => {
+                    // Deserialize and insert event into appropriate buffer
+                    match self.deserialize_event(value) {
+                        Ok(event) => {
+                            // Check key to determine target buffer
+                            if key.starts_with(b"current_batch") {
+                                buffer.push(event);
+                            } else if key.starts_with(b"expired_batch") {
+                                expired.push(event);
+                            } else {
+                                // Default to current buffer
+                                buffer.push(event);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "Warning: Failed to deserialize event during changelog apply: {:?}",
+                                e
+                            );
+                            continue;
+                        }
+                    }
+                }
+
+                StateOperation::Delete { key, old_value } => {
+                    if key == b"time_batch_flush_marker" {
+                        // Handle batch flush: move current to expired
+                        expired.clear();
+                        expired.extend(buffer.drain(..));
+                    } else {
+                        // Deserialize and remove the event
+                        if let Ok(event_to_remove) = self.deserialize_event(old_value) {
+                            // Remove from both buffers
+                            buffer.retain(|e| {
+                                !(e.timestamp == event_to_remove.timestamp
+                                    && e.before_window_data == event_to_remove.before_window_data)
+                            });
+                            expired.retain(|e| {
+                                !(e.timestamp == event_to_remove.timestamp
+                                    && e.before_window_data == event_to_remove.before_window_data)
+                            });
+                        }
+                    }
+                }
+
+                StateOperation::Update {
+                    key,
+                    old_value,
+                    new_value,
+                } => {
+                    if key == b"start_time" {
+                        // Handle start time update
+                        if let Ok(new_start_time) =
+                            crate::core::util::from_bytes::<Option<i64>>(new_value)
+                        {
+                            *self.start_time.lock().unwrap() = new_start_time;
+                        }
+                    } else {
+                        // Remove old event and insert new one
+                        if let Ok(old_event) = self.deserialize_event(old_value) {
+                            buffer.retain(|e| {
+                                !(e.timestamp == old_event.timestamp
+                                    && e.before_window_data == old_event.before_window_data)
+                            });
+                            expired.retain(|e| {
+                                !(e.timestamp == old_event.timestamp
+                                    && e.before_window_data == old_event.before_window_data)
+                            });
+                        }
+
+                        if let Ok(new_event) = self.deserialize_event(new_value) {
+                            buffer.push(new_event);
+                        }
+                    }
+                }
+
+                StateOperation::Clear => {
+                    // Clear both buffers and reset start time
+                    buffer.clear();
+                    expired.clear();
+                    *self.start_time.lock().unwrap() = None;
+                }
+            }
+        }
 
         Ok(())
     }

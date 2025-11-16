@@ -7,7 +7,7 @@
 //! This module provides the message broker abstraction for event distribution
 //! across nodes. It supports multiple broker implementations (Kafka, Pulsar, NATS, etc.).
 
-use super::{DistributedError, DistributedResult};
+use super::DistributedResult;
 use async_trait::async_trait;
 
 /// Message broker trait for event distribution

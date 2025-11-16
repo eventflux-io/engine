@@ -91,7 +91,10 @@ struct KafkaSource {
 }
 
 impl Source for KafkaSource {
-    fn start(&mut self, _callback: std::sync::Arc<dyn crate::core::stream::input::source::SourceCallback>) {
+    fn start(
+        &mut self,
+        _callback: std::sync::Arc<dyn crate::core::stream::input::source::SourceCallback>,
+    ) {
         // Placeholder: actual implementation would:
         // 1. Read bytes from Kafka
         // 2. Call callback.on_data(bytes)

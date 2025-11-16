@@ -152,7 +152,9 @@ mod tests {
         println!("Test: Callback added to OutputStream.");
 
         // e. Start EventFluxAppRuntime
-        runtime.start().expect("Test: Failed to start EventFluxAppRuntime");
+        runtime
+            .start()
+            .expect("Test: Failed to start EventFluxAppRuntime");
         println!("Test: EventFluxAppRuntime started.");
 
         // f. Get InputHandler

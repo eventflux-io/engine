@@ -91,21 +91,25 @@ impl CacheTable {
 }
 
 impl Table for CacheTable {
-    fn insert(&self, values: &[AttributeValue]) {
+    fn insert(
+        &self,
+        values: &[AttributeValue],
+    ) -> Result<(), crate::core::exception::EventFluxError> {
         let mut rows = self.rows.write().unwrap();
         rows.push_back(values.to_vec());
         self.trim_if_needed(&mut rows);
+        Ok(())
     }
 
-    fn all_rows(&self) -> Vec<Vec<AttributeValue>> {
-        self.rows.read().unwrap().iter().cloned().collect()
+    fn all_rows(&self) -> Result<Vec<Vec<AttributeValue>>, crate::core::exception::EventFluxError> {
+        Ok(self.rows.read().unwrap().iter().cloned().collect())
     }
 
     fn update(
         &self,
         condition: &dyn CompiledCondition,
         update_set: &dyn CompiledUpdateSet,
-    ) -> bool {
+    ) -> Result<bool, crate::core::exception::EventFluxError> {
         match (
             condition
                 .as_any()
@@ -114,38 +118,47 @@ impl Table for CacheTable {
                 .as_any()
                 .downcast_ref::<InMemoryCompiledUpdateSet>(),
         ) {
-            (Some(cond), Some(us)) => self.update_compiled(cond, us),
-            _ => false,
+            (Some(cond), Some(us)) => Ok(self.update_compiled(cond, us)),
+            _ => Ok(false),
         }
     }
 
-    fn delete(&self, condition: &dyn CompiledCondition) -> bool {
+    fn delete(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<bool, crate::core::exception::EventFluxError> {
         match condition
             .as_any()
             .downcast_ref::<InMemoryCompiledCondition>()
         {
-            Some(cond) => self.delete_compiled(cond),
-            None => false,
+            Some(cond) => Ok(self.delete_compiled(cond)),
+            None => Ok(false),
         }
     }
 
-    fn find(&self, condition: &dyn CompiledCondition) -> Option<Vec<AttributeValue>> {
+    fn find(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<Option<Vec<AttributeValue>>, crate::core::exception::EventFluxError> {
         match condition
             .as_any()
             .downcast_ref::<InMemoryCompiledCondition>()
         {
-            Some(cond) => self.find_compiled(cond),
-            None => None,
+            Some(cond) => Ok(self.find_compiled(cond)),
+            None => Ok(None),
         }
     }
 
-    fn contains(&self, condition: &dyn CompiledCondition) -> bool {
+    fn contains(
+        &self,
+        condition: &dyn CompiledCondition,
+    ) -> Result<bool, crate::core::exception::EventFluxError> {
         match condition
             .as_any()
             .downcast_ref::<InMemoryCompiledCondition>()
         {
-            Some(cond) => self.contains_compiled(cond),
-            None => false,
+            Some(cond) => Ok(self.contains_compiled(cond)),
+            None => Ok(false),
         }
     }
 
@@ -154,7 +167,7 @@ impl Table for CacheTable {
         stream_event: &StreamEvent,
         _compiled_condition: Option<&dyn CompiledCondition>,
         condition_executor: Option<&dyn ExpressionExecutor>,
-    ) -> Vec<Vec<AttributeValue>> {
+    ) -> Result<Vec<Vec<AttributeValue>>, crate::core::exception::EventFluxError> {
         let rows = self.rows.read().unwrap();
         let mut matched = Vec::new();
         let stream_attr_count = stream_event.before_window_data.len();
@@ -175,7 +188,7 @@ impl Table for CacheTable {
                 matched.push(row.clone());
             }
         }
-        matched
+        Ok(matched)
     }
 
     fn compile_condition(&self, cond: Expression) -> Box<dyn CompiledCondition> {
@@ -198,12 +211,12 @@ impl Table for CacheTable {
         Box::new(InMemoryCompiledUpdateSet { values: vals })
     }
 
-    fn clone_table(&self) -> Box<dyn Table> {
+    fn clone_table(&self) -> Result<Box<dyn Table>, crate::core::exception::EventFluxError> {
         let rows = self.rows.read().unwrap().clone();
-        Box::new(CacheTable {
+        Ok(Box::new(CacheTable {
             rows: RwLock::new(rows),
             max_size: self.max_size,
-        })
+        }))
     }
 }
 

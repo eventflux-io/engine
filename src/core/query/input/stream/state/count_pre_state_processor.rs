@@ -114,10 +114,16 @@ impl PreStateProcessor for CountPreStateProcessor {
         self.stream_processor.reset_state();
     }
 
-    fn process_and_return(&mut self, chunk: Option<Box<dyn ComplexEvent>>) -> Option<Box<dyn ComplexEvent>> {
+    fn process_and_return(
+        &mut self,
+        chunk: Option<Box<dyn ComplexEvent>>,
+    ) -> Option<Box<dyn ComplexEvent>> {
         // Get incoming StreamEvent from chunk
         let stream_event = match chunk.as_ref() {
-            Some(c) => match c.as_any().downcast_ref::<crate::core::event::stream::stream_event::StreamEvent>() {
+            Some(c) => match c
+                .as_any()
+                .downcast_ref::<crate::core::event::stream::stream_event::StreamEvent>()
+            {
                 Some(se) => se,
                 None => return None,
             },
@@ -251,8 +257,8 @@ impl std::fmt::Debug for CountPreStateProcessor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::count_post_state_processor::CountPostStateProcessor;
+    use super::*;
 
     fn create_test_processor(min: usize, max: usize) -> CountPreStateProcessor {
         use crate::core::config::eventflux_context::EventFluxContext;
@@ -272,15 +278,7 @@ mod tests {
             None,
         ));
 
-        CountPreStateProcessor::new(
-            min,
-            max,
-            0,
-            true,
-            StateType::Pattern,
-            app_ctx,
-            query_ctx,
-        )
+        CountPreStateProcessor::new(min, max, 0, true, StateType::Pattern, app_ctx, query_ctx)
     }
 
     fn create_wired_processors(
@@ -313,12 +311,20 @@ mod tests {
 
         // Create processors
         let mut pre_processor = CountPreStateProcessor::new(
-            min, max, 0, true, StateType::Pattern, app_ctx.clone(), query_ctx.clone(),
+            min,
+            max,
+            0,
+            true,
+            StateType::Pattern,
+            app_ctx.clone(),
+            query_ctx.clone(),
         );
         let post_processor = Arc::new(Mutex::new(CountPostStateProcessor::new(min, max, 0)));
 
         // Wire Pre -> Post
-        pre_processor.stream_processor.set_this_state_post_processor(post_processor.clone());
+        pre_processor
+            .stream_processor
+            .set_this_state_post_processor(post_processor.clone());
 
         // Initialize cloners with proper factories
         use crate::query_api::definition::stream_definition::StreamDefinition;
@@ -326,12 +332,16 @@ mod tests {
         let meta_stream = MetaStreamEvent::new_for_single_input(stream_def);
         let stream_factory = StreamEventFactory::new(0, 0, 0);
         let stream_cloner = StreamEventCloner::new(&meta_stream, stream_factory);
-        pre_processor.stream_processor.set_stream_event_cloner(stream_cloner);
+        pre_processor
+            .stream_processor
+            .set_stream_event_cloner(stream_cloner);
 
         let meta_state = MetaStateEvent::new(1);
         let state_factory = StateEventFactory::new(1, 0);
         let state_cloner = StateEventCloner::new(&meta_state, state_factory);
-        pre_processor.stream_processor.set_state_event_cloner(state_cloner);
+        pre_processor
+            .stream_processor
+            .set_state_event_cloner(state_cloner);
 
         pre_processor.init();
         (pre_processor, post_processor)
@@ -639,7 +649,7 @@ mod tests {
     #[test]
     fn test_integration_zero_or_one_with_0_events() {
         let (_pre_proc, _post_proc) = create_wired_processors(0, 1); // A?
-        // Just test creation - A? with 0 events is valid
+                                                                     // Just test creation - A? with 0 events is valid
     }
 
     #[test]
@@ -1041,13 +1051,19 @@ mod tests {
     fn create_tracked_processors(
         min: usize,
         max: usize,
-    ) -> (CountPreStateProcessor, Arc<Mutex<CountPostStateProcessor>>, Arc<OutputTracker>) {
-        use super::super::stream_pre_state::StreamPreState;
+    ) -> (
+        CountPreStateProcessor,
+        Arc<Mutex<CountPostStateProcessor>>,
+        Arc<OutputTracker>,
+    ) {
         use super::super::post_state_processor::PostStateProcessor;
+        use super::super::stream_pre_state::StreamPreState;
         use super::super::stream_pre_state_processor::StateType;
+        use crate::core::config::eventflux_app_context::EventFluxAppContext;
+        use crate::core::config::eventflux_context::EventFluxContext;
+        use crate::core::config::eventflux_query_context::EventFluxQueryContext;
         use crate::core::event::complex_event::ComplexEvent;
         use crate::core::event::state::meta_state_event::MetaStateEvent;
-        use std::fmt;
         use crate::core::event::state::{
             state_event_cloner::StateEventCloner, state_event_factory::StateEventFactory,
         };
@@ -1056,10 +1072,8 @@ mod tests {
             stream_event_factory::StreamEventFactory,
         };
         use crate::query_api::definition::stream_definition::StreamDefinition;
-        use crate::core::config::eventflux_app_context::EventFluxAppContext;
-        use crate::core::config::eventflux_query_context::EventFluxQueryContext;
-        use crate::core::config::eventflux_context::EventFluxContext;
         use crate::query_api::eventflux_app::EventFluxApp;
+        use std::fmt;
 
         let stream_def = Arc::new(StreamDefinition::new("TestStream".to_string()));
         let meta_stream = MetaStreamEvent::new_for_single_input(stream_def);
@@ -1089,11 +1103,21 @@ mod tests {
         let mut pre_proc = CountPreStateProcessor {
             min_count: min,
             max_count: max,
-            stream_processor: StreamPreStateProcessor::new(0, true, StateType::Pattern, app_ctx, query_ctx),
+            stream_processor: StreamPreStateProcessor::new(
+                0,
+                true,
+                StateType::Pattern,
+                app_ctx,
+                query_ctx,
+            ),
         };
 
-        pre_proc.stream_processor.set_stream_event_cloner(stream_cloner);
-        pre_proc.stream_processor.set_state_event_cloner(state_cloner);
+        pre_proc
+            .stream_processor
+            .set_stream_event_cloner(stream_cloner);
+        pre_proc
+            .stream_processor
+            .set_state_event_cloner(state_cloner);
 
         let post_proc = Arc::new(Mutex::new(CountPostStateProcessor::new(min, max, 0)));
 
@@ -1114,7 +1138,10 @@ mod tests {
         }
 
         impl PostStateProcessor for TrackingPostProcessor {
-            fn process(&mut self, chunk: Option<Box<dyn ComplexEvent>>) -> Option<Box<dyn ComplexEvent>> {
+            fn process(
+                &mut self,
+                chunk: Option<Box<dyn ComplexEvent>>,
+            ) -> Option<Box<dyn ComplexEvent>> {
                 // Track the output
                 if let Some(ref c) = chunk {
                     if let Some(state_evt) = c.as_any().downcast_ref::<StateEvent>() {
@@ -1137,16 +1164,36 @@ mod tests {
                 self.inner.lock().unwrap().state_id()
             }
 
-            fn set_next_state_pre_processor(&mut self, next: Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>) {
-                self.inner.lock().unwrap().set_next_state_pre_processor(next);
+            fn set_next_state_pre_processor(
+                &mut self,
+                next: Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>,
+            ) {
+                self.inner
+                    .lock()
+                    .unwrap()
+                    .set_next_state_pre_processor(next);
             }
 
-            fn set_next_every_state_pre_processor(&mut self, next: Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>) {
-                self.inner.lock().unwrap().set_next_every_state_pre_processor(next);
+            fn set_next_every_state_pre_processor(
+                &mut self,
+                next: Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>,
+            ) {
+                self.inner
+                    .lock()
+                    .unwrap()
+                    .set_next_every_state_pre_processor(next);
             }
 
-            fn set_callback_pre_state_processor(&mut self, callback: Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>) {
-                self.inner.lock().unwrap().set_callback_pre_state_processor(callback);
+            fn set_callback_pre_state_processor(
+                &mut self,
+                callback: Arc<
+                    Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>,
+                >,
+            ) {
+                self.inner
+                    .lock()
+                    .unwrap()
+                    .set_callback_pre_state_processor(callback);
             }
 
             fn is_event_returned(&self) -> bool {
@@ -1157,7 +1204,10 @@ mod tests {
                 self.inner.lock().unwrap().clear_processed_event();
             }
 
-            fn this_state_pre_processor(&self) -> Option<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>> {
+            fn this_state_pre_processor(
+                &self,
+            ) -> Option<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>>
+            {
                 self.inner.lock().unwrap().this_state_pre_processor()
             }
         }
@@ -1167,7 +1217,9 @@ mod tests {
             tracker: tracker_clone,
         }));
 
-        pre_proc.stream_processor.set_this_state_post_processor(tracking_post);
+        pre_proc
+            .stream_processor
+            .set_this_state_post_processor(tracking_post);
 
         (pre_proc, post_proc, tracker)
     }
@@ -1189,7 +1241,11 @@ mod tests {
         }
 
         // CRITICAL: Should produce 0 outputs when count < min
-        assert_eq!(tracker.get_output_count(), 0, "Should produce 0 outputs when count < min_count");
+        assert_eq!(
+            tracker.get_output_count(),
+            0,
+            "Should produce 0 outputs when count < min_count"
+        );
         assert!(!pre_proc.has_state_changed());
     }
 
@@ -1210,8 +1266,15 @@ mod tests {
         }
 
         // CRITICAL: Should produce 1 output when reaching min=max=3
-        assert_eq!(tracker.get_output_count(), 1, "Should produce 1 output when count reaches min=max=3");
-        assert!(pre_proc.has_state_changed(), "state_changed should be true at max");
+        assert_eq!(
+            tracker.get_output_count(),
+            1,
+            "Should produce 1 output when count reaches min=max=3"
+        );
+        assert!(
+            pre_proc.has_state_changed(),
+            "state_changed should be true at max"
+        );
     }
 
     #[test]
@@ -1230,9 +1293,9 @@ mod tests {
             pre_proc.process_and_return(Some(Box::new(event)));
 
             let expected_outputs: usize = if i < 1 {
-                0  // count=1, less than min=2
+                0 // count=1, less than min=2
             } else {
-                i as usize  // count=2,3,4,5 all produce output
+                i as usize // count=2,3,4,5 all produce output
             };
 
             assert_eq!(
@@ -1246,14 +1309,24 @@ mod tests {
 
             // state_changed only true at event 5 (max)
             if i < 4 {
-                assert!(!pre_proc.has_state_changed(), "state_changed should be false before max");
+                assert!(
+                    !pre_proc.has_state_changed(),
+                    "state_changed should be false before max"
+                );
             } else {
-                assert!(pre_proc.has_state_changed(), "state_changed should be true at max");
+                assert!(
+                    pre_proc.has_state_changed(),
+                    "state_changed should be true at max"
+                );
             }
         }
 
         // CRITICAL: Total outputs should be 4 (for counts 2,3,4,5)
-        assert_eq!(tracker.get_output_count(), 4, "Should produce 4 outputs total (counts 2,3,4,5)");
+        assert_eq!(
+            tracker.get_output_count(),
+            4,
+            "Should produce 4 outputs total (counts 2,3,4,5)"
+        );
     }
 
     #[test]
@@ -1273,10 +1346,17 @@ mod tests {
         }
 
         // CRITICAL: Should produce 1 output at min_count
-        assert_eq!(tracker.get_output_count(), 1, "Should produce 1 output when reaching min_count=2");
+        assert_eq!(
+            tracker.get_output_count(),
+            1,
+            "Should produce 1 output when reaching min_count=2"
+        );
 
         // But state_changed should be false (max not reached)
-        assert!(!pre_proc.has_state_changed(), "state_changed should be false when only at min, not max");
+        assert!(
+            !pre_proc.has_state_changed(),
+            "state_changed should be false when only at min, not max"
+        );
     }
 
     #[test]
@@ -1302,10 +1382,17 @@ mod tests {
             );
 
             // state_changed always false (max never reached)
-            assert!(!pre_proc.has_state_changed(), "state_changed should always be false for A+ (max=infinity)");
+            assert!(
+                !pre_proc.has_state_changed(),
+                "state_changed should always be false for A+ (max=infinity)"
+            );
         }
 
-        assert_eq!(tracker.get_output_count(), 10, "A+ should produce 10 outputs for 10 events");
+        assert_eq!(
+            tracker.get_output_count(),
+            10,
+            "A+ should produce 10 outputs for 10 events"
+        );
     }
 
     #[test]
@@ -1327,7 +1414,11 @@ mod tests {
         }
 
         // Verify we got outputs
-        assert_eq!(tracker.get_output_count(), 2, "Should have 2 outputs (at count 2 and 3)");
+        assert_eq!(
+            tracker.get_output_count(),
+            2,
+            "Should have 2 outputs (at count 2 and 3)"
+        );
 
         // CRITICAL: Verify timestamps are preserved in output
         let outputs = tracker.get_outputs();
@@ -1344,11 +1435,14 @@ mod tests {
                         let expected_ts = timestamps[count];
                         assert_eq!(
                             evt.timestamp, expected_ts,
-                            "Timestamp mismatch at position {} in output {}", count, idx
+                            "Timestamp mismatch at position {} in output {}",
+                            count, idx
                         );
                     }
                     // get_next() returns Option<&dyn ComplexEvent>, need to downcast
-                    current_opt = evt.get_next().and_then(|ce| ce.as_any().downcast_ref::<StreamEvent>());
+                    current_opt = evt
+                        .get_next()
+                        .and_then(|ce| ce.as_any().downcast_ref::<StreamEvent>());
                     count += 1;
                 }
             }
@@ -1374,7 +1468,11 @@ mod tests {
         // But process_and_return() only called when event arrives
 
         // Current behavior: No output until event arrives
-        assert_eq!(tracker.get_output_count(), 0, "A? with 0 events: no output without triggering event");
+        assert_eq!(
+            tracker.get_output_count(),
+            0,
+            "A? with 0 events: no output without triggering event"
+        );
     }
 
     #[test]
@@ -1392,10 +1490,17 @@ mod tests {
         pre_proc.process_and_return(Some(Box::new(event)));
 
         // CRITICAL: Should produce 1 output (count=1, at max)
-        assert_eq!(tracker.get_output_count(), 1, "A? with 1 event should produce 1 output");
+        assert_eq!(
+            tracker.get_output_count(),
+            1,
+            "A? with 1 event should produce 1 output"
+        );
 
         // state_changed should be true (reached max=1)
-        assert!(pre_proc.has_state_changed(), "state_changed should be true at max=1");
+        assert!(
+            pre_proc.has_state_changed(),
+            "state_changed should be true at max=1"
+        );
     }
 
     #[test]
@@ -1415,7 +1520,11 @@ mod tests {
         }
 
         // CRITICAL: No output yet
-        assert_eq!(tracker.get_output_count(), 0, "No output before reaching min=50");
+        assert_eq!(
+            tracker.get_output_count(),
+            0,
+            "No output before reaching min=50"
+        );
         assert!(!pre_proc.has_state_changed());
 
         // Send 50th event (at min)
@@ -1423,8 +1532,15 @@ mod tests {
         pre_proc.process_and_return(Some(Box::new(event)));
 
         // CRITICAL: Should have 1 output now
-        assert_eq!(tracker.get_output_count(), 1, "Should have 1 output at min=50");
-        assert!(!pre_proc.has_state_changed(), "state_changed false (not at max yet)");
+        assert_eq!(
+            tracker.get_output_count(),
+            1,
+            "Should have 1 output at min=50"
+        );
+        assert!(
+            !pre_proc.has_state_changed(),
+            "state_changed false (not at max yet)"
+        );
 
         // Send 50 more events to reach max=100
         for i in 50..100 {
@@ -1433,7 +1549,14 @@ mod tests {
         }
 
         // CRITICAL: Should have 51 total outputs (one for each count from 50 to 100)
-        assert_eq!(tracker.get_output_count(), 51, "Should have 51 outputs (counts 50-100 inclusive)");
-        assert!(pre_proc.has_state_changed(), "state_changed should be true at max=100");
+        assert_eq!(
+            tracker.get_output_count(),
+            51,
+            "Should have 51 outputs (counts 50-100 inclusive)"
+        );
+        assert!(
+            pre_proc.has_state_changed(),
+            "state_changed should be true at max=100"
+        );
     }
 }

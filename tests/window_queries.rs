@@ -47,22 +47,28 @@ fn setup_context() -> (
         StreamDefinition::new("OutStream".to_string()).attribute("val".to_string(), AttrType::INT),
     );
 
-    let in_junction = Arc::new(Mutex::new(StreamJunction::new(
-        "InputStream".to_string(),
-        Arc::clone(&in_def),
-        Arc::clone(&app_ctx),
-        1024,
-        false,
-        None,
-    ).unwrap()));
-    let out_junction = Arc::new(Mutex::new(StreamJunction::new(
-        "OutStream".to_string(),
-        Arc::clone(&out_def),
-        Arc::clone(&app_ctx),
-        1024,
-        false,
-        None,
-    ).unwrap()));
+    let in_junction = Arc::new(Mutex::new(
+        StreamJunction::new(
+            "InputStream".to_string(),
+            Arc::clone(&in_def),
+            Arc::clone(&app_ctx),
+            1024,
+            false,
+            None,
+        )
+        .unwrap(),
+    ));
+    let out_junction = Arc::new(Mutex::new(
+        StreamJunction::new(
+            "OutStream".to_string(),
+            Arc::clone(&out_def),
+            Arc::clone(&app_ctx),
+            1024,
+            false,
+            None,
+        )
+        .unwrap(),
+    ));
 
     let mut map = HashMap::new();
     map.insert("InputStream".to_string(), in_junction);
@@ -101,7 +107,7 @@ fn test_length_window_query_parse() {
         .select(selector)
         .out_stream(out_stream);
 
-    let res = QueryParser::parse_query(
+    let res = QueryParser::parse_query_test(
         &query,
         &app_ctx,
         &junctions,
@@ -131,7 +137,7 @@ fn test_time_window_query_parse() {
         .select(selector)
         .out_stream(out_stream);
 
-    let res = QueryParser::parse_query(
+    let res = QueryParser::parse_query_test(
         &query,
         &app_ctx,
         &junctions,

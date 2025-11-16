@@ -315,7 +315,10 @@ mod tests {
         config.set("extension", "timer", PropertySource::SqlWith);
 
         let result = validate_with_clause(&config);
-        assert!(result.is_ok(), "Sources should be allowed without format (e.g., timer uses binary passthrough)");
+        assert!(
+            result.is_ok(),
+            "Sources should be allowed without format (e.g., timer uses binary passthrough)"
+        );
     }
 
     #[test]

@@ -27,7 +27,7 @@ use std::collections::HashMap;
 #[test]
 fn test_json_auto_mapping_end_to_end() {
     // Source: Auto-map all top-level fields
-    // JSON keys are sorted alphabetically: amount, customer, orderId
+    // JSON keys are preserved in insertion order: orderId, amount, customer
     let json_input = r#"{"orderId": "123", "amount": 100.0, "customer": "Alice"}"#;
 
     let config = HashMap::new();
@@ -39,15 +39,15 @@ fn test_json_auto_mapping_end_to_end() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].data.len(), 3);
 
-    // Verify data types (sorted alphabetically: amount, customer, orderId)
-    assert!(matches!(events[0].data[0], AttributeValue::Double(_))); // amount
-    assert!(matches!(events[0].data[1], AttributeValue::String(_))); // customer
-    assert!(matches!(events[0].data[2], AttributeValue::String(_))); // orderId
+    // Verify data types (insertion order: orderId, amount, customer)
+    assert!(matches!(events[0].data[0], AttributeValue::String(_))); // orderId
+    assert!(matches!(events[0].data[1], AttributeValue::Double(_))); // amount
+    assert!(matches!(events[0].data[2], AttributeValue::String(_))); // customer
 }
 
 #[test]
 fn test_json_auto_mapping_preserves_types() {
-    // JSON keys sorted alphabetically: boolField, doubleField, intField, nullField, stringField
+    // JSON keys preserved in insertion order: stringField, intField, doubleField, boolField, nullField
     let json_input = r#"{
         "stringField": "test",
         "intField": 42,
@@ -65,12 +65,12 @@ fn test_json_auto_mapping_preserves_types() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].data.len(), 5);
 
-    // Verify type preservation (sorted alphabetically)
-    assert!(matches!(events[0].data[0], AttributeValue::Bool(true))); // boolField
-    assert!(matches!(events[0].data[1], AttributeValue::Double(_))); // doubleField
-    assert!(matches!(events[0].data[2], AttributeValue::Int(42))); // intField
-    assert!(matches!(events[0].data[3], AttributeValue::Null)); // nullField
-    assert!(matches!(events[0].data[4], AttributeValue::String(_))); // stringField
+    // Verify type preservation (insertion order)
+    assert!(matches!(events[0].data[0], AttributeValue::String(_))); // stringField
+    assert!(matches!(events[0].data[1], AttributeValue::Int(42))); // intField
+    assert!(matches!(events[0].data[2], AttributeValue::Double(_))); // doubleField
+    assert!(matches!(events[0].data[3], AttributeValue::Bool(true))); // boolField
+    assert!(matches!(events[0].data[4], AttributeValue::Null)); // nullField
 }
 
 // ============================================================================
@@ -108,7 +108,7 @@ fn test_json_explicit_mapping_nested_fields() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].data.len(), 3);
 
-    // Verify extracted values (sorted alphabetically: amount, currency, orderId)
+    // Verify extracted values (explicit mappings are sorted alphabetically: amount, currency, orderId)
     if let AttributeValue::Double(d) = events[0].data[0] {
         assert_eq!(d, 250.75);
     } else {

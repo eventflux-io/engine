@@ -100,7 +100,10 @@ pub struct SourceCallbackAdapter {
 }
 
 impl SourceCallbackAdapter {
-    pub fn new(mapper: Arc<Mutex<Box<dyn SourceMapper>>>, handler: Arc<Mutex<InputHandler>>) -> Self {
+    pub fn new(
+        mapper: Arc<Mutex<Box<dyn SourceMapper>>>,
+        handler: Arc<Mutex<InputHandler>>,
+    ) -> Self {
         Self { mapper, handler }
     }
 }
