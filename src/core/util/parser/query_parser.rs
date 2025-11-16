@@ -63,13 +63,21 @@ impl QueryParser {
     ) -> Result<QueryRuntime, String> {
         // 1. Determine Query Name (from @info(name='foo') or generate)
         // Use deterministic index-based naming for state recovery compatibility
+        // Include partition_id in default name to prevent collisions between
+        // top-level queries (query_0) and partition queries (query_0)
         let query_name = api_query
             .annotations
             .iter()
             .find(|ann| ann.name == "info")
             .and_then(|ann| ann.elements.iter().find(|el| el.key == "name"))
             .map(|el| el.value.clone())
-            .unwrap_or_else(|| format!("query_{}", query_index));
+            .unwrap_or_else(|| {
+                if let Some(ref pid) = partition_id {
+                    format!("{}_query_{}", pid, query_index)
+                } else {
+                    format!("query_{}", query_index)
+                }
+            });
 
         let mut eventflux_query_context = EventFluxQueryContext::new(
             Arc::clone(eventflux_app_context),
