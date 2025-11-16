@@ -93,7 +93,16 @@ async fn main() {
     };
 
     for stream_id in runtime.stream_junction_map.keys() {
-        let _ = runtime.add_callback(stream_id, Box::new(LogStreamCallback::new(stream_id.clone())));
+        let _ = runtime.add_callback(
+            stream_id,
+            Box::new(LogStreamCallback::new(stream_id.clone())),
+        );
+    }
+
+    // Start the runtime after adding callbacks
+    if let Err(e) = runtime.start() {
+        eprintln!("Failed to start runtime: {e}");
+        std::process::exit(1);
     }
 
     println!(
