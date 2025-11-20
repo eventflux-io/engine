@@ -30,6 +30,7 @@ pub(crate) fn constant_to_av(c: &Constant) -> AttributeValue {
         ConstantValueWithFloat::Double(d) => AttributeValue::Double(*d),
         ConstantValueWithFloat::Bool(b) => AttributeValue::Bool(*b),
         ConstantValueWithFloat::Time(t) => AttributeValue::Long(*t),
+        ConstantValueWithFloat::Null => AttributeValue::Null,
     }
 }
 

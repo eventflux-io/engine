@@ -4,8 +4,7 @@ use eventflux_rust::core::event::value::AttributeValue;
 use eventflux_rust::core::executor::constant_expression_executor::ConstantExpressionExecutor;
 use eventflux_rust::core::executor::expression_executor::ExpressionExecutor;
 use eventflux_rust::core::executor::function::{
-    CoalesceFunctionExecutor, IfThenElseFunctionExecutor, InstanceOfStringExpressionExecutor,
-    UuidFunctionExecutor,
+    CoalesceFunctionExecutor, InstanceOfStringExpressionExecutor, UuidFunctionExecutor,
 };
 use eventflux_rust::query_api::definition::attribute::Type as AttrType;
 
@@ -25,23 +24,8 @@ fn test_coalesce_function() {
     assert_eq!(exec.execute(None), Some(AttributeValue::String("x".into())));
 }
 
-#[test]
-fn test_if_then_else_function() {
-    let cond = Box::new(ConstantExpressionExecutor::new(
-        AttributeValue::Bool(true),
-        AttrType::BOOL,
-    ));
-    let then_exec = Box::new(ConstantExpressionExecutor::new(
-        AttributeValue::Int(1),
-        AttrType::INT,
-    ));
-    let else_exec = Box::new(ConstantExpressionExecutor::new(
-        AttributeValue::Int(2),
-        AttrType::INT,
-    ));
-    let exec = IfThenElseFunctionExecutor::new(cond, then_exec, else_exec).unwrap();
-    assert_eq!(exec.execute(None), Some(AttributeValue::Int(1)));
-}
+// Note: ifThenElse function was replaced by SQL standard CASE expression
+// See tests/app_runner_case_expression.rs for comprehensive CASE expression tests
 
 #[test]
 fn test_uuid_function() {

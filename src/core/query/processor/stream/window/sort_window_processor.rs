@@ -153,16 +153,15 @@ impl SortWindowProcessor {
         // First parameter: window length (required)
         let length_to_keep = match params.first() {
             Some(Expression::Constant(c)) => match &c.value {
-                ConstantValueWithFloat::Int(i) => *i as usize,
-                ConstantValueWithFloat::Long(l) => *l as usize,
+                ConstantValueWithFloat::Int(i) if *i > 0 => *i as usize,
+                ConstantValueWithFloat::Long(l) if *l > 0 => *l as usize,
+                ConstantValueWithFloat::Int(_) | ConstantValueWithFloat::Long(_) => {
+                    return Err("Sort window length must be positive".to_string())
+                }
                 _ => return Err("Sort window length must be an integer".to_string()),
             },
             _ => return Err("Sort window length must be a constant".to_string()),
         };
-
-        if length_to_keep <= 0 {
-            return Err("Sort window length must be positive".to_string());
-        }
 
         // Parse remaining parameters as attribute/order pairs
         // Format: sort(length, attr1, 'asc', attr2, 'desc', ...)

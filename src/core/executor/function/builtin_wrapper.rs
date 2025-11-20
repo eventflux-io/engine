@@ -179,20 +179,6 @@ fn build_coalesce(
     Ok(Box::new(CoalesceFunctionExecutor::new(args)?))
 }
 
-fn build_if_then_else(
-    mut args: Vec<Box<dyn ExpressionExecutor>>,
-) -> Result<Box<dyn ExpressionExecutor>, String> {
-    if args.len() != 3 {
-        return Err("ifThenElse() requires three arguments".to_string());
-    }
-    let else_e = args.remove(2);
-    let then_e = args.remove(1);
-    let cond_e = args.remove(0);
-    Ok(Box::new(IfThenElseFunctionExecutor::new(
-        cond_e, then_e, else_e,
-    )?))
-}
-
 fn build_uuid(
     _args: Vec<Box<dyn ExpressionExecutor>>,
 ) -> Result<Box<dyn ExpressionExecutor>, String> {
@@ -368,10 +354,6 @@ pub fn register_builtin_scalar_functions(
     ctx.add_scalar_function_factory(
         "coalesce".to_string(),
         Box::new(BuiltinScalarFunction::new("coalesce", build_coalesce)),
-    );
-    ctx.add_scalar_function_factory(
-        "ifThenElse".to_string(),
-        Box::new(BuiltinScalarFunction::new("ifThenElse", build_if_then_else)),
     );
     ctx.add_scalar_function_factory(
         "uuid".to_string(),

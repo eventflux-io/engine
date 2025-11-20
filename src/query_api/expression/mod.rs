@@ -3,6 +3,7 @@
 // This is the main mod.rs for the expression module (eventflux_rust/src/query_api/expression/mod.rs)
 
 // Declare sub-modules for different expression categories
+pub mod case;
 pub mod condition;
 pub mod constant;
 pub mod math;
@@ -15,6 +16,7 @@ pub mod variable; // This is the main Expression enum
 // Re-export the main Expression enum and key structs/enums for easier access
 // from parent modules (e.g., query_api)
 pub use self::attribute_function::AttributeFunction;
+pub use self::case::{Case, WhenClause};
 pub use self::constant::{Constant, ConstantValueWithFloat, TimeUtil as ConstantTimeUtil}; // Updated ConstantValue to ConstantValueWithFloat
 pub use self::expression::Expression;
 pub use self::variable::Variable;

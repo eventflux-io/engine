@@ -49,6 +49,7 @@ pub enum ConstantValueWithFloat {
     Double(f64),
     Bool(bool),
     Time(i64),
+    Null,  // NULL constant for CASE expressions
 }
 
 impl Default for ConstantValueWithFloat {
@@ -106,6 +107,11 @@ impl Constant {
     pub fn time(value: i64) -> Self {
         // Specifically for TimeConstant values which are long in Java
         Constant::new(ConstantValueWithFloat::Time(value))
+    }
+
+    pub fn null() -> Self {
+        // NULL constant for CASE ELSE when missing in SQL
+        Constant::new(ConstantValueWithFloat::Null)
     }
 }
 
