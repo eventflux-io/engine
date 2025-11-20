@@ -1,8 +1,21 @@
 # EventFlux Rust Implementation Milestones
 
-Last Updated: 2025-11-05
+Last Updated: 2025-11-18
 Current Status: M2 Pattern Processing Phase 2 Complete
 Test Status: 1,436 passing tests (271 pattern processing tests)
+
+---
+
+## Project Focus: Lightweight CEP
+
+**What "lightweight" means:**
+- 50-100MB single binary (vs 4GB+ JVM heap)
+- Millisecond startup (vs 30+ second JVM warmup)
+- Runs on $50/month VPS (vs Kubernetes cluster)
+- Zero external dependencies for core operation
+
+**Target scale:** 100k+ events/sec on single node
+**Target users:** Teams that don't need Flink's complexity
 
 ---
 
@@ -112,161 +125,162 @@ Features:
 
 ---
 
-## Milestone 3: Grammar Completion (v0.3) - Planned
+## Milestone 3: CASE Expression & Developer Experience (v0.3) - NEXT
 
-Timeline: Q4 2025 (6-8 weeks)
+Timeline: Q4 2025 (4-6 weeks)
 Status: Not started
-Dependencies: M2 complete
+Dependencies: M2 Phase 2 complete
+Priority: Core SQL feature + first production users
+
+### CASE Expression (1 week)
+- AST node (CaseExpression, WhenClause)
+- CaseExpressionExecutor
+- Expression parser integration
+- Searched CASE (WHEN condition THEN)
+- Simple CASE (CASE expr WHEN value THEN)
+- Tests: ~20
+
+Documentation: feat/case_expression/CASE_EXPRESSION.md
+
+### Developer Experience (2-3 weeks)
+- Docker image that "just works"
+- 3-5 complete example projects with tutorials
+- Excellent error messages with suggestions
+- Quick start guide (5 minutes to first query)
+- Example gallery on GitHub
+
+### Production Basics (1 week)
+- Health check endpoints
+- Graceful shutdown
+- Basic logging configuration
+- Startup time optimization
+
+Total Tests: ~40
+Goal: Get first production user
+
+---
+
+## Milestone 4: Essential Connectors (v0.4) - Planned
+
+Timeline: Q1 2026 (6-8 weeks)
+Status: Not started
+Dependencies: M3 complete
+
+### Kafka Connector (3 weeks) - CRITICAL
+- Kafka source (consumer groups, offset management)
+- Kafka sink (partitioning, exactly-once semantics)
+- Configuration via SQL WITH
+- Tests: ~30
+
+### HTTP Connector (2 weeks)
+- HTTP source (REST API, webhooks)
+- HTTP sink (webhooks, batch requests)
+- Retry with exponential backoff
+- Tests: ~20
+
+### File Connector (1 week)
+- File source (CSV, JSON, tail mode)
+- File sink (rotation, compression)
+- Tests: ~15
+
+### Observability (1 week)
+- Prometheus metrics endpoint
+- Basic dashboard templates
+- Latency/throughput metrics
+
+Total Tests: ~65
+Goal: Production-viable connectivity
+
+---
+
+## Milestone 5: Grammar & Built-in Functions (v0.5) - Planned
+
+Timeline: Q2 2026 (4-6 weeks)
+Status: Not started
+Dependencies: M4 complete
 
 Features:
 - Pattern syntax integration (map StateElement to processors)
 - PARTITION clause parsing
 - DEFINE AGGREGATION syntax
-- Built-in functions (LOG, UPPER, etc.)
+- Built-in functions (LOG, UPPER, LOWER, CONCAT, etc.)
 - Complete SQL grammar for all runtime features
 
 Grammar maps to completed APIs:
 - Pattern/Sequence processors → pattern syntax
 - Count processors → A{n}, A{m,n}, A+, A* syntax
-- Absent processors → NOT(A) FOR duration syntax
-- Every processors → every(...) syntax
 
 Tests: ~24 currently disabled tests will be enabled
 
 ---
 
-## Milestone 4: Essential Connectivity (v0.4) - Planned
+## Milestone 6: Production Hardening (v0.6) - Planned
 
-Timeline: Q1 2026 (6-8 weeks)
+Timeline: Q3 2026 (6-8 weeks)
 Status: Not started
-
-Configuration System (Complete):
-- SQL WITH clause parsing
-- TOML configuration (4-layer model)
-- Error handling (DLQ, retry, exponential backoff)
-- Data mapping (JSON, CSV)
-- Environment variable substitution
-
-Sources (Not Started):
-- HTTP source (REST API, webhooks)
-- Kafka source (consumer groups, offset management)
-- File source (CSV, JSON, tail mode)
-
-Sinks (Not Started):
-- HTTP sink (webhooks, batch requests)
-- Kafka sink (exactly-once, partitioning)
-- File sink (rotation, compression)
-
----
-
-## Milestone 5: Database Backend Validation (v0.5) - Planned
-
-Timeline: Q2 2026 (6-8 weeks)
-Status: Not started
-Dependencies: Table API validated, M3 complete
 
 Features:
-- PostgreSQL table extension (CDC, connection pooling)
-- MySQL table extension (replica reads)
-- MongoDB table extension (change streams)
-- Redis table extension (TTL, sorted sets)
-
-Goal: Validate Table trait API across multiple backends before M6 optimizations
-
----
-
-## Milestone 6: Table Optimizations (v0.6) - Planned
-
-Timeline: Q3 2026 (8-10 weeks)
-Status: Not started
-Dependencies: M5 complete (API validated)
-
-Features:
-- Bulk insert batching (target: 500k inserts/sec)
-- Lock-free concurrent access (DashMap)
-- Transaction support (BEGIN/COMMIT/ROLLBACK)
-- Complex expression support in conditions
-- True LRU cache
-- Memory management (limits, spill-to-disk)
+- OpenTelemetry tracing integration
+- Structured logging (JSON format)
+- Performance profiling tools
+- Memory usage monitoring
+- Crash recovery improvements
+- Security basics (input validation, rate limiting)
 
 ---
 
-## Milestone 7: Query Optimization (v0.7) - Planned
+## Milestone 7: Database Backends (v0.7) - Planned
 
 Timeline: Q4 2026 (8-10 weeks)
 Status: Not started
 
 Features:
-- Cost-based query planner
-- Expression compilation (WHERE, projections, aggregations)
-- Runtime code generation
-- Hot path optimization
-- Performance monitoring (EXPLAIN, profiling)
+- PostgreSQL table extension (connection pooling)
+- MySQL table extension
+- MongoDB table extension (change streams)
+- Better Redis integration (TTL, pub/sub)
 
-Target: 5-10x performance improvement for complex queries
-
----
-
-## Milestone 8: Advanced Windowing (v0.8) - Planned
-
-Timeline: Q1 2027 (8-10 weeks)
-Status: Not started
-
-Features:
-- Cron window (schedule-based)
-- Delay window
-- Hopping window
-- Frequent window (pattern mining)
-- Unique window (deduplication)
-- Queryable windows (on-demand access)
-
-Total window types: 30+
+Goal: Validate Table trait API across multiple backends
 
 ---
 
-## Milestone 9: Production Hardening (v0.9) - Planned
+## Future Milestones (v0.8+) - Deferred
 
-Timeline: Q2 2027 (10-12 weeks)
-Status: Not started
+These features are deferred indefinitely. They will be considered based on user demand:
 
-Features:
-- Prometheus metrics exporter
-- OpenTelemetry tracing
-- Security framework (RBAC, audit logging, encryption)
-- Database connectors (PostgreSQL, MongoDB, Redis sources/sinks)
-- Health checks and monitoring dashboards
+### Advanced Features (Deferred)
+- Distributed processing (Raft, multi-node)
+- Query optimization engine
+- Advanced windowing (cron, hopping, frequent)
+- struct() type and field access
+- AI/LLM integration (ai_decide, action handlers)
 
----
-
-## Milestone 10: Distributed Processing (v1.0) - Planned
-
-Timeline: Q3 2027 (14-16 weeks)
-Status: Not started
-
-Features:
-- Complete Raft cluster coordination
-- Kafka message broker integration
-- Query distribution and load balancing
-- Automatic failover (<5 seconds)
-- Distributed state management
-- State replication
-
-Target: Linear scaling to 10+ nodes (85% efficiency)
+### Rationale for Deferral
+- Distributed mode adds complexity without clear demand
+- AI integration needs validated use case
+- Focus on single-node excellence first
 
 ---
 
 ## Milestone Ordering Rationale
 
-Core > API > Grammar > Documentation
+**New Priority**: Ship → Users → Iterate
 
 M1: SQL foundation (complete)
-M2: Pattern processing APIs (Phases 2-4) - core CEP functionality
-M3: Grammar for pattern syntax - sugar coating the APIs
-M4: Connectivity - extensions using the complete APIs
-M5+: Validation, optimization, production features
+M2: Pattern processing (complete)
+M3: CASE + Developer experience → Get first user
+M4: Essential connectors → Production viable
+M5: Grammar completion → Full feature set
+M6: Production hardening → Reliable operation
+M7: Database backends → Ecosystem growth
 
-Cannot write grammar for features that don't exist yet.
-Cannot validate APIs without implementing them first.
+**Philosophy Change**: Stop building features, start shipping product.
+
+The previous plan optimized for feature completeness (AI integration, distributed processing). The new plan optimizes for adoption:
+1. Make it easy to try (M3 developer experience)
+2. Make it useful (M4 connectors)
+3. Make it production-ready (M5-M6)
+4. Grow based on user feedback
 
 ---
 
