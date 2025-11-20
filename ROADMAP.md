@@ -1,18 +1,103 @@
 # EventFlux Rust Implementation Roadmap
 
-## Milestone Ordering (Corrected 2025-11-03)
+## Project Identity: Lightweight CEP
 
-**Priority**: Core > API > Grammar > Documentation
+**What "lightweight" means:**
+- 50-100MB single binary (vs 4GB+ JVM heap)
+- Millisecond startup (vs 30+ second JVM warmup)
+- Runs on $50/month VPS (vs Kubernetes cluster)
+- Zero external dependencies for core operation
+
+**Target:** 100k+ events/sec on single node for teams that don't need Flink.
+
+---
+
+## Milestone Ordering (Updated 2025-11-18)
+
+**Priority**: Ship → Users → Iterate
 
 **M1**: SQL Streaming Foundation - Complete
-**M2**: Pattern Processing (Phases 1-2) - Complete (Phase 1 complete, Phase 2 complete - 2025-11-05)
-**M3**: Grammar Completion (pattern syntax, PARTITION, DEFINE AGGREGATION) - Planned
-**M4**: Essential Connectivity (HTTP, Kafka, File sources/sinks) - Planned
-**M5+**: Database backends, optimizations, distributed processing
+**M2**: Pattern Processing (Phases 1-2) - Complete
+**M3**: CASE Expression & Developer Experience - **NEXT PRIORITY**
+**M4**: Essential Connectors (Kafka, HTTP, File) - Planned
+**M5**: Grammar Completion - Planned
+**M6**: Production Hardening - Planned
+**M7**: Database Backends - Planned
 
-**Rationale**: Cannot write grammar for APIs that don't exist. Complete pattern processing APIs first, then add grammar syntax.
+**Deferred**: Distributed processing, AI integration, advanced optimizations
+
+**Rationale**: Focus on getting first production users. Keep it lightweight, keep it simple.
 
 See MILESTONES.md for details.
+
+---
+
+## 🎯 NEXT PRIORITY: Ship a Usable Product
+
+**Goal**: First production user within 3-6 months
+
+### M3: CASE Expression & Developer Experience (4-6 weeks)
+
+**CASE Expression** (1 week)
+- AST node (CaseExpression, WhenClause)
+- CaseExpressionExecutor for searched and simple CASE
+- Expression parser integration
+- Tests: ~20
+
+**Developer Experience** (2-3 weeks)
+- Docker image that "just works"
+- 3-5 complete example projects with tutorials
+- Excellent error messages with suggestions
+- Quick start guide (5 minutes to first query)
+
+**Production Basics** (1 week)
+- Health check endpoints
+- Graceful shutdown
+- Startup optimization
+
+**Implementation Blueprint**: `feat/case_expression/CASE_EXPRESSION.md`
+
+### M4: Essential Connectors (6-8 weeks)
+
+**Kafka Connector** (3 weeks) - CRITICAL
+- Source: consumer groups, offset management
+- Sink: partitioning, delivery guarantees
+
+**HTTP Connector** (2 weeks)
+- Source: webhooks, REST polling
+- Sink: webhooks, retries
+
+**Observability** (1 week)
+- Prometheus metrics endpoint
+- Basic latency/throughput metrics
+
+### Why This Order?
+
+1. **CASE** - Core SQL feature, immediate value
+2. **Developer experience** - Reduce friction to try EventFlux
+3. **Connectors** - Make it production-viable
+4. **Observability** - Make it operationally sound
+
+**What's Deferred**:
+- struct() type - Add when needed
+- AI integration - Needs validated use case
+- Distributed mode - Single-node is the focus
+
+```sql
+-- M3 enables this pattern
+SELECT
+    CASE
+        WHEN amount > 10000 THEN 'HIGH_VALUE'
+        WHEN amount > 1000 THEN 'MEDIUM_VALUE'
+        ELSE 'LOW_VALUE'
+    END as tier,
+    COUNT(*) as count
+FROM Transactions
+WINDOW TUMBLING (SIZE 1 HOUR)
+GROUP BY tier;
+```
+
+The goal is not feature completeness. The goal is a product someone will use.
 
 ---
 
