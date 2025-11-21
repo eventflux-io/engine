@@ -801,7 +801,8 @@ impl SqlConverter {
                 let when_clauses: Result<Vec<_>, _> = conditions
                     .iter()
                     .map(|case_when| {
-                        let condition_expr = Self::convert_expression(&case_when.condition, catalog)?;
+                        let condition_expr =
+                            Self::convert_expression(&case_when.condition, catalog)?;
                         let result_expr = Self::convert_expression(&case_when.result, catalog)?;
                         Ok(WhenClause::new(
                             Box::new(condition_expr),

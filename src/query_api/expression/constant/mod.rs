@@ -49,7 +49,7 @@ pub enum ConstantValueWithFloat {
     Double(f64),
     Bool(bool),
     Time(i64),
-    Null,  // NULL constant for CASE expressions
+    Null, // NULL constant for CASE expressions
 }
 
 impl Default for ConstantValueWithFloat {

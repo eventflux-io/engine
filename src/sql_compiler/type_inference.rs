@@ -281,7 +281,7 @@ impl<'a> TypeInferenceEngine<'a> {
             ConstantValueWithFloat::Double(_) => AttributeType::DOUBLE,
             ConstantValueWithFloat::String(_) => AttributeType::STRING,
             ConstantValueWithFloat::Bool(_) => AttributeType::BOOL,
-            ConstantValueWithFloat::Null => AttributeType::OBJECT,  // NULL maps to OBJECT type
+            ConstantValueWithFloat::Null => AttributeType::OBJECT, // NULL maps to OBJECT type
         })
     }
 

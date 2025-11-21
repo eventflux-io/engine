@@ -124,7 +124,7 @@ async fn test_simple_case_basic() {
         results[0],
         vec![
             AttributeValue::String("AAPL".to_string()),
-            AttributeValue::Long(1)  // SQL integer literals are BIGINT/LONG by default
+            AttributeValue::Long(1) // SQL integer literals are BIGINT/LONG by default
         ]
     );
     assert_eq!(
@@ -350,7 +350,7 @@ async fn test_case_string_results() {
         "In",
         vec![
             AttributeValue::String("AAPL".to_string()),
-            AttributeValue::Long(1),  // Match stream definition BIGINT
+            AttributeValue::Long(1), // Match stream definition BIGINT
         ],
     );
     runner.send(
@@ -510,24 +510,24 @@ async fn test_multiple_case_expressions() {
         "In",
         vec![
             AttributeValue::String("AAPL".to_string()),
-            AttributeValue::Double(150.0),  // EXPENSIVE
-            AttributeValue::Long(2000),     // HIGH_VOLUME
+            AttributeValue::Double(150.0), // EXPENSIVE
+            AttributeValue::Long(2000),    // HIGH_VOLUME
         ],
     );
     runner.send(
         "In",
         vec![
             AttributeValue::String("GOOGL".to_string()),
-            AttributeValue::Double(75.0),   // MODERATE
-            AttributeValue::Long(800),      // MEDIUM_VOLUME
+            AttributeValue::Double(75.0), // MODERATE
+            AttributeValue::Long(800),    // MEDIUM_VOLUME
         ],
     );
     runner.send(
         "In",
         vec![
             AttributeValue::String("MSFT".to_string()),
-            AttributeValue::Double(25.0),   // CHEAP
-            AttributeValue::Long(300),      // LOW_VOLUME
+            AttributeValue::Double(25.0), // CHEAP
+            AttributeValue::Long(300),    // LOW_VOLUME
         ],
     );
 
@@ -584,32 +584,32 @@ async fn test_nested_case_expression() {
         "In",
         vec![
             AttributeValue::String("AAPL".to_string()),
-            AttributeValue::Double(150.0),  // price > 100
-            AttributeValue::Long(2000),     // volume > 1000
+            AttributeValue::Double(150.0), // price > 100
+            AttributeValue::Long(2000),    // volume > 1000
         ],
     ); // Expected: PREMIUM_HIGH_VOL
     runner.send(
         "In",
         vec![
             AttributeValue::String("GOOGL".to_string()),
-            AttributeValue::Double(150.0),  // price > 100
-            AttributeValue::Long(500),      // volume <= 1000
+            AttributeValue::Double(150.0), // price > 100
+            AttributeValue::Long(500),     // volume <= 1000
         ],
     ); // Expected: PREMIUM_LOW_VOL
     runner.send(
         "In",
         vec![
             AttributeValue::String("MSFT".to_string()),
-            AttributeValue::Double(50.0),   // price <= 100
-            AttributeValue::Long(2000),     // volume > 1000
+            AttributeValue::Double(50.0), // price <= 100
+            AttributeValue::Long(2000),   // volume > 1000
         ],
     ); // Expected: BUDGET_HIGH_VOL
     runner.send(
         "In",
         vec![
             AttributeValue::String("TSLA".to_string()),
-            AttributeValue::Double(50.0),   // price <= 100
-            AttributeValue::Long(500),      // volume <= 1000
+            AttributeValue::Double(50.0), // price <= 100
+            AttributeValue::Long(500),    // volume <= 1000
         ],
     ); // Expected: BUDGET_LOW_VOL
 
@@ -641,6 +641,70 @@ async fn test_nested_case_expression() {
         vec![
             AttributeValue::String("TSLA".to_string()),
             AttributeValue::String("BUDGET_LOW_VOL".to_string())
+        ]
+    );
+}
+
+/// Test Simple CASE with INT column and numeric WHEN literals (cross-type Int<->Long comparison)
+/// SQL parser emits integer literals as Long, but INT columns produce Int values.
+/// This test verifies that Int(1) matches Long(1) in Simple CASE expressions.
+#[tokio::test]
+async fn test_simple_case_int_column_cross_type() {
+    let app = "\
+        CREATE STREAM In (symbol STRING, code INT);\n\
+        SELECT symbol,\n\
+               CASE code\n\
+                   WHEN 1 THEN 'ONE'\n\
+                   WHEN 2 THEN 'TWO'\n\
+                   WHEN 3 THEN 'THREE'\n\
+                   ELSE 'OTHER'\n\
+               END as label\n\
+        FROM In;\n";
+
+    let runner = AppRunner::new(app, "OutputStream").await;
+    runner.send(
+        "In",
+        vec![
+            AttributeValue::String("A".to_string()),
+            AttributeValue::Int(1), // INT column produces Int, WHEN literal is Long
+        ],
+    );
+    runner.send(
+        "In",
+        vec![
+            AttributeValue::String("B".to_string()),
+            AttributeValue::Int(2),
+        ],
+    );
+    runner.send(
+        "In",
+        vec![
+            AttributeValue::String("C".to_string()),
+            AttributeValue::Int(99), // No match, should fall to ELSE
+        ],
+    );
+
+    let results = runner.shutdown();
+    assert_eq!(results.len(), 3);
+    assert_eq!(
+        results[0],
+        vec![
+            AttributeValue::String("A".to_string()),
+            AttributeValue::String("ONE".to_string()) // Int(1) must match Long(1)
+        ]
+    );
+    assert_eq!(
+        results[1],
+        vec![
+            AttributeValue::String("B".to_string()),
+            AttributeValue::String("TWO".to_string())
+        ]
+    );
+    assert_eq!(
+        results[2],
+        vec![
+            AttributeValue::String("C".to_string()),
+            AttributeValue::String("OTHER".to_string())
         ]
     );
 }

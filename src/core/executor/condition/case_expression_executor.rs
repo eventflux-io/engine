@@ -128,14 +128,42 @@ impl CaseExpressionExecutor {
     }
 
     /// Compare two AttributeValues for equality (SQL semantics: NULL != NULL)
+    /// Supports cross-type numeric comparison (Int/Long/Float/Double)
     fn sql_equals(left: &AttributeValue, right: &AttributeValue) -> bool {
         // NULL is not equal to anything, including NULL
         if matches!(left, AttributeValue::Null) || matches!(right, AttributeValue::Null) {
             return false;
         }
 
-        // Use standard equality for non-NULL values
-        left == right
+        // Cross-type numeric comparison
+        match (left, right) {
+            // Same type comparisons
+            (AttributeValue::Int(a), AttributeValue::Int(b)) => a == b,
+            (AttributeValue::Long(a), AttributeValue::Long(b)) => a == b,
+            (AttributeValue::Float(a), AttributeValue::Float(b)) => a == b,
+            (AttributeValue::Double(a), AttributeValue::Double(b)) => a == b,
+
+            // Cross-type integer comparisons (Int <-> Long)
+            (AttributeValue::Int(a), AttributeValue::Long(b)) => (*a as i64) == *b,
+            (AttributeValue::Long(a), AttributeValue::Int(b)) => *a == (*b as i64),
+
+            // Cross-type float comparisons (Float <-> Double)
+            (AttributeValue::Float(a), AttributeValue::Double(b)) => (*a as f64) == *b,
+            (AttributeValue::Double(a), AttributeValue::Float(b)) => *a == (*b as f64),
+
+            // Integer to float comparisons
+            (AttributeValue::Int(a), AttributeValue::Float(b)) => (*a as f32) == *b,
+            (AttributeValue::Float(a), AttributeValue::Int(b)) => *a == (*b as f32),
+            (AttributeValue::Int(a), AttributeValue::Double(b)) => (*a as f64) == *b,
+            (AttributeValue::Double(a), AttributeValue::Int(b)) => *a == (*b as f64),
+            (AttributeValue::Long(a), AttributeValue::Float(b)) => (*a as f32) == *b,
+            (AttributeValue::Float(a), AttributeValue::Long(b)) => *a == (*b as f32),
+            (AttributeValue::Long(a), AttributeValue::Double(b)) => (*a as f64) == *b,
+            (AttributeValue::Double(a), AttributeValue::Long(b)) => *a == (*b as f64),
+
+            // Non-numeric types use standard equality
+            _ => left == right,
+        }
     }
 }
 
@@ -208,7 +236,9 @@ impl ExpressionExecutor for CaseExpressionExecutor {
                             .clone_executor(eventflux_app_context),
                     ),
                     result_executor: Arc::from(
-                        when_clause.result_executor.clone_executor(eventflux_app_context),
+                        when_clause
+                            .result_executor
+                            .clone_executor(eventflux_app_context),
                     ),
                 })
                 .collect(),
