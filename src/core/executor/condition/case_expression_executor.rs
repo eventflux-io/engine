@@ -51,13 +51,27 @@ impl CaseExpressionExecutor {
             return Err("CASE expression must have at least one WHEN clause".to_string());
         }
 
-        // Type validation: all result branches must have the same type
-        let result_type = when_executors[0].1.get_return_type();
+        // Find first non-NULL result type from WHEN clauses or ELSE
+        let mut result_type = ApiAttributeType::OBJECT;
+        for (_, result_exec) in &when_executors {
+            let when_type = result_exec.get_return_type();
+            if when_type != ApiAttributeType::OBJECT {
+                result_type = when_type;
+                break;
+            }
+        }
+        // If all WHENs are NULL, check ELSE
+        if result_type == ApiAttributeType::OBJECT {
+            let else_type = else_executor.get_return_type();
+            if else_type != ApiAttributeType::OBJECT {
+                result_type = else_type;
+            }
+        }
 
-        // Validate all WHEN results have same type
+        // Validate all WHEN results have same type (allow NULL/OBJECT)
         for (idx, (_, result_exec)) in when_executors.iter().enumerate() {
             let when_type = result_exec.get_return_type();
-            if when_type != result_type {
+            if when_type != result_type && when_type != ApiAttributeType::OBJECT {
                 return Err(format!(
                     "CASE expression type mismatch: WHEN clause {} returns {:?}, expected {:?}",
                     idx + 1,
