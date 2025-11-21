@@ -91,6 +91,7 @@ impl CaseExpressionExecutor {
         }
 
         // For Simple CASE, validate that operand and WHEN values have compatible types
+        // For Searched CASE, validate that WHEN conditions are boolean
         if let Some(ref operand_exec) = operand_executor {
             let operand_type = operand_exec.get_return_type();
             for (idx, (when_exec, _)) in when_executors.iter().enumerate() {
@@ -101,6 +102,18 @@ impl CaseExpressionExecutor {
                         operand_type,
                         idx + 1,
                         when_type
+                    ));
+                }
+            }
+        } else {
+            // Searched CASE: WHEN conditions must be boolean
+            for (idx, (condition_exec, _)) in when_executors.iter().enumerate() {
+                let condition_type = condition_exec.get_return_type();
+                if condition_type != ApiAttributeType::BOOL {
+                    return Err(format!(
+                        "CASE expression: WHEN clause {} condition must be BOOL, got {:?}",
+                        idx + 1,
+                        condition_type
                     ));
                 }
             }
