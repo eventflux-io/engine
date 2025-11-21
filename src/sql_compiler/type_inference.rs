@@ -253,9 +253,9 @@ impl<'a> TypeInferenceEngine<'a> {
                     }
                 }
 
-                // Validate ELSE has same type
+                // Validate ELSE has same type (allow NULL/OBJECT for implicit ELSE NULL)
                 let else_type = self.infer_type(&case.else_result, context)?;
-                if else_type != result_type {
+                if else_type != result_type && else_type != AttributeType::OBJECT {
                     return Err(TypeError::ConversionFailed(format!(
                         "CASE expression type mismatch: ELSE clause returns {:?}, expected {:?}",
                         else_type, result_type
