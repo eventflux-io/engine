@@ -67,9 +67,9 @@ impl CaseExpressionExecutor {
             }
         }
 
-        // Validate ELSE result has same type
+        // Validate ELSE result has same type (allow OBJECT for implicit ELSE NULL)
         let else_type = else_executor.get_return_type();
-        if else_type != result_type {
+        if else_type != result_type && else_type != ApiAttributeType::OBJECT {
             return Err(format!(
                 "CASE expression type mismatch: ELSE clause returns {:?}, expected {:?}",
                 else_type, result_type
