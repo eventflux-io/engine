@@ -201,33 +201,31 @@ impl CaseExpressionExecutor {
 
 impl ExpressionExecutor for CaseExpressionExecutor {
     fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
-        let event = event?;
-
         if let Some(ref operand_exec) = self.operand_executor {
             // Simple CASE: CASE operand WHEN value1 THEN result1...
-            let operand_value = operand_exec.execute(Some(event))?;
+            let operand_value = operand_exec.execute(event)?;
 
             // Short-circuit evaluation: return first matching WHEN
             for when_clause in &self.when_executors {
-                let when_value = when_clause.condition_executor.execute(Some(event))?;
+                let when_value = when_clause.condition_executor.execute(event)?;
 
                 // SQL semantics: NULL != NULL
                 if Self::sql_equals(&operand_value, &when_value) {
-                    return when_clause.result_executor.execute(Some(event));
+                    return when_clause.result_executor.execute(event);
                 }
             }
 
             // No WHEN matched, return ELSE
-            self.else_executor.execute(Some(event))
+            self.else_executor.execute(event)
         } else {
             // Searched CASE: CASE WHEN condition1 THEN result1...
             for when_clause in &self.when_executors {
-                let condition_value = when_clause.condition_executor.execute(Some(event))?;
+                let condition_value = when_clause.condition_executor.execute(event)?;
 
                 // WHEN condition must evaluate to boolean
                 match condition_value {
                     AttributeValue::Bool(true) => {
-                        return when_clause.result_executor.execute(Some(event));
+                        return when_clause.result_executor.execute(event);
                     }
                     AttributeValue::Bool(false) | AttributeValue::Null => {
                         // Continue to next WHEN
@@ -241,7 +239,7 @@ impl ExpressionExecutor for CaseExpressionExecutor {
             }
 
             // No WHEN matched, return ELSE
-            self.else_executor.execute(Some(event))
+            self.else_executor.execute(event)
         }
     }
 
