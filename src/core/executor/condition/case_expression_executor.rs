@@ -127,6 +127,11 @@ impl CaseExpressionExecutor {
             return true;
         }
 
+        // NULL/OBJECT is comparable with any type (will never match at runtime)
+        if *type1 == ApiAttributeType::OBJECT || *type2 == ApiAttributeType::OBJECT {
+            return true;
+        }
+
         // Numeric types are comparable with each other
         let numeric_types = [
             ApiAttributeType::INT,
