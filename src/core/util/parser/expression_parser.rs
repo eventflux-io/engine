@@ -381,6 +381,37 @@ pub fn parse_expression<'a>(
                 Arc::clone(&context.eventflux_app_context),
             )))
         }
+        ApiExpression::Case(api_case) => {
+            // Parse operand (for Simple CASE)
+            let operand_exec = if let Some(ref operand) = api_case.operand {
+                Some(Arc::from(parse_expression(operand, context)?))
+            } else {
+                None
+            };
+
+            // Parse all WHEN clauses
+            let mut when_executors = Vec::new();
+            for when_clause in &api_case.when_clauses {
+                let condition_exec = Arc::from(parse_expression(&when_clause.condition, context)?);
+                let result_exec = Arc::from(parse_expression(&when_clause.result, context)?);
+                when_executors.push((condition_exec, result_exec));
+            }
+
+            // Parse ELSE expression
+            let else_exec = Arc::from(parse_expression(&api_case.else_result, context)?);
+
+            // Create CaseExpressionExecutor
+            Ok(Box::new(
+                CaseExpressionExecutor::new(api_case, operand_exec, when_executors, else_exec)
+                    .map_err(|e| {
+                        ExpressionParseError::new(
+                            e,
+                            &api_case.eventflux_element,
+                            context.query_name,
+                        )
+                    })?,
+            ))
+        }
         ApiExpression::AttributeFunction(api_func) => {
             let mut arg_execs: Vec<Box<dyn ExpressionExecutor>> = Vec::new();
             for arg_expr in &api_func.parameters {
@@ -737,5 +768,6 @@ fn convert_api_constant_to_core_attribute_value(
         ApiConstantValue::Double(d) => (CoreAttributeValue::Double(*d), ApiAttributeType::DOUBLE),
         ApiConstantValue::Bool(b) => (CoreAttributeValue::Bool(*b), ApiAttributeType::BOOL),
         ApiConstantValue::Time(t) => (CoreAttributeValue::Long(*t), ApiAttributeType::LONG),
+        ApiConstantValue::Null => (CoreAttributeValue::Null, ApiAttributeType::OBJECT),
     }
 }

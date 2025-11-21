@@ -5,6 +5,7 @@
 
 // Import all the specific expression types
 use super::attribute_function::AttributeFunction;
+use super::case::{Case, WhenClause};
 use super::condition::{And, Compare, CompareOperator, InOp, IsNull, Not, Or};
 use super::constant::{Constant, TimeUtil as ConstantTimeUtil}; // Corrected ConstantValue path
 use super::math::{Add, Divide, ModOp, Multiply, Subtract};
@@ -27,6 +28,7 @@ pub enum Expression {
     Compare(Box<Compare>),
     In(Box<InOp>),
     IsNull(Box<IsNull>),
+    Case(Box<Case>),
 }
 
 // Static factory methods from Java's Expression class
@@ -49,6 +51,9 @@ impl Expression {
     }
     pub fn value_bool(value: bool) -> Self {
         Expression::Constant(Constant::bool(value))
+    }
+    pub fn value_null() -> Self {
+        Expression::Constant(Constant::null())
     }
 
     // Variable
@@ -116,6 +121,19 @@ impl Expression {
         )))
     }
 
+    // CASE expression
+    pub fn case(
+        operand: Option<Expression>,
+        when_clauses: Vec<WhenClause>,
+        else_result: Expression,
+    ) -> Self {
+        Expression::Case(Box::new(Case::new(
+            operand.map(Box::new),
+            when_clauses,
+            Box::new(else_result),
+        )))
+    }
+
     // Time constants
     pub fn time_millisec(val: i64) -> Self {
         Expression::Constant(ConstantTimeUtil::millisec(val))
@@ -161,6 +179,7 @@ impl Expression {
             Expression::Compare(c) => c.eventflux_element.query_context_start_index,
             Expression::In(i) => i.eventflux_element.query_context_start_index,
             Expression::IsNull(i) => i.eventflux_element.query_context_start_index,
+            Expression::Case(c) => c.eventflux_element.query_context_start_index,
         }
     }
 
@@ -182,6 +201,7 @@ impl Expression {
             Expression::Compare(c) => c.eventflux_element.query_context_start_index = index,
             Expression::In(i) => i.eventflux_element.query_context_start_index = index,
             Expression::IsNull(i) => i.eventflux_element.query_context_start_index = index,
+            Expression::Case(c) => c.eventflux_element.query_context_start_index = index,
         }
     }
 
@@ -201,6 +221,7 @@ impl Expression {
             Expression::Compare(c) => c.eventflux_element.query_context_end_index,
             Expression::In(i) => i.eventflux_element.query_context_end_index,
             Expression::IsNull(i) => i.eventflux_element.query_context_end_index,
+            Expression::Case(c) => c.eventflux_element.query_context_end_index,
         }
     }
 
@@ -222,6 +243,7 @@ impl Expression {
             Expression::Compare(c) => c.eventflux_element.query_context_end_index = index,
             Expression::In(i) => i.eventflux_element.query_context_end_index = index,
             Expression::IsNull(i) => i.eventflux_element.query_context_end_index = index,
+            Expression::Case(c) => c.eventflux_element.query_context_end_index = index,
         }
     }
 }

@@ -25,7 +25,7 @@ use crate::query_api::execution::query::output::output_stream::{
 use crate::query_api::execution::query::Query;
 use crate::query_api::expression::variable::Variable;
 use crate::query_api::expression::CompareOperator;
-use crate::query_api::expression::Expression;
+use crate::query_api::expression::{Expression, WhenClause};
 
 use super::catalog::SqlCatalog;
 use super::error::ConverterError;
@@ -774,6 +774,52 @@ impl SqlConverter {
             SqlExpr::Interval(interval) => {
                 // Convert INTERVAL '5' SECOND to milliseconds
                 Self::convert_interval_to_millis(interval)
+            }
+
+            SqlExpr::Case {
+                case_token: _,
+                end_token: _,
+                operand,
+                conditions,
+                else_result,
+            } => {
+                // Validate at least one WHEN clause
+                if conditions.is_empty() {
+                    return Err(ConverterError::InvalidExpression(
+                        "CASE expression must have at least one WHEN clause".to_string(),
+                    ));
+                }
+
+                // Convert operand (for Simple CASE)
+                let operand_expr = if let Some(ref op) = operand {
+                    Some(Self::convert_expression(op, catalog)?)
+                } else {
+                    None
+                };
+
+                // Convert WHEN clauses (conditions is Vec<CaseWhen>)
+                let when_clauses: Result<Vec<_>, _> = conditions
+                    .iter()
+                    .map(|case_when| {
+                        let condition_expr =
+                            Self::convert_expression(&case_when.condition, catalog)?;
+                        let result_expr = Self::convert_expression(&case_when.result, catalog)?;
+                        Ok(WhenClause::new(
+                            Box::new(condition_expr),
+                            Box::new(result_expr),
+                        ))
+                    })
+                    .collect();
+                let when_clauses = when_clauses?;
+
+                // Convert ELSE expression (if None, inject NULL)
+                let else_expr = if let Some(ref else_expr_sql) = else_result {
+                    Self::convert_expression(else_expr_sql, catalog)?
+                } else {
+                    Expression::value_null()
+                };
+
+                Ok(Expression::case(operand_expr, when_clauses, else_expr))
             }
 
             _ => Err(ConverterError::UnsupportedFeature(format!(

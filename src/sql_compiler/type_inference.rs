@@ -228,6 +228,56 @@ impl<'a> TypeInferenceEngine<'a> {
             | Expression::IsNull(_)
             | Expression::In(_) => Ok(AttributeType::BOOL),
             Expression::AttributeFunction(func) => self.infer_function_type(func, context),
+            Expression::Case(case) => {
+                // Type of CASE is determined by the result branches
+                // All WHEN results and ELSE must have the same type
+                if case.when_clauses.is_empty() {
+                    return Err(TypeError::ConversionFailed(
+                        "CASE expression must have at least one WHEN clause".to_string(),
+                    ));
+                }
+
+                // Find first non-NULL result type from WHEN clauses or ELSE
+                let mut result_type = AttributeType::OBJECT;
+                for when_clause in &case.when_clauses {
+                    let when_type = self.infer_type(&when_clause.result, context)?;
+                    if when_type != AttributeType::OBJECT {
+                        result_type = when_type;
+                        break;
+                    }
+                }
+                // If all WHENs are NULL, check ELSE
+                if result_type == AttributeType::OBJECT {
+                    let else_type = self.infer_type(&case.else_result, context)?;
+                    if else_type != AttributeType::OBJECT {
+                        result_type = else_type;
+                    }
+                }
+
+                // Validate all WHEN results have same type (allow NULL/OBJECT)
+                for (idx, when_clause) in case.when_clauses.iter().enumerate() {
+                    let when_type = self.infer_type(&when_clause.result, context)?;
+                    if when_type != result_type && when_type != AttributeType::OBJECT {
+                        return Err(TypeError::ConversionFailed(format!(
+                            "CASE expression type mismatch: WHEN clause {} returns {:?}, expected {:?}",
+                            idx + 1,
+                            when_type,
+                            result_type
+                        )));
+                    }
+                }
+
+                // Validate ELSE has same type (allow NULL/OBJECT for implicit ELSE NULL)
+                let else_type = self.infer_type(&case.else_result, context)?;
+                if else_type != result_type && else_type != AttributeType::OBJECT {
+                    return Err(TypeError::ConversionFailed(format!(
+                        "CASE expression type mismatch: ELSE clause returns {:?}, expected {:?}",
+                        else_type, result_type
+                    )));
+                }
+
+                Ok(result_type)
+            }
         }
     }
 
@@ -245,6 +295,7 @@ impl<'a> TypeInferenceEngine<'a> {
             ConstantValueWithFloat::Double(_) => AttributeType::DOUBLE,
             ConstantValueWithFloat::String(_) => AttributeType::STRING,
             ConstantValueWithFloat::Bool(_) => AttributeType::BOOL,
+            ConstantValueWithFloat::Null => AttributeType::OBJECT, // NULL maps to OBJECT type
         })
     }
 

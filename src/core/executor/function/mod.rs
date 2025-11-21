@@ -8,7 +8,6 @@ pub mod coalesce_function_executor;
 pub mod convert_function_executor;
 pub mod date_functions;
 pub mod event_timestamp_function_executor;
-pub mod if_then_else_function_executor;
 pub mod instance_of_checkers;
 pub mod math_functions;
 pub mod scalar_function_executor; // Added
@@ -27,7 +26,6 @@ pub use self::date_functions::{
     ParseDateFunctionExecutor,
 };
 pub use self::event_timestamp_function_executor::EventTimestampFunctionExecutor;
-pub use self::if_then_else_function_executor::IfThenElseFunctionExecutor;
 pub use self::instance_of_checkers::*;
 pub use self::math_functions::{
     LogFunctionExecutor, RoundFunctionExecutor, SinFunctionExecutor, SqrtFunctionExecutor,
