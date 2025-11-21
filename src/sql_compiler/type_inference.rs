@@ -237,13 +237,27 @@ impl<'a> TypeInferenceEngine<'a> {
                     ));
                 }
 
-                // Infer type from first WHEN result
-                let result_type = self.infer_type(&case.when_clauses[0].result, context)?;
-
-                // Validate all WHEN results have same type
-                for (idx, when_clause) in case.when_clauses.iter().enumerate().skip(1) {
+                // Find first non-NULL result type from WHEN clauses or ELSE
+                let mut result_type = AttributeType::OBJECT;
+                for when_clause in &case.when_clauses {
                     let when_type = self.infer_type(&when_clause.result, context)?;
-                    if when_type != result_type {
+                    if when_type != AttributeType::OBJECT {
+                        result_type = when_type;
+                        break;
+                    }
+                }
+                // If all WHENs are NULL, check ELSE
+                if result_type == AttributeType::OBJECT {
+                    let else_type = self.infer_type(&case.else_result, context)?;
+                    if else_type != AttributeType::OBJECT {
+                        result_type = else_type;
+                    }
+                }
+
+                // Validate all WHEN results have same type (allow NULL/OBJECT)
+                for (idx, when_clause) in case.when_clauses.iter().enumerate() {
+                    let when_type = self.infer_type(&when_clause.result, context)?;
+                    if when_type != result_type && when_type != AttributeType::OBJECT {
                         return Err(TypeError::ConversionFailed(format!(
                             "CASE expression type mismatch: WHEN clause {} returns {:?}, expected {:?}",
                             idx + 1,
