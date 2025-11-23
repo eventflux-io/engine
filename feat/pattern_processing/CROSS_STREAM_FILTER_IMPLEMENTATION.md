@@ -23,16 +23,17 @@ condition_fn: Option<Arc<dyn Fn(&StreamEvent) -> bool + Send + Sync>>
 
 **After**:
 ```rust
-condition_fn: Option<Arc<dyn Fn(&StateEvent, &StreamEvent) -> bool + Send + Sync>>
+condition_fn: Option<Arc<dyn Fn(&StateEvent) -> bool + Send + Sync>>
 ```
 
-**Impact**: Filters now receive both:
-- `&StateEvent` - Full context with all matched events (e1, e2, e3, ...)
-- `&StreamEvent` - The incoming event being evaluated
+**Impact**: Filters now receive:
+- `&StateEvent` - Full context with all matched events (e1, e2, e3, ...) including the current event at position `self.state_id`
+
+**Design**: Single-parameter approach ensures single source of truth. The incoming event is already in the StateEvent at the processor's position before the filter is evaluated.
 
 #### 2. Updated matches_condition Method
 
-**Lines**: 258-269
+**Lines**: 269-274
 
 **Before**:
 ```rust
@@ -46,17 +47,17 @@ fn matches_condition(&self, stream_event: &StreamEvent) -> bool {
 
 **After**:
 ```rust
-fn matches_condition(&self, state_event: &StateEvent, stream_event: &StreamEvent) -> bool {
+fn matches_condition(&self, state_event: &StateEvent) -> bool {
     match &self.condition_fn {
-        Some(f) => f(state_event, stream_event),
-        None => true,
+        Some(f) => f(state_event),
+        None => true, // No condition = match all
     }
 }
 ```
 
 #### 3. Updated process_and_return Call Site
 
-**Line**: 544
+**Line**: 548
 
 **Before**:
 ```rust
@@ -65,8 +66,10 @@ if self.matches_condition(&stream_event) {
 
 **After**:
 ```rust
-if self.matches_condition(&candidate_state, &stream_event) {
+if self.matches_condition(&candidate_state) {
 ```
+
+**Critical**: The event is added to `candidate_state` at line 544 BEFORE the condition is checked. This ensures the current event is accessible within the StateEvent at position `self.state_id`.
 
 #### 4. Critical Bug Fix: StateEvent Size Expansion
 
@@ -141,11 +144,15 @@ Updated 3 existing tests to use new signature:
 let mut e2_processor = StreamPreStateProcessor::new(1, false, StateType::Sequence, ...);
 
 // Filter: price > e1.price
-e2_processor.set_condition(|state_event, stream_event| {
+// e2_processor has state_id = 1, so current event (e2) is at position 1
+e2_processor.set_condition(|state_event| {
     if let Some(e1) = state_event.get_stream_event(0) {
         if let Some(AttributeValue::Float(e1_price)) = e1.before_window_data.get(0) {
-            if let Some(AttributeValue::Float(e2_price)) = stream_event.before_window_data.get(0) {
-                return e2_price > e1_price;
+            // Access e2 (current event) from position 1
+            if let Some(e2) = state_event.get_stream_event(1) {
+                if let Some(AttributeValue::Float(e2_price)) = e2.before_window_data.get(0) {
+                    return e2_price > e1_price;
+                }
             }
         }
     }
@@ -157,12 +164,28 @@ e2_processor.set_condition(|state_event, stream_event| {
 
 ```rust
 // Pattern: e1 -> e2 -> e3[value > e1.value AND value > e2.value]
-e3_processor.set_condition(|state_event, stream_event| {
-    let e3_value = stream_event.before_window_data[0].as_int()?;
-    let e1_value = state_event.get_stream_event(0)?.before_window_data[0].as_int()?;
-    let e2_value = state_event.get_stream_event(1)?.before_window_data[0].as_int()?;
-
-    e3_value > e1_value && e3_value > e2_value
+// e3_processor has state_id = 2, so current event (e3) is at position 2
+e3_processor.set_condition(|state_event| {
+    // Access e3 (current event) from position 2
+    if let Some(e3) = state_event.get_stream_event(2) {
+        if let Some(AttributeValue::Int(e3_value)) = e3.before_window_data.get(0) {
+            // Access e1 from position 0
+            if let Some(e1) = state_event.get_stream_event(0) {
+                if let Some(AttributeValue::Int(e1_value)) = e1.before_window_data.get(0) {
+                    if e3_value <= e1_value {
+                        return false;
+                    }
+                }
+            }
+            // Access e2 from position 1
+            if let Some(e2) = state_event.get_stream_event(1) {
+                if let Some(AttributeValue::Int(e2_value)) = e2.before_window_data.get(0) {
+                    return e3_value > e2_value;
+                }
+            }
+        }
+    }
+    false
 });
 ```
 
@@ -174,30 +197,35 @@ e3_processor.set_condition(|state_event, stream_event| {
 2. **Pending States**: Processor iterates through all pending StateEvents
 3. **Candidate Build**:
    - Clone pending StateEvent (contains e1, e2, ...)
-   - Expand to accommodate new event position
-   - Set new event at current position
+   - Expand to accommodate new event position (line 541: `expand_to_size`)
+   - Set new event at current position (line 544: `set_event`)
 4. **Filter Evaluation**:
-   - Pass full candidate_state (all events) to filter
-   - Pass incoming stream_event
-   - Filter can reference any stream via `state_event.get_stream_event(position)`
+   - Pass complete candidate_state (with ALL events) to filter function
+   - Filter accesses any stream via `state_event.get_stream_event(position)`
+   - Current event is at `state_event.get_stream_event(self.state_id)`
 5. **Match Handling**: Forward or remove based on Pattern/Sequence semantics
 
 ### Key Design Decisions
 
-1. **Two Parameters**: Both StateEvent and StreamEvent provide flexibility
-   - StateEvent: Access to all previous events
-   - StreamEvent: Direct access to current event (optimization)
+1. **Single Parameter (StateEvent Only)**: Clean, single source of truth
+   - StateEvent contains ALL events including the current one at position `state_id`
+   - No redundancy - current event is already in the StateEvent before filter evaluation
+   - Matches how parser-generated ExpressionExecutors will work
 
 2. **Automatic Expansion**: StateEvents grow automatically as needed
    - Prevents silent failures in multi-stream patterns
    - Enables arbitrary depth pattern chains
+   - Critical fix at line 541: `expand_to_size()` before `set_event()`
 
 3. **NULL Safety**: All access returns Option
    - Missing streams return None
    - Filters can choose how to handle missing data
+   - Pattern: `if let Some(event) = state_event.get_stream_event(position)`
 
-4. **Backward Compatible**: Simple filters can ignore state_event parameter
-   - `|_state_event, stream_event| stream_event.value > 100`
+4. **Event Ordering Guarantee**: Current event is added BEFORE filter check
+   - Line 544: `set_event()` adds event to StateEvent
+   - Line 548: `matches_condition()` evaluates with complete StateEvent
+   - This ensures filters always have access to all events in the pattern
 
 ## Performance Characteristics
 
@@ -227,7 +255,7 @@ let filter_executor = ComparisonExecutor::new(
     ComparisonOperator::GreaterThan,
 );
 
-processor.set_condition(move |state_event, _stream_event| {
+processor.set_condition(move |state_event| {
     filter_executor.execute(Some(state_event as &dyn ComplexEvent))
         .and_then(|v| v.as_bool())
         .unwrap_or(false)

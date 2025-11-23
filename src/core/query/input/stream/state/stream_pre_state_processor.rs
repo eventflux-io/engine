@@ -103,12 +103,11 @@ pub struct StreamPreStateProcessor {
     this_state_post_processor: Option<Arc<Mutex<dyn PostStateProcessor>>>,
 
     // Condition function for filter evaluation
-    // Receives both StateEvent (full context with previous events) and StreamEvent (incoming event)
+    // Receives StateEvent containing all matched events (e1, e2, ...)
     // This enables cross-stream references like: e2[price > e1.price]
-    // - StateEvent: Contains all matched events (e1, e2, ...) providing cross-stream context
-    // - StreamEvent: The incoming event being evaluated at this processor
+    // The current event being evaluated is already in StateEvent at position self.state_id
     // Uses Arc for shareability across clones (partitioned execution, state restoration)
-    condition_fn: Option<Arc<dyn Fn(&StateEvent, &StreamEvent) -> bool + Send + Sync>>,
+    condition_fn: Option<Arc<dyn Fn(&StateEvent) -> bool + Send + Sync>>,
 }
 
 // Manual Debug implementation (condition_fn doesn't implement Debug)
@@ -231,40 +230,45 @@ impl StreamPreStateProcessor {
     ///
     /// **Usage**:
     /// ```rust,ignore
-    /// // Simple filter without cross-stream reference
-    /// processor.set_condition(|_state_event, stream_event| {
-    ///     // Check stream_event.before_window_data, etc.
-    ///     stream_event.before_window_data[0].as_float().unwrap_or(0.0) > 100.0
+    /// // For processor at position 0: e1[value > 100]
+    /// e1_processor.set_condition(|state_event| {
+    ///     // Current event is at position 0
+    ///     if let Some(e1) = state_event.get_stream_event(0) {
+    ///         return e1.before_window_data[0].as_float().unwrap_or(0.0) > 100.0;
+    ///     }
+    ///     false
     /// });
     ///
-    /// // Filter with cross-stream reference (e2[price > e1.price])
-    /// processor.set_condition(|state_event, stream_event| {
-    ///     // Access previous event e1 from StateEvent
+    /// // For processor at position 1: e2[price > e1.price]
+    /// e2_processor.set_condition(|state_event| {
+    ///     // Access previous event e1 from position 0
     ///     if let Some(e1) = state_event.get_stream_event(0) {
-    ///         let e1_price = e1.before_window_data[1].as_float().unwrap_or(0.0);
-    ///         let e2_price = stream_event.before_window_data[1].as_float().unwrap_or(0.0);
-    ///         return e2_price > e1_price;
+    ///         // Access current event e2 from position 1
+    ///         if let Some(e2) = state_event.get_stream_event(1) {
+    ///             let e1_price = e1.before_window_data[0].as_float().unwrap_or(0.0);
+    ///             let e2_price = e2.before_window_data[0].as_float().unwrap_or(0.0);
+    ///             return e2_price > e1_price;
+    ///         }
     ///     }
     ///     false
     /// });
     /// ```
     pub fn set_condition<F>(&mut self, condition: F)
     where
-        F: Fn(&StateEvent, &StreamEvent) -> bool + Send + Sync + 'static,
+        F: Fn(&StateEvent) -> bool + Send + Sync + 'static,
     {
         self.condition_fn = Some(Arc::new(condition));
     }
 
-    /// Check if a stream event matches this processor's condition
+    /// Check if a state event matches this processor's condition
     ///
     /// **Parameters**:
-    /// - `state_event`: Full StateEvent with all matched events (provides cross-stream context)
-    /// - `stream_event`: The incoming event being evaluated
+    /// - `state_event`: Full StateEvent with all matched events (including current at self.state_id)
     ///
     /// **Returns**: true if event matches condition, false otherwise
-    fn matches_condition(&self, state_event: &StateEvent, stream_event: &StreamEvent) -> bool {
+    fn matches_condition(&self, state_event: &StateEvent) -> bool {
         match &self.condition_fn {
-            Some(f) => f(state_event, stream_event),
+            Some(f) => f(state_event),
             None => true, // No condition = match all
         }
     }
@@ -540,8 +544,8 @@ impl PreStateProcessor for StreamPreStateProcessor {
             candidate_state.set_event(self.state_id, cloned_stream);
 
             // Check if the event matches our condition
-            // Pass full StateEvent (with all previous events) for cross-stream reference support
-            if self.matches_condition(&candidate_state, &stream_event) {
+            // StateEvent contains all events including current one at self.state_id
+            if self.matches_condition(&candidate_state) {
                 // Match! This state progresses
                 return_events.push(candidate_state.clone());
 
@@ -934,7 +938,7 @@ mod tests {
         let mut processor = create_test_processor(0, true, StateType::Pattern);
 
         // Add condition that always fails
-        processor.set_condition(|_, _| false);
+        processor.set_condition(|_| false);
 
         processor.init();
         processor.update_state();
@@ -954,7 +958,7 @@ mod tests {
         let mut processor = create_test_processor(0, true, StateType::Sequence);
 
         // Add condition that always fails
-        processor.set_condition(|_, _| false);
+        processor.set_condition(|_| false);
 
         processor.init();
         processor.update_state();
@@ -972,11 +976,13 @@ mod tests {
     fn test_process_and_return_with_condition() {
         let mut processor = create_test_processor(0, true, StateType::Pattern);
 
-        // Condition: price > 100
-        processor.set_condition(|_state_event, stream_event| {
-            if let Some(value) = stream_event.before_window_data.get(0) {
-                if let AttributeValue::Float(price) = value {
-                    return *price > 100.0;
+        // Condition: price > 100 (accessing from position 0 in StateEvent)
+        processor.set_condition(|state_event| {
+            if let Some(stream_event) = state_event.get_stream_event(0) {
+                if let Some(value) = stream_event.before_window_data.get(0) {
+                    if let AttributeValue::Float(price) = value {
+                        return *price > 100.0;
+                    }
                 }
             }
             false
