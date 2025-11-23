@@ -102,11 +102,13 @@ pub struct StreamPreStateProcessor {
     // PostStateProcessor for this processor (CRITICAL for chaining)
     this_state_post_processor: Option<Arc<Mutex<dyn PostStateProcessor>>>,
 
-    // Condition function (simplified - will be expression executor in full impl)
-    // For now: always returns true (matches all events)
-    // In full implementation: would be ExpressionExecutor evaluating WHERE clause
+    // Condition function for filter evaluation
+    // Receives both StateEvent (full context with previous events) and StreamEvent (incoming event)
+    // This enables cross-stream references like: e2[price > e1.price]
+    // - StateEvent: Contains all matched events (e1, e2, ...) providing cross-stream context
+    // - StreamEvent: The incoming event being evaluated at this processor
     // Uses Arc for shareability across clones (partitioned execution, state restoration)
-    condition_fn: Option<Arc<dyn Fn(&StreamEvent) -> bool + Send + Sync>>,
+    condition_fn: Option<Arc<dyn Fn(&StateEvent, &StreamEvent) -> bool + Send + Sync>>,
 }
 
 // Manual Debug implementation (condition_fn doesn't implement Debug)
@@ -229,22 +231,40 @@ impl StreamPreStateProcessor {
     ///
     /// **Usage**:
     /// ```rust,ignore
-    /// processor.set_condition(|event| {
-    ///     // Check event.before_window_data, etc.
-    ///     true // matches
+    /// // Simple filter without cross-stream reference
+    /// processor.set_condition(|_state_event, stream_event| {
+    ///     // Check stream_event.before_window_data, etc.
+    ///     stream_event.before_window_data[0].as_float().unwrap_or(0.0) > 100.0
+    /// });
+    ///
+    /// // Filter with cross-stream reference (e2[price > e1.price])
+    /// processor.set_condition(|state_event, stream_event| {
+    ///     // Access previous event e1 from StateEvent
+    ///     if let Some(e1) = state_event.get_stream_event(0) {
+    ///         let e1_price = e1.before_window_data[1].as_float().unwrap_or(0.0);
+    ///         let e2_price = stream_event.before_window_data[1].as_float().unwrap_or(0.0);
+    ///         return e2_price > e1_price;
+    ///     }
+    ///     false
     /// });
     /// ```
     pub fn set_condition<F>(&mut self, condition: F)
     where
-        F: Fn(&StreamEvent) -> bool + Send + Sync + 'static,
+        F: Fn(&StateEvent, &StreamEvent) -> bool + Send + Sync + 'static,
     {
         self.condition_fn = Some(Arc::new(condition));
     }
 
     /// Check if a stream event matches this processor's condition
-    fn matches_condition(&self, stream_event: &StreamEvent) -> bool {
+    ///
+    /// **Parameters**:
+    /// - `state_event`: Full StateEvent with all matched events (provides cross-stream context)
+    /// - `stream_event`: The incoming event being evaluated
+    ///
+    /// **Returns**: true if event matches condition, false otherwise
+    fn matches_condition(&self, state_event: &StateEvent, stream_event: &StreamEvent) -> bool {
         match &self.condition_fn {
-            Some(f) => f(stream_event),
+            Some(f) => f(state_event, stream_event),
             None => true, // No condition = match all
         }
     }
@@ -512,11 +532,16 @@ impl PreStateProcessor for StreamPreStateProcessor {
             // Clone the incoming StreamEvent
             let cloned_stream = self.clone_stream_event(&stream_event);
 
+            // Ensure StateEvent has enough positions for this processor's state_id
+            // Without this, set_event() will fail silently if position >= stream_events.len()
+            candidate_state.expand_to_size(self.state_id + 1);
+
             // Add the StreamEvent to the StateEvent at this processor's position
             candidate_state.set_event(self.state_id, cloned_stream);
 
             // Check if the event matches our condition
-            if self.matches_condition(&stream_event) {
+            // Pass full StateEvent (with all previous events) for cross-stream reference support
+            if self.matches_condition(&candidate_state, &stream_event) {
                 // Match! This state progresses
                 return_events.push(candidate_state.clone());
 
@@ -909,7 +934,7 @@ mod tests {
         let mut processor = create_test_processor(0, true, StateType::Pattern);
 
         // Add condition that always fails
-        processor.set_condition(|_| false);
+        processor.set_condition(|_, _| false);
 
         processor.init();
         processor.update_state();
@@ -929,7 +954,7 @@ mod tests {
         let mut processor = create_test_processor(0, true, StateType::Sequence);
 
         // Add condition that always fails
-        processor.set_condition(|_| false);
+        processor.set_condition(|_, _| false);
 
         processor.init();
         processor.update_state();
@@ -948,8 +973,8 @@ mod tests {
         let mut processor = create_test_processor(0, true, StateType::Pattern);
 
         // Condition: price > 100
-        processor.set_condition(|event| {
-            if let Some(value) = event.before_window_data.get(0) {
+        processor.set_condition(|_state_event, stream_event| {
+            if let Some(value) = stream_event.before_window_data.get(0) {
                 if let AttributeValue::Float(price) = value {
                     return *price > 100.0;
                 }
