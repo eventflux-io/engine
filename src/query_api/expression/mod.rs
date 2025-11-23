@@ -11,6 +11,7 @@ pub mod math;
 // Declare modules for individual expression types at this level
 pub mod attribute_function;
 pub mod expression;
+pub mod indexed_variable;
 pub mod variable; // This is the main Expression enum
 
 // Re-export the main Expression enum and key structs/enums for easier access
@@ -19,6 +20,7 @@ pub use self::attribute_function::AttributeFunction;
 pub use self::case::{Case, WhenClause};
 pub use self::constant::{Constant, ConstantValueWithFloat, TimeUtil as ConstantTimeUtil}; // Updated ConstantValue to ConstantValueWithFloat
 pub use self::expression::Expression;
+pub use self::indexed_variable::{EventIndex, IndexedVariable};
 pub use self::variable::Variable;
 
 // Re-export all math and condition structs and enums for easier use in Expression factory methods and elsewhere.

@@ -206,6 +206,21 @@ impl<'a> TypeInferenceEngine<'a> {
         match expr {
             Expression::Constant(c) => Self::infer_constant_type(c),
             Expression::Variable(v) => self.infer_variable_type(v, context),
+            Expression::IndexedVariable(iv) => {
+                // IndexedVariable accesses attributes from events in pattern collections
+                // The type is the same as the attribute type from the stream definition
+                // For now, infer as if it were a regular Variable (same attribute, different access path)
+                let var = crate::query_api::expression::Variable {
+                    eventflux_element: iv.eventflux_element.clone(),
+                    stream_id: iv.stream_id.clone(),
+                    stream_index: iv.stream_index,
+                    attribute_name: iv.attribute_name.clone(),
+                    is_inner_stream: false,
+                    function_id: None,
+                    function_index: None,
+                };
+                self.infer_variable_type(&var, context)
+            }
             Expression::Add(add) => {
                 self.infer_arithmetic_type(&add.left_value, &add.right_value, context)
             }

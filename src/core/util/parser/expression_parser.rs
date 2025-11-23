@@ -750,6 +750,15 @@ pub fn parse_expression<'a>(
                 }
             }
         }
+        ApiExpression::IndexedVariable(_indexed_var) => {
+            // IndexedVariable requires pattern context and specialized compilation
+            // For now, return error - this will be implemented when wiring to pattern compiler
+            Err(ExpressionParseError::new(
+                "IndexedVariable (array access) requires pattern context. Use expression compiler for patterns.".to_string(),
+                &_indexed_var.eventflux_element,
+                context.query_name,
+            ))
+        }
     }
 }
 
