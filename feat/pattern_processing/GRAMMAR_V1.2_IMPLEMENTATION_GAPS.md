@@ -38,7 +38,7 @@
 3. ⚠️ **Logical operators runtime** - AND, OR processors not confirmed
 4. ⚠️ **PARTITION BY runtime** - Multi-tenant isolation not implemented
 5. ⚠️ **Event-count WITHIN** - Only time-based WITHIN exists
-6. ⚠️ **EVERY multi-instance** - EveryStateElement exists in Query API but runtime unclear
+6. ✅ **EVERY multi-instance** - Runtime complete in PatternChainBuilder (2025-11-24)
 7. ⚠️ **Absent patterns runtime** - AbsentStreamStateElement exists but no processor
 8. ⚠️ **OUTPUT event types** - OutputEventType enum exists but not wired to pattern runtime
 
@@ -299,38 +299,60 @@ FROM PATTERN (
 **Query API Status**: ✅ COMPLETE
 - `EveryStateElement` exists in `src/query_api/execution/query/input/state/every_state_element.rs`
 
-**Runtime Status**: ❌ NOT CONFIRMED
-- **CRITICAL**: Need to verify EveryStateProcessor exists
-- Multi-instance state management unclear
-- `new_and_every_state_event_list` exists in three-list architecture, suggesting partial support
+**Runtime Status**: ✅ COMPLETE (PatternChainBuilder)
+- ✅ Three-list architecture exists (`new_and_every_state_event_list` in StreamPreState)
+- ✅ Loopback mechanism exists (`next_every_state_pre_processor` field in PostStateProcessor)
+- ✅ Forwarding logic exists (lines 181-185 in stream_post_state_processor.rs)
+- ✅ `add_every_state()` trait method exists in PreStateProcessor
+- ✅ **PatternChainBuilder**: Loopback wired correctly (pattern_chain_builder.rs:206-214)
+- ✅ **Validation**: PATTERN-mode-only restriction enforced (pattern_chain_builder.rs:136-140)
+- ✅ **Test Coverage**: Comprehensive tests in pattern_every_overlapping_test.rs (7 tests passing)
+  - 3 core tests: basic restart, non-EVERY validation, mode restriction
+  - 4 integration tests: count quantifiers, WITHIN, longer chains, memory leak stress
+- ✅ **Expired Event Handling**: Completed TODO at stream_pre_state_processor.rs:647-658
+
+⚠️ **query_parser.rs (Deprecated)**: Old builder doesn't wire loopback (line 419-421)
+  - Note: query_parser.rs uses deprecated SequenceProcessor architecture
+  - Modern code uses PatternChainBuilder instead
 
 **Parser Status**: ❌ NOT IMPLEMENTED
 - No parser for `EVERY (...)` syntax
-- No validation for EVERY restrictions (top-level only, PATTERN mode only)
+- Validation logic exists in PatternChainBuilder, ready for parser integration
 
 **Expression Evaluator Status**: N/A
 
 **Gap**:
-1. **Verify runtime support** - Check if EveryStateProcessor exists and works
-2. **Parser**:
+1. **Parser Only** (runtime complete):
    - Parse `EVERY (pattern)` syntax
-   - Validate: EVERY only in PATTERN mode
-   - Validate: EVERY only at top level
-   - Validate: No nested EVERY
-3. **Tests**: Overlapping instances, multi-instance output
+   - Map to `builder.set_every(true)` call
+   - PatternChainBuilder will handle validation and wiring
 
-**Implementation Effort**: **Large** (5-8 days if runtime missing)
-- Investigation: 0.5 days
-- Runtime (if needed): 3-5 days
-- Parser: 1-2 days
-- Validation: 1 day
-- Tests: 2-3 days
+**Implementation Effort**: **Small** (1-2 days - runtime complete, parser only)
+- Parser (EVERY syntax): 1 day
+- Integration tests: 0.5-1 day
+- ~~Builder wiring~~: ✅ Complete
+- ~~Validation~~: ✅ Complete
+- ~~Tests (runtime)~~: ✅ Complete
+- ~~Expired event TODO~~: ✅ Complete
+
+**Implementation Details** (2025-11-24):
+- `pattern_chain_builder.rs` lines 65, 86-99, 136-140, 206-214
+- `tests/pattern_every_overlapping_test.rs` - 7 passing tests (3 core + 4 integration)
+- See `feat/pattern_processing/EVERY_REFERENCE.md` for complete implementation reference
 
 **Dependencies**:
-- Pattern expression parser
-- Multi-instance state management
+- Pattern expression parser (for `EVERY (...)` syntax)
+- ~~Multi-instance state management~~: ✅ Complete
 
-**Priority**: **P1** - Important for real-world CEP, but single-instance works for basic cases
+**Priority**: **P1** - Parser only remaining, runtime ready for production
+
+**P0/P1 Enhancements Complete** (2025-11-24):
+- Fixed PatternChainBuilder API documentation (pattern restart semantics)
+- Added comprehensive flag-based detection architecture documentation
+- Added 4 integration tests (count quantifiers, WITHIN, longer chains, memory leak)
+- All 7 tests passing with comprehensive coverage
+- Known limitation documented: WITHIN timing integration with EVERY restart
+- See `feat/pattern_processing/EVERY_REFERENCE.md` for complete implementation details
 
 ---
 
@@ -730,12 +752,12 @@ SELECT count(e1) as attempts,
 | Feature | Effort | Status | Notes |
 |---------|--------|--------|-------|
 | **Logical operators (AND, OR)** | 1-2 days | ✅ Runtime | Parse operators only |
-| **EVERY multi-instance** | 5-8 days | ⚠️ | Verify runtime, parse EVERY, validate restrictions |
+| **EVERY multi-instance** | 1-2 days | Runtime complete, Tests complete | Parser only - runtime complete, 7 tests passing (2025-11-24) |
 | **Cross-stream references** | 5-7 days | ❌ | Parse e1.attr in e2 filters |
 | **PARTITION BY** | 10-15 days | ❌ | Major architecture, multi-tenant isolation |
 | **Aggregation functions** | 3-5 days | ⚠️ | Verify over collections, parse SELECT |
 
-**Total P1 Effort**: ~4-6 weeks (24-37 days)
+**Total P1 Effort**: ~3-4 weeks (19-31 days)
 
 **Deliverable**: Production-ready pattern processing with multi-instance, partitioning, and aggregations.
 
@@ -1148,19 +1170,27 @@ INSERT INTO SecurityAlerts;
 
 ### Critical Gaps Identified
 
-1. ⚠️ **No parser exists** - Entire Grammar V1.2 parser must be built
-2. ⚠️ **Array access missing** - Critical for count quantifiers in SELECT
-3. ⚠️ **PARTITION BY missing** - Major architecture work needed
-4. ⚠️ **EVERY runtime unclear** - Need to verify multi-instance support
-5. ⚠️ **Event-count WITHIN missing** - New runtime feature needed
-6. ⚠️ **Absent patterns not started** - Phase 3 work, requires TimerWheel
+1. No parser exists - Entire Grammar V1.2 parser must be built
+2. Array access missing - Critical for count quantifiers in SELECT
+3. PARTITION BY missing - Major architecture work needed
+4. EVERY runtime complete - PatternChainBuilder implementation complete (2025-11-24)
+5. Event-count WITHIN missing - New runtime feature needed
+6. Absent patterns not started - Phase 3 work, requires TimerWheel
 
 ### Total Effort Estimate
 
 - **P0 (Critical)**: 3-4 weeks
-- **P1 (Important)**: 4-6 weeks
+- **P1 (Important)**: 3-4 weeks (reduced from 4-6 weeks - EVERY complete)
 - **P2 (Advanced)**: 2-3 weeks
-- **Total**: ~15-20 weeks (3.5-5 months) for full Grammar V1.2 implementation
+- **Total**: ~12-16 weeks (3-4 months) for full Grammar V1.2 implementation
+
+**Recent Progress** (2025-11-24):
+- EVERY multi-instance runtime complete in PatternChainBuilder
+- Test coverage: 7 passing tests (3 core + 4 integration)
+- P0/P1 enhancements complete (documentation, test coverage, known limitations)
+- Validation logic enforcing PATTERN-mode-only restriction
+- Flag-based detection architecture implemented
+- Parser integration remaining for EVERY support (estimated 1-2 days)
 
 ### Recommended Approach
 
