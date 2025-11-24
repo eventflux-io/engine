@@ -133,8 +133,12 @@ impl PreStateProcessor for CountPreStateProcessor {
         // Get state_id for this processor
         let state_id = self.stream_processor.state_id();
 
+        // Check if this is EVERY pattern start state
+        let is_every_start = self.stream_processor.is_start_state()
+            && self.stream_processor.is_every_pattern();
+
         // Access pending states - clone the list to avoid borrow conflicts
-        let pending_states: Vec<StateEvent> = {
+        let mut pending_states: Vec<StateEvent> = {
             let mut state_guard = self.stream_processor.state.lock().unwrap();
             let cloned: Vec<StateEvent> = state_guard.get_pending_list().iter().cloned().collect();
             // Clear pending list - we'll rebuild it with updated states
@@ -142,8 +146,34 @@ impl PreStateProcessor for CountPreStateProcessor {
             cloned
         };
 
+        // EVERY pattern optimization: Filter out completed states at start position
+        // Completed states have events at positions beyond this state_id
+        // These came from loopback and can't be used for new instances
+        if is_every_start && !pending_states.is_empty() {
+            pending_states.retain(|state_event| {
+                // Keep only states that don't have events at later positions
+                // This filters out completed StateEvent{A(1), B(2)} from loopback
+                for pos in (state_id + 1)..state_event.stream_event_count() {
+                    if state_event.get_stream_event(pos).is_some() {
+                        return false; // Has event at later position - completed state, discard
+                    }
+                }
+                true // No events at later positions - valid for accumulation
+            });
+        }
+
+        // If pending is empty after filtering, create a fresh StateEvent for EVERY start states
+        // This allows new pattern instances to begin
         if pending_states.is_empty() {
-            return None;
+            if is_every_start {
+                // Create fresh empty StateEvent for new pattern instance
+                // Just create an empty StateEvent - it will be populated with events as they arrive
+                // and will auto-expand as needed
+                let new_state = StateEvent::new(1, 0); // Size 1 is enough, will expand
+                pending_states.push(new_state);
+            } else {
+                return None;
+            }
         }
 
         // Get stream event cloner - clone it to avoid borrow conflicts
@@ -1182,6 +1212,16 @@ mod tests {
                     .lock()
                     .unwrap()
                     .set_next_every_state_pre_processor(next);
+            }
+
+            fn get_next_every_state_pre_processor(
+                &self,
+            ) -> Option<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>>
+            {
+                self.inner
+                    .lock()
+                    .unwrap()
+                    .get_next_every_state_pre_processor()
             }
 
             fn set_callback_pre_state_processor(

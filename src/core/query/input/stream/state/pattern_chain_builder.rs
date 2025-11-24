@@ -62,6 +62,7 @@ pub struct PatternChainBuilder {
     steps: Vec<PatternStepConfig>,
     state_type: StateType,
     within_duration_ms: Option<i64>,
+    is_every: bool,
 }
 
 impl PatternChainBuilder {
@@ -70,6 +71,7 @@ impl PatternChainBuilder {
             steps: Vec::new(),
             state_type,
             within_duration_ms: None,
+            is_every: false,
         }
     }
 
@@ -79,6 +81,24 @@ impl PatternChainBuilder {
 
     pub fn set_within(&mut self, duration_ms: i64) {
         self.within_duration_ms = Some(duration_ms);
+    }
+
+    /// Enable EVERY pattern (multi-instance matching with pattern restart)
+    ///
+    /// When enabled, completed patterns restart from the beginning, allowing
+    /// new pattern instances after each match. For example:
+    /// - Pattern: EVERY (A -> B)
+    /// - Events: A(1) → B(2) → A(3) → B(4)
+    /// - Matches: A1-B2 (completes, restarts) AND A3-B4 (new instance)
+    ///
+    /// Note: This implements "pattern restart" semantics, not simultaneous
+    /// overlapping instances. Each match triggers a restart for the next sequence.
+    ///
+    /// # Restrictions
+    /// - Only valid in PATTERN mode (not SEQUENCE)
+    /// - Should only be applied to top-level patterns (no nested EVERY)
+    pub fn set_every(&mut self, is_every: bool) {
+        self.is_every = is_every;
     }
 
     /// Validate pattern chain constraints
@@ -114,6 +134,13 @@ impl PatternChainBuilder {
         }
 
         // All steps: min <= max (already enforced by PatternStepConfig.validate)
+
+        // EVERY validation: Only allowed in PATTERN mode, not SEQUENCE
+        if self.is_every && !matches!(self.state_type, StateType::Pattern) {
+            return Err(
+                "EVERY patterns are only supported in PATTERN mode, not SEQUENCE mode".to_string(),
+            );
+        }
 
         Ok(())
     }
@@ -174,6 +201,30 @@ impl PatternChainBuilder {
             }
 
             post_processors_concrete.push(post);
+        }
+
+        // Wire EVERY loopback if enabled
+        // This creates multi-instance pattern matching where completed patterns
+        // restart from the beginning, enabling overlapping instances
+        //
+        // Set loopback ONLY on last post processor (where pattern completes)
+        // Detection is handled via is_every_pattern flag in processors
+        if self.is_every {
+            let last_post_idx = post_processors_concrete.len() - 1;
+            let last_post = &post_processors_concrete[last_post_idx];
+            let first_pre = &pre_processors_concrete[0];
+
+            last_post
+                .lock()
+                .unwrap()
+                .set_next_every_state_pre_processor(
+                    first_pre.clone() as Arc<Mutex<dyn PreStateProcessor>>,
+                );
+
+            // Mark all pre processors with EVERY flag for easy detection
+            for pre in &pre_processors_concrete {
+                pre.lock().unwrap().stream_processor.set_every_pattern_flag(true);
+            }
         }
 
         // Convert to trait objects for ProcessorChain
