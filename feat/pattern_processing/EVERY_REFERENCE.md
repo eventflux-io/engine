@@ -1,13 +1,173 @@
 # EVERY Pattern Implementation Reference
 
-Date: 2025-11-24
-Status: Runtime complete, parser pending
+Date: 2025-11-25 (Updated)
+Status: **MOSTLY COMPLETE - Sliding window with count quantifiers needs work**
+
+---
+
+## Implementation Status Summary
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Pattern restart (sequential) | ✅ WORKING | A1→B2→A3→B4 produces 2 matches |
+| Basic TRUE overlapping | ✅ WORKING | A1→A2→B3 produces 2 matches (A1-B3, A2-B3) |
+| Logical operators (AND/OR) | ✅ WORKING | PatternChainBuilder supports add_logical_group() |
+| Sliding window (count quantifiers) | ❌ NOT WORKING | A{3}→B with 5 A events should produce 3 overlapping windows |
+
+---
+
+## ✅ TRUE OVERLAPPING WORKS FOR BASIC PATTERNS
+
+**Verified 2025-11-25**: The basic TRUE overlapping semantics ARE working correctly!
+
+### Working Example
+
+```
+Pattern: EVERY (A -> B)
+Events: A1@1000 → A2@2000 → B3@3000
+
+RESULT: 2 matches (CORRECT!)
+  - Match 1: A1@1000 → B3@3000
+  - Match 2: A2@2000 → B3@3000
+```
+
+This was verified by test `test_true_every_overlapping_multiple_a_before_b`.
+
+### How It Works
+
+1. A1 arrives at Pre[0] → StateEvent{A1} forwarded to Pre[1]
+2. A2 arrives at Pre[0] → StateEvent{A2} forwarded to Pre[1]
+3. Pre[1] now has TWO pending states: StateEvent{A1} AND StateEvent{A2}
+4. B3 arrives at Pre[1] → processes BOTH pending states → 2 outputs
+
+---
+
+## ⚠️ REMAINING ISSUE: Sliding Window with Count Quantifiers
+
+**Priority**: P1 - Advanced feature, basic EVERY works
+
+### Problem
+
+When using count quantifiers like A{3}, the sliding window behavior doesn't produce overlapping matches.
+
+### Expected Behavior (per PATTERN_GRAMMAR_V1.2_TEST_SPEC.md Test 2.9)
+
+```sql
+FROM PATTERN (
+    EVERY (e1=FailedLogin{3} -> e2=AccountLocked)
+)
+```
+
+**Input Events**: `[FL1, FL2, FL3, FL4, FL5, AL]`
+
+**Expected Output**: 3 matches (overlapping sliding window)
+- Instance 1: [FL1, FL2, FL3] → AL
+- Instance 2: [FL2, FL3, FL4] → AL
+- Instance 3: [FL3, FL4, FL5] → AL
+
+### Actual Behavior
+
+**Input Events**: `[FL1, FL2, FL3, FL4, FL5, AL]`
+
+**Actual Output**: 1 match
+- Only: [FL1, FL2, FL3] → AL (or similar greedy behavior)
+
+### Root Cause
+
+For count quantifiers, the current implementation accumulates events into a single chain [A1,A2,A3,A4,A5] and forwards once when count reaches max. It should instead:
+1. Forward [A1,A2,A3] when 3 events accumulated
+2. Start a NEW window [A2,A3,...] on the 4th event
+3. Forward [A2,A3,A4] when that window reaches 3
+4. Continue sliding...
+
+### What Needs to Change for Sliding Window
+
+1. **At EVERY start position with count quantifiers**:
+   - When count reaches min_count, forward current state
+   - Also create a NEW StateEvent starting from event[1] (sliding start)
+   - Both states continue accumulating in parallel
+2. **This creates the sliding window effect** where each event can start a new potential window
+
+---
 
 ## Overview
 
-EVERY enables pattern restart semantics. When a pattern completes, it forwards the matched state back to the start and continues matching with subsequent events.
+EVERY enables multi-instance pattern matching where each triggering event starts a NEW concurrent pattern instance, allowing overlapping matches.
 
-Implementation mode: Pattern restart (sequential matches), not simultaneous overlapping instances.
+**Basic EVERY (A -> B)**: ✅ TRUE OVERLAPPING WORKS!
+
+**EVERY with Logical Operators (A AND B), (A OR B)**: ✅ WORKING via add_logical_group()
+
+**EVERY with Count Quantifiers (A{3} -> B)**: ❌ Sliding window needs implementation
+
+---
+
+## ✅ LOGICAL OPERATORS NOW SUPPORTED
+
+**Added 2025-11-25**: PatternChainBuilder now supports AND/OR logical groups.
+
+### API
+
+```rust
+use eventflux_rust::core::query::input::stream::state::pattern_chain_builder::{
+    PatternChainBuilder, PatternStepConfig, LogicalGroupConfig, LogicalType,
+};
+
+let mut builder = PatternChainBuilder::new(StateType::Pattern);
+
+// Pattern: (A AND B) -> C
+builder.add_logical_group(LogicalGroupConfig::and(
+    PatternStepConfig::new("e1".into(), "StreamA".into(), 1, 1),
+    PatternStepConfig::new("e2".into(), "StreamB".into(), 1, 1),
+));
+builder.add_step(PatternStepConfig::new("e3".into(), "StreamC".into(), 1, 1));
+
+// Or using OR:
+// builder.add_logical_group(LogicalGroupConfig::or(...))
+```
+
+### How Logical Groups Work
+
+**AND Logic**:
+- Creates two LogicalPreStateProcessor instances (left and right)
+- Both sides must match before the pattern can proceed
+- LogicalPostStateProcessor checks if partner's position is filled
+- Only forwards to next element when BOTH sides have matched
+
+**OR Logic**:
+- Either side matching is sufficient
+- When one side matches, it marks the partner as "satisfied"
+- First match triggers the pattern to proceed
+
+### Chaining with Logical Groups
+
+```rust
+// Pattern: A -> (B AND C) -> D
+builder.add_step(a_config);           // state_id = 0
+builder.add_logical_group(and_bc);    // state_id = 1, 2
+builder.add_step(d_config);           // state_id = 3
+
+// Pattern: (A OR B) -> C
+builder.add_logical_group(or_ab);     // state_id = 0, 1
+builder.add_step(c_config);           // state_id = 2
+```
+
+### State ID Allocation
+
+- Simple steps consume 1 state_id
+- Logical groups consume 2 state_ids (one for each side)
+- Use `builder.total_state_count()` to get total state positions
+
+### Test Coverage
+
+30 unit tests in `pattern_chain_builder.rs` including:
+- `test_build_chain_with_logical_group` - Basic AND group
+- `test_build_chain_with_or_group` - Basic OR group
+- `test_build_chain_with_step_then_logical_group` - A -> (B AND C)
+- `test_build_chain_with_logical_group_then_step` - (A AND B) -> C
+- `test_validation_logical_group_last_element_not_exact` - Validation
+
+---
 
 ## Architecture
 
@@ -185,14 +345,15 @@ Result: 2 matches
 
 Pattern restarts after each completion. Not simultaneous overlapping.
 
-### What EVERY Does Not Do
+### What Basic EVERY Does (WORKING!)
 
 ```
 Events: A(1) → A(2) → B(3)
-Does not produce: 2 matches (A1-B3 AND A2-B3)
-Actual result: 1 match (A2-B3)
-Reason: A2 replaces A1 before B3 arrives
+
+ACTUAL (verified 2025-11-25): 2 matches (A1-B3 AND A2-B3) ✅
 ```
+
+**Basic TRUE overlapping IS working correctly!** See test `test_true_every_overlapping_multiple_a_before_b`.
 
 ## Restrictions
 
@@ -252,14 +413,21 @@ Step 4 - B(4) arrives at pre[1]:
 
 ## Implementation Status
 
-Runtime: Complete
-- Three-list state machine: Implemented
-- Flag-based detection: Implemented
-- Loopback mechanism: Implemented
-- Query API: Implemented
-- PatternChainBuilder integration: Implemented
-- Validation: Implemented
-- Test coverage: 7 tests passing
+Runtime: **MOSTLY COMPLETE** ✅
+- Three-list state machine: ✅ Implemented and working
+- Flag-based detection: ✅ Implemented
+- Loopback mechanism: ✅ Implemented and working
+- Query API: ✅ Implemented
+- PatternChainBuilder integration: ✅ Implemented
+- Validation: ✅ Implemented
+- Basic TRUE overlapping: ✅ WORKING (verified 2025-11-25)
+- Logical operators (AND/OR): ✅ WORKING (added 2025-11-25)
+- Test coverage: 40 tests total (30 unit + 10 integration, 39 passing, 1 for sliding window - expected)
+
+**What's Missing** (P1 - not critical):
+- Sliding window for count quantifiers (A{3} -> B with overlapping windows)
+- This requires spawning new StateEvents on each incoming A event at EVERY boundary
+- Integration tests for EVERY with logical operators (can be added later)
 
 Parser: Not implemented
 - Estimated effort: 1-2 days
@@ -325,15 +493,18 @@ Core implementation:
 - `src/core/query/input/stream/state/stream_post_state_processor.rs` - Loopback forwarding
 - `src/core/query/input/stream/state/pre_state_processor.rs` - add_every_state trait
 - `src/core/query/input/stream/state/count_pre_state_processor.rs` - State filtering, fresh creation
-- `src/core/query/input/stream/state/pattern_chain_builder.rs` - Builder integration, validation
+- `src/core/query/input/stream/state/pattern_chain_builder.rs` - Builder integration, validation, logical groups
+- `src/core/query/input/stream/state/logical_pre_state_processor.rs` - AND/OR pre-processing
+- `src/core/query/input/stream/state/logical_post_state_processor.rs` - AND/OR post-processing
 
 Query API:
 - `src/query_api/execution/query/input/state/every_state_element.rs` - EveryStateElement
 - `src/query_api/execution/query/input/state/state.rs` - Factory method
 
 Tests:
-- `tests/pattern_every_overlapping_test.rs` - 7 comprehensive tests
+- `tests/pattern_every_overlapping_test.rs` - 10 comprehensive tests (9 passing, 1 ignored)
 - `tests/pattern_runtime.rs:142-245` - Legacy test with deprecated architecture
+- Unit tests in `pattern_chain_builder.rs` - 30 tests including 16 logical group tests
 
 ## Performance
 
