@@ -130,6 +130,12 @@ impl PostStateProcessor for CountPostStateProcessor {
             .set_next_every_state_pre_processor(processor);
     }
 
+    fn get_next_every_state_pre_processor(
+        &self,
+    ) -> Option<Arc<Mutex<dyn PreStateProcessor>>> {
+        self.stream_processor.get_next_every_state_pre_processor()
+    }
+
     fn set_next_processor(&mut self, processor: Arc<Mutex<dyn PostStateProcessor>>) {
         self.stream_processor.set_next_processor(processor);
     }

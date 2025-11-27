@@ -1,7 +1,7 @@
 # EVERY Pattern Implementation Reference
 
-Date: 2025-11-25 (Updated)
-Status: **MOSTLY COMPLETE - Sliding window with count quantifiers needs work**
+Date: 2025-11-26 (Updated)
+Status: **COMPLETE - All EVERY pattern features working**
 
 ---
 
@@ -12,7 +12,7 @@ Status: **MOSTLY COMPLETE - Sliding window with count quantifiers needs work**
 | Pattern restart (sequential) | ✅ WORKING | A1→B2→A3→B4 produces 2 matches |
 | Basic TRUE overlapping | ✅ WORKING | A1→A2→B3 produces 2 matches (A1-B3, A2-B3) |
 | Logical operators (AND/OR) | ✅ WORKING | PatternChainBuilder supports add_logical_group() |
-| Sliding window (count quantifiers) | ❌ NOT WORKING | A{3}→B with 5 A events should produce 3 overlapping windows |
+| Sliding window (count quantifiers) | ✅ WORKING | EVERY A{3}→B with A1,A2,A3,A4,A5,B produces 3 sliding windows |
 
 ---
 
@@ -42,51 +42,72 @@ This was verified by test `test_true_every_overlapping_multiple_a_before_b`.
 
 ---
 
-## ⚠️ REMAINING ISSUE: Sliding Window with Count Quantifiers
+## ✅ SLIDING WINDOW WITH COUNT QUANTIFIERS NOW WORKING
 
-**Priority**: P1 - Advanced feature, basic EVERY works
+**Implemented**: 2025-11-26
 
-### Problem
+### How It Works
 
-When using count quantifiers like A{3}, the sliding window behavior doesn't produce overlapping matches.
+For patterns like `EVERY A{2,3} -> B`, the system now creates **overlapping sliding windows**:
 
-### Expected Behavior (per PATTERN_GRAMMAR_V1.2_TEST_SPEC.md Test 2.9)
+```
+Events: A1, A2, A3, A4, B1
 
-```sql
-FROM PATTERN (
-    EVERY (e1=FailedLogin{3} -> e2=AccountLocked)
-)
+Window progression:
+A1: pending = [SE([A1])]                                    → 0 outputs
+A2: pending = [SE([A1,A2]), SE([A2])]                       → 1 output: [A1,A2]
+A3: pending = [SE([A2,A3]), SE([A3])]                       → 2 outputs: [A1,A2,A3], [A2,A3]
+A4: pending = [SE([A3,A4]), SE([A4])]                       → 2 outputs: [A2,A3,A4], [A3,A4]
+B1: matches all pending patterns                            → 2 matches
 ```
 
-**Input Events**: `[FL1, FL2, FL3, FL4, FL5, AL]`
+### Implementation Details
 
-**Expected Output**: 3 matches (overlapping sliding window)
-- Instance 1: [FL1, FL2, FL3] → AL
-- Instance 2: [FL2, FL3, FL4] → AL
-- Instance 3: [FL3, FL4, FL5] → AL
+The fix is in `CountPreStateProcessor::process_and_return()`:
 
-### Actual Behavior
+1. **Track existing windows**: Before processing, check if any existing pending states have events
+2. **Spawn new window**: After processing all existing windows, spawn a NEW StateEvent
+   containing only the current event (starts a new overlapping window)
+3. **Immediate output**: If the spawned window's count >= min_count, output immediately
+4. **Continue accumulating**: Add spawned window to pending if count < max_count
 
-**Input Events**: `[FL1, FL2, FL3, FL4, FL5, AL]`
+### Key Code (count_pre_state_processor.rs:244-280)
 
-**Actual Output**: 1 match
-- Only: [FL1, FL2, FL3] → AL (or similar greedy behavior)
+```rust
+// Check if any existing window has events at this position
+let any_existing_had_events = pending_states
+    .iter()
+    .any(|se| se.get_stream_event(state_id).is_some());
 
-### Root Cause
+// ... process existing windows ...
 
-For count quantifiers, the current implementation accumulates events into a single chain [A1,A2,A3,A4,A5] and forwards once when count reaches max. It should instead:
-1. Forward [A1,A2,A3] when 3 events accumulated
-2. Start a NEW window [A2,A3,...] on the 4th event
-3. Forward [A2,A3,A4] when that window reaches 3
-4. Continue sliding...
+// EVERY SLIDING WINDOW: Spawn new overlapping window
+if is_every_start && any_existing_had_events {
+    let mut new_window = StateEvent::new(1, 0);
+    new_window.add_event(state_id, cloned_event);
 
-### What Needs to Change for Sliding Window
+    // Output immediately if count >= min_count
+    if 1 >= self.min_count && 1 <= self.max_count {
+        post_processor.process(Some(Box::new(new_window.clone())));
+    }
 
-1. **At EVERY start position with count quantifiers**:
-   - When count reaches min_count, forward current state
-   - Also create a NEW StateEvent starting from event[1] (sliding start)
-   - Both states continue accumulating in parallel
-2. **This creates the sliding window effect** where each event can start a new potential window
+    // Add to pending if can still grow
+    if 1 < self.max_count {
+        pending.push_back(new_window);
+    }
+}
+```
+
+### Test Coverage
+
+7 new tests added in `count_pre_state_processor.rs`:
+- `test_every_sliding_window_a2_3_basic` - Basic sliding window
+- `test_every_sliding_window_a2_3_with_4_events` - Multiple events
+- `test_every_sliding_window_exactly_3_with_5_events` - Exact count
+- `test_non_every_no_sliding_window` - Non-EVERY doesn't slide
+- `test_every_sliding_window_a1_2_with_4_events` - min=1 immediate output
+- `test_every_sliding_window_event_chain_integrity` - Event chain verification
+- `test_every_sliding_window_a2_5_comprehensive` - Complex scenario
 
 ---
 

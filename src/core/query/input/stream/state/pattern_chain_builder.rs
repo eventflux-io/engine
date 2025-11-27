@@ -99,6 +99,10 @@ pub struct PatternStepConfig {
     pub max_count: usize,
 }
 
+/// Sentinel value representing an unbounded/unspecified max_count.
+/// Used by parsers to indicate patterns like A+, A{1,}, A{n,} where max is not specified.
+pub const UNBOUNDED_MAX_COUNT: usize = usize::MAX;
+
 impl PatternStepConfig {
     pub fn new(alias: String, stream_name: String, min_count: usize, max_count: usize) -> Self {
         Self {
@@ -110,17 +114,33 @@ impl PatternStepConfig {
     }
 
     /// Validate this step's constraints
+    ///
+    /// Rules:
+    /// 1. min_count >= 1 (all steps must match at least one event)
+    /// 2. min_count <= max_count (logical consistency)
+    /// 3. max_count must be bounded (not UNBOUNDED_MAX_COUNT)
+    ///
+    /// Rejected patterns:
+    /// - A{0}, A{0,n}, A*, A? (zero-count: min_count must be >= 1)
+    /// - A+, A{1,}, A{n,} (unbounded: max_count must be explicitly specified)
     pub fn validate(&self) -> Result<(), String> {
+        if self.min_count == 0 {
+            return Err(format!(
+                "Step '{}': min_count must be >= 1 (got 0). Zero-count patterns (A*, A?, A{{0,n}}) are not supported.",
+                self.alias
+            ));
+        }
+        if self.max_count == UNBOUNDED_MAX_COUNT {
+            return Err(format!(
+                "Step '{}': max_count must be explicitly specified. \
+                Unbounded patterns (A+, A{{1,}}, A{{n,}}) are not supported. Use A{{min,max}} with explicit bounds.",
+                self.alias
+            ));
+        }
         if self.min_count > self.max_count {
             return Err(format!(
                 "Step '{}': min_count ({}) cannot be greater than max_count ({})",
                 self.alias, self.min_count, self.max_count
-            ));
-        }
-        if self.min_count == 0 {
-            return Err(format!(
-                "Step '{}': min_count must be >= 1 (got 0)",
-                self.alias
             ));
         }
         Ok(())
@@ -629,6 +649,43 @@ mod tests {
         let result = step.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("min_count must be >= 1"));
+    }
+
+    #[test]
+    fn test_pattern_step_config_validation_fail_unbounded_max() {
+        // Test A+ pattern (unbounded max_count using sentinel value)
+        let step =
+            PatternStepConfig::new("e1".to_string(), "S".to_string(), 1, UNBOUNDED_MAX_COUNT);
+        let result = step.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("must be explicitly specified"),
+            "Error should mention explicit specification required: {}",
+            err
+        );
+        assert!(
+            err.contains("Unbounded patterns"),
+            "Error should mention unbounded patterns: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_pattern_step_config_validation_success_large_bounded_max() {
+        // Test large but explicitly bounded max_count (should succeed)
+        let step = PatternStepConfig::new("e1".to_string(), "S".to_string(), 1, 100_000);
+        assert!(
+            step.validate().is_ok(),
+            "Large but explicit max_count should be allowed"
+        );
+    }
+
+    #[test]
+    fn test_pattern_step_config_validation_success_explicit_bounds() {
+        // Test explicitly bounded pattern A{1,10} (should succeed)
+        let step = PatternStepConfig::new("e1".to_string(), "S".to_string(), 1, 10);
+        assert!(step.validate().is_ok());
     }
 
     #[test]

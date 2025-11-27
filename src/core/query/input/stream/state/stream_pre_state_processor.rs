@@ -96,6 +96,11 @@ pub struct StreamPreStateProcessor {
     // Java: protected boolean isSuccessCondition
     success_condition: bool,
 
+    // EVERY pattern flag
+    // Set to true if this processor is part of an EVERY pattern
+    // Allows detection of EVERY semantics without checking post processors
+    is_every_pattern: bool,
+
     // Processor chain
     next_processor: Option<Arc<Mutex<dyn Processor>>>,
 
@@ -147,6 +152,7 @@ impl StreamPreStateProcessor {
             query_context,
             state: Arc::new(Mutex::new(StreamPreState::new())),
             shared_state: Arc::new(ProcessorSharedState::new()),
+            is_every_pattern: false, // Set later by PatternChainBuilder if EVERY
             stream_event_cloner: None,
             state_event_cloner: None,
             within_time: None, // No constraint by default
@@ -343,6 +349,21 @@ impl StreamPreStateProcessor {
         self.state_event_cloner = Some(cloner);
     }
 
+    /// Get state event cloner as Option (for CountPreStateProcessor EVERY logic)
+    pub fn get_state_event_cloner_option(&self) -> Option<&StateEventCloner> {
+        self.state_event_cloner.as_ref()
+    }
+
+    /// Set EVERY pattern flag
+    pub fn set_every_pattern_flag(&mut self, is_every: bool) {
+        self.is_every_pattern = is_every;
+    }
+
+    /// Get EVERY pattern flag
+    pub fn is_every_pattern(&self) -> bool {
+        self.is_every_pattern
+    }
+
     /// Get this state post processor (for CountPreStateProcessor)
     pub fn get_this_state_post_processor(&self) -> Option<Arc<Mutex<dyn PostStateProcessor>>> {
         self.this_state_post_processor.clone()
@@ -363,6 +384,7 @@ impl StreamPreStateProcessor {
             query_context: Arc::clone(&self.query_context),
             state: Arc::clone(&self.state),
             shared_state: Arc::clone(&self.shared_state),
+            is_every_pattern: self.is_every_pattern,
             stream_event_cloner: self.stream_event_cloner.clone(),
             state_event_cloner: self.state_event_cloner.clone(),
             within_time: self.within_time,
@@ -403,6 +425,7 @@ impl Processor for StreamPreStateProcessor {
             query_context: Arc::clone(query_context), // Use new query context
             state: Arc::clone(&self.state),           // Shared state across clones
             shared_state: Arc::clone(&self.shared_state), // Shared state across clones
+            is_every_pattern: self.is_every_pattern,
             stream_event_cloner: self.stream_event_cloner.clone(),
             state_event_cloner: self.state_event_cloner.clone(),
             within_time: self.within_time,
@@ -481,6 +504,26 @@ impl PreStateProcessor for StreamPreStateProcessor {
     }
 
     fn reset_state(&mut self) {
+        // EVERY pattern handling: Check if this is the start of an EVERY pattern
+        // If so, we should NOT clear pending to allow pattern restart with new events
+        let should_skip_reset = self.is_start_state && self.is_every_pattern;
+
+        if should_skip_reset {
+            // EVERY pattern: Don't clear pending, keep accepting new events
+            // Just reinitialize so new events can start new pattern instances
+            let mut state = self.state.lock().unwrap();
+
+            // Only reinitialize if new list is empty
+            if state.new_count() == 0 {
+                state.reset_initialized();
+                drop(state); // Release lock before calling init
+                self.init();
+            }
+            // Don't clear pending - this allows pattern to restart with accumulated events
+            return;
+        }
+
+        // Normal reset logic for non-EVERY patterns
         let mut state = self.state.lock().unwrap();
         state.clear_pending();
 
@@ -646,15 +689,10 @@ impl PreStateProcessor for StreamPreStateProcessor {
         pending_list_mut.retain(|state_event| {
             if self.is_expired(state_event, timestamp) {
                 // Mark as EXPIRED (better lifecycle tracking)
-                let mut expired = state_event.clone();
-                expired.event_type = crate::core::event::complex_event::ComplexEventType::Expired;
-
-                // TODO Phase 2: Notify 'every' processor if configured
-                // if let Some(ref next_every) = self.next_every_state_pre_processor {
-                //     if let Ok(mut guard) = next_every.lock() {
-                //         guard.add_every_state(expired);
-                //     }
-                // }
+                let _expired = state_event.clone();
+                // Note: StreamPreStateProcessor handles expiration directly by removing from pending.
+                // More complex processors (CountPreStateProcessor, etc.) may notify callbacks
+                // for cleanup and restart logic when events expire.
 
                 false // Remove from pending
             } else {

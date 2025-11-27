@@ -136,9 +136,9 @@ src/core/query/input/stream/state/
 - Multi-instance pattern matching
 - WITHIN time constraints in chains
 
-**Grammar Integration Deferred to M3**:
-- A+ (one or more), A* (zero or more) syntax mapping
-- Grammar parser integration with CountPreStateProcessor
+**Grammar Integration Notes**:
+- A+ (one or more), A* (zero or more) are **NOT SUPPORTED** (unbounded/zero-count patterns rejected)
+- Grammar parser integration with CountPreStateProcessor (bounded patterns only: A{n}, A{m,n} where min >= 1 and max is explicit)
 
 ### What Does NOT Work Yet (Phases 3-4)
 
@@ -1052,13 +1052,22 @@ src/core/query/input/stream/state/
 
 **Patterns to Support**:
 - `A{3}` - Exactly 3
-- `A{2,4}` - Range 2-4
-- `A+` - One or more
-- `A*` - Zero or more
-- `A{0,1}` - Zero or one (optional)
+- `A{2,4}` - Range 2-4 (bounded)
+
+**NOT Supported** (to prevent memory overflow):
+- `A+` or `A{1,}` - One or more (unbounded)
+- `A{n,}` - n or more (unbounded)
+- `A*` or `A{0,}` - Zero or more (unbounded + zero-count)
+- `A?` or `A{0,1}` - Zero or one (zero-count)
+- `A{0,n}` - Zero to n (zero-count)
+
+**Validation Rules**:
+- `min_count >= 1`: All steps must match at least one event
+- `max_count` must be explicit: All steps must specify an explicit integer max (no unbounded)
 
 **Success Criteria**:
-- All count quantifiers work correctly
+- Bounded count quantifiers work correctly (A{n}, A{m,n})
+- Unbounded patterns rejected with clear error message
 - Min/max validation enforced
 - Count state persists across events
 - Performance within targets
@@ -1231,12 +1240,13 @@ let state_stream = StateInputStream::pattern_stream(pattern, None);
    - A -> B -> C
    - A -> B -> C -> D (multi-step)
 
-2. **Count Quantifiers**:
-   - A<2:5> -> B (min-max)
-   - A<3:> -> B (min only)
-   - A<0:1> -> B (zero or one)
-   - A+ -> B (one or more)
-   - A* -> B (zero or more)
+2. **Count Quantifiers** (explicit bounds required):
+   - A{2,5} -> B (bounded range)
+   - A{3} -> B (exact count)
+   - ❌ A{3,} -> B (unbounded - NOT SUPPORTED, max must be explicit)
+   - ❌ A+ -> B (unbounded - NOT SUPPORTED, max must be explicit)
+   - ❌ A* -> B (unbounded + zero-count - NOT SUPPORTED)
+   - ❌ A{0,1} -> B (zero-count - NOT SUPPORTED)
 
 3. **Absent Patterns**:
    - NOT(A) FOR 5s
@@ -1293,8 +1303,10 @@ let state_stream = StateInputStream::pattern_stream(pattern, None);
 - [ ] Performance measured and acceptable
 
 ### Phase 2 (Count Quantifiers)
-- [ ] All count quantifiers (A{n}, A{m,n}, A+, A*, A{0,1}) work
-- [ ] Min/max validation enforced
+- [x] Bounded count quantifiers work (A{n}, A{m,n})
+- [x] Unbounded patterns rejected (A+, A{1,}, A{n,})
+- [x] Zero-count patterns rejected (A*, A?, A{0,n})
+- [x] Min/max validation enforced (min >= 1, max must be explicit)
 - [ ] Performance within targets
 
 ### Phase 3 (Absent Patterns)

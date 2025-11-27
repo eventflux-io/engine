@@ -479,6 +479,9 @@ impl ProcessorChain {
 ## Validation Rules
 
 ```rust
+/// Sentinel value for unbounded max (used by parser for A+, A{1,}, etc.)
+pub const UNBOUNDED_MAX_COUNT: usize = usize::MAX;
+
 impl PatternChainBuilder {
     pub fn validate(&self) -> Result<(), String> {
         if self.steps.is_empty() {
@@ -510,6 +513,16 @@ impl PatternChainBuilder {
             }
         }
 
+        // 5. All steps: max must be explicit (no unbounded patterns)
+        for step in &self.steps {
+            if step.max_count == UNBOUNDED_MAX_COUNT {
+                return Err(format!(
+                    "Step '{}': max_count must be explicitly specified. Unbounded patterns not supported.",
+                    step.alias
+                ));
+            }
+        }
+
         Ok(())
     }
 }
@@ -518,8 +531,9 @@ impl PatternChainBuilder {
 **Rules Summary**:
 1. **First step**: min_count >= 1 (must have trigger event)
 2. **Last step**: min_count == max_count (exact count required)
-3. **All steps**: min_count >= 1 (no zero-count/optional steps)
+3. **All steps**: min_count >= 1 (no zero-count/optional steps like A*, A?, A{0,n})
 4. **All steps**: min_count <= max_count (logical consistency)
+5. **All steps**: max_count must be explicit (no unbounded patterns like A+, A{1,}, A{n,} where max is omitted)
 
 ---
 

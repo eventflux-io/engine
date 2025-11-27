@@ -38,9 +38,9 @@
 3. ✅ **Logical operators runtime** - AND, OR via PatternChainBuilder.add_logical_group() (2025-11-25)
 4. ⚠️ **PARTITION BY runtime** - Multi-tenant isolation not implemented
 5. ⚠️ **Event-count WITHIN** - Only time-based WITHIN exists
-6. ✅ **EVERY multi-instance** - Basic TRUE overlapping WORKS! (verified 2025-11-25)
-   - A1→A2→B3 correctly produces 2 matches (A1-B3, A2-B3)
-   - Only sliding window with count quantifiers (A{3}→B) needs work (P1)
+6. ✅ **EVERY multi-instance** - COMPLETE! (verified 2025-11-26)
+   - Basic overlapping: A1→A2→B3 correctly produces 2 matches (A1-B3, A2-B3)
+   - Sliding window with count quantifiers: EVERY A{2,3}→B with 4 A events produces 5 outputs
    - See Section 7 for details
 7. ⚠️ **Absent patterns runtime** - AbsentStreamStateElement exists but no processor
 8. ⚠️ **OUTPUT event types** - OutputEventType enum exists but not wired to pattern runtime
@@ -120,14 +120,23 @@ e1=LoginStream -> e2=DataAccessStream -> e3=LogoutStream
 
 ### 3. Count Quantifiers
 
-**Grammar Requirement**:
+**Grammar Requirement** (SUPPORTED):
 ```sql
-A{3}        -- Exactly 3
-A{2,5}      -- Between 2 and 5
-A{1,} or A+ -- One or more
-A{0,} or A* -- Zero or more
-A{0,1} or A? -- Zero or one
+A{3}        -- Exactly 3                    ✅ SUPPORTED
+A{2,5}      -- Between 2 and 5 (bounded)    ✅ SUPPORTED
 ```
+
+**Grammar Requirement** (NOT SUPPORTED - by design):
+```sql
+A{1,} or A+ -- One or more (unbounded)     ❌ NOT SUPPORTED
+A{0,} or A* -- Zero or more (unbounded)    ❌ NOT SUPPORTED
+A{0,1} or A? -- Zero or one (zero-count)   ❌ NOT SUPPORTED
+```
+
+**Why Not Supported**:
+- Unbounded patterns (A+, A{n,}) can cause memory overflow
+- Zero-count patterns (A*, A?) break pattern step semantics (every step must match >= 1 event)
+- Explicit bounds required: use `A{min,max}` with both values specified
 
 **Query API Status**: ✅ COMPLETE
 - `CountStateElement` exists in `src/query_api/execution/query/input/state/count_state_element.rs`
@@ -136,20 +145,20 @@ A{0,1} or A? -- Zero or one
 - Phase 2a: Count quantifiers (52 tests passing)
 - `StateEvent` event chaining methods validated (43 tests)
 - Methods: `add_event()`, `remove_last_event()`, `get_event_chain()`, `count_events_at()`
+- Validation: `UNBOUNDED_MAX_COUNT` sentinel rejects unbounded patterns
 
 **Parser Status**: ❌ NOT IMPLEMENTED
-- No parser for `{n,m}` syntax or `+`, `*`, `?` shorthands
+- No parser for `{n,m}` syntax
 
 **Expression Evaluator Status**: N/A
 
 **Gap**:
-- **Parser only** - Need to parse count quantifier syntax
+- **Parser only** - Need to parse bounded count quantifier syntax `{n}` and `{n,m}`
 
-**Implementation Effort**: **Medium** (2 days)
-- Parse `{n}`, `{n,m}`, `{n,}` syntax
-- Parse `+`, `*`, `?` shorthands
+**Implementation Effort**: **Low** (1 day)
+- Parse `{n}`, `{n,m}` syntax only (bounded)
 - Map to `CountStateElement(pattern, min, max)`
-- Validation: reject `{0}`, `{0,0}`, `{max < min}`
+- Validation: reject unbounded (`{n,}`), zero-count (`{0,n}`), invalid (`{max < min}`)
 
 **Dependencies**: Basic pattern expression parser
 
@@ -321,11 +330,13 @@ FROM PATTERN (
 - ✅ **Validation**: PATTERN-mode-only restriction enforced
 - ✅ **Basic TRUE OVERLAPPING**: WORKING! (verified with test)
   - A1→A2→B3 produces 2 matches (A1-B3, A2-B3) ✅
-- ⚠️ **Sliding window with count quantifiers**: NOT YET (P1)
-  - A{3}→B should produce overlapping windows
-  - Currently produces single match
+- ✅ **Sliding window with count quantifiers**: WORKING (2025-11-26)
+  - EVERY A{2,3}→B with 4 A events produces 5 overlapping window outputs
+  - EVERY A{3}→B with 5 A events produces 3 sliding windows
 
-**Working Example** (verified 2025-11-25):
+**Working Examples** (verified 2025-11-26):
+
+Basic EVERY overlapping:
 ```
 Pattern: EVERY (A -> B)
 Events: A1@1000 → A2@2000 → B3@3000
@@ -337,16 +348,16 @@ RESULT: 2 matches (CORRECT!)
 Test: test_true_every_overlapping_multiple_a_before_b
 ```
 
-**Remaining Work** (P1 - sliding window for count quantifiers):
-Per PATTERN_GRAMMAR_V1.2_TEST_SPEC.md Test 2.9:
+Sliding window with count quantifiers (NEW):
 ```
 Pattern: EVERY (A{3} -> B)
 Events: [A1, A2, A3, A4, A5, B6]
-Expected: 3 matches (sliding window)
+RESULT: 3 matches (sliding window) ✅
   - [A1,A2,A3] → B6
   - [A2,A3,A4] → B6
   - [A3,A4,A5] → B6
-Actual: 1 match (needs fix)
+
+Test: test_every_sliding_window_exactly_3_with_5_events
 ```
 
 **Parser Status**: ❌ NOT IMPLEMENTED
@@ -357,27 +368,25 @@ Actual: 1 match (needs fix)
 
 **Gap**:
 1. **Parser**: Parse `EVERY (pattern)` syntax
-2. **P1**: Sliding window for count quantifiers (advanced feature)
 
-**Implementation Effort**: **Small-Medium** (2-3 days)
+**Implementation Effort**: **Small** (1 day)
 - Parser (EVERY syntax): 1 day
-- Sliding window for count quantifiers: 2-3 days (if needed)
 
-**Implementation Details** (2025-11-25):
-- `pattern_chain_builder.rs` lines 65, 86-99, 136-140, 206-214
-- `tests/pattern_every_overlapping_test.rs` - 9 tests (8 passing)
+**Implementation Details** (2025-11-26):
+- `pattern_chain_builder.rs` - EVERY flag wiring and loopback
+- `count_pre_state_processor.rs` - Sliding window spawning (lines 149-155, 257-280)
+- 7 sliding window tests in `count_pre_state_processor.rs`
 - See `feat/pattern_processing/EVERY_REFERENCE.md` for full documentation
 
 **Dependencies**:
 - Pattern expression parser (for `EVERY (...)` syntax)
 
-**Priority**: **P1** - Basic EVERY works, parser needed, sliding window is advanced feature
+**Priority**: **P0** - Runtime COMPLETE, only parser needed
 
-**Status Update** (2025-11-25):
+**Status Update** (2025-11-26):
 - ✅ Basic TRUE overlapping VERIFIED WORKING
-- Previous documentation was overly pessimistic
-- Test `test_true_every_overlapping_multiple_a_before_b` proves A1→A2→B3 = 2 matches
-- Only sliding window with count quantifiers needs additional work
+- ✅ Sliding window with count quantifiers VERIFIED WORKING
+- All runtime features complete, only parser needed
 
 ---
 
@@ -1210,17 +1219,20 @@ INSERT INTO SecurityAlerts;
 - **P2 (Advanced)**: 2-3 weeks
 - **Total**: ~8-11 weeks for full Grammar V1.2 implementation
 
-**Status Update** (2025-11-25):
+**Status Update** (2025-11-26):
 - ✅ **EVERY TRUE OVERLAPPING VERIFIED WORKING**
   - Test: A1→A2→B3 correctly produces 2 matches (A1-B3, A2-B3)
   - See test `test_true_every_overlapping_multiple_a_before_b`
-  - Only sliding window with count quantifiers (A{3}→B) needs additional work (P1)
+- ✅ **SLIDING WINDOW WITH COUNT QUANTIFIERS NOW WORKING** (2025-11-26)
+  - EVERY A{3}→B with 5 A events produces 3 sliding windows
+  - 7 new tests in count_pre_state_processor.rs
+  - See `feat/pattern_processing/EVERY_REFERENCE.md` for full details
 - ✅ **LOGICAL OPERATORS (AND/OR) NOW FULLY SUPPORTED**
   - PatternChainBuilder.add_logical_group() method added
   - LogicalGroupConfig with and()/or() helpers
   - 16 new unit tests for logical groups
   - See `feat/pattern_processing/EVERY_REFERENCE.md` for full details
-- Previous documentation was overly pessimistic about EVERY and logical operator status
+- All EVERY runtime features are complete - only parser needed
 - See `feat/pattern_processing/EVERY_REFERENCE.md` for full details
 
 ### Recommended Approach

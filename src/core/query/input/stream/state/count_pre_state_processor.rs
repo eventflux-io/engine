@@ -103,6 +103,22 @@ impl PreStateProcessor for CountPreStateProcessor {
     }
 
     fn add_every_state(&mut self, state_event: StateEvent) {
+        // EVERY loopback: When a completed pattern loops back, clear all existing
+        // sliding windows at the start position. This implements "pattern restart"
+        // semantics where after a complete match, the pattern starts fresh.
+        //
+        // Without this, leftover sliding windows from the previous pattern instance
+        // would mix with events from the new instance, causing incorrect matches.
+        //
+        // Example: EVERY (A{3} -> B)
+        // - First match: A1,A2,A3 -> B4 (sliding windows [A2,A3], [A3] remain)
+        // - Without clear: A5 would combine with [A2,A3] to form [A2,A3,A5] (wrong!)
+        // - With clear: A5 starts a fresh window [A5] (correct)
+        if self.stream_processor.is_start_state() {
+            let mut state = self.stream_processor.state.lock().unwrap();
+            state.clear_pending();
+            state.clear_new();
+        }
         self.stream_processor.add_every_state(state_event);
     }
 
@@ -161,6 +177,15 @@ impl PreStateProcessor for CountPreStateProcessor {
                 true // No events at later positions - valid for accumulation
             });
         }
+
+        // For EVERY sliding window: Check if any existing window has events at this position
+        // IMPORTANT: This check must be AFTER the retain filter to avoid spurious spawns
+        // from completed loopback states that get filtered out.
+        // - Empty initial state: no events → don't spawn (this is the first window starting)
+        // - State with [A1]: has events → spawn new window when A2 arrives
+        let any_existing_had_events = pending_states
+            .iter()
+            .any(|se| se.get_stream_event(state_id).is_some());
 
         // If pending is empty after filtering, create a fresh StateEvent for EVERY start states
         // This allows new pattern instances to begin
@@ -230,6 +255,44 @@ impl PreStateProcessor for CountPreStateProcessor {
                 // After trimming, count should be exactly max_count
                 let mut state_guard = self.stream_processor.state.lock().unwrap();
                 state_guard.get_pending_list_mut().push_back(state_event);
+            }
+        }
+
+        // EVERY SLIDING WINDOW: Spawn a new StateEvent for overlapping windows
+        // This enables patterns like EVERY A{2,3} -> B to produce overlapping matches
+        //
+        // Semantic: In CEP, `every A{2,3}` means "for every potential starting A,
+        // try to match 2-3 As". Each incoming A event should start a new window.
+        //
+        // Conditions for spawning:
+        // 1. is_every_start: This is an EVERY pattern at start state
+        // 2. any_existing_had_events: Existing windows already had events at this position
+        //    (if windows were empty, this is the first event - no overlap possible yet)
+        //
+        // The new window contains ONLY the current event (count=1)
+        // It will accumulate future events independently from existing windows
+        if is_every_start && any_existing_had_events {
+            // Spawn a new StateEvent starting from this event
+            // This creates an overlapping window that begins at this event
+            // Size 1 is enough - StateEvent will auto-expand as needed
+            let mut new_window = StateEvent::new(1, 0);
+            let cloned_for_new_window = stream_cloner.copy_stream_event(stream_event);
+            new_window.add_event(state_id, cloned_for_new_window);
+
+            // The new window has count=1 (just this event)
+            // Check if it should output immediately (when min_count=1)
+            let new_window_count = 1;
+            if new_window_count >= self.min_count && new_window_count <= self.max_count {
+                // Output this window immediately
+                if let Ok(mut post_guard) = post_processor.lock() {
+                    post_guard.process(Some(Box::new(new_window.clone())));
+                }
+            }
+
+            // Add to pending if window can still grow (count < max)
+            if new_window_count < self.max_count {
+                let mut state_guard = self.stream_processor.state.lock().unwrap();
+                state_guard.get_pending_list_mut().push_back(new_window);
             }
         }
 
@@ -1597,6 +1660,461 @@ mod tests {
         assert!(
             pre_proc.has_state_changed(),
             "state_changed should be true at max=100"
+        );
+    }
+
+    // ============================================================================
+    // EVERY Sliding Window Tests
+    // ============================================================================
+
+    /// Create EVERY-enabled processors with output tracking
+    fn create_every_tracked_processors(
+        min: usize,
+        max: usize,
+    ) -> (
+        CountPreStateProcessor,
+        Arc<Mutex<CountPostStateProcessor>>,
+        Arc<OutputTracker>,
+    ) {
+        use super::super::post_state_processor::PostStateProcessor;
+        use super::super::stream_pre_state::StreamPreState;
+        use super::super::stream_pre_state_processor::StateType;
+        use crate::core::config::eventflux_app_context::EventFluxAppContext;
+        use crate::core::config::eventflux_context::EventFluxContext;
+        use crate::core::config::eventflux_query_context::EventFluxQueryContext;
+        use crate::core::event::complex_event::ComplexEvent;
+        use crate::core::event::state::meta_state_event::MetaStateEvent;
+        use crate::core::event::state::{
+            state_event_cloner::StateEventCloner, state_event_factory::StateEventFactory,
+        };
+        use crate::core::event::stream::{
+            meta_stream_event::MetaStreamEvent, stream_event_cloner::StreamEventCloner,
+            stream_event_factory::StreamEventFactory,
+        };
+        use crate::query_api::definition::stream_definition::StreamDefinition;
+        use crate::query_api::eventflux_app::EventFluxApp;
+        use std::fmt;
+
+        let stream_def = Arc::new(StreamDefinition::new("TestStream".to_string()));
+        let meta_stream = MetaStreamEvent::new_for_single_input(stream_def);
+        let stream_factory = StreamEventFactory::new(0, 0, 0);
+        let stream_cloner = StreamEventCloner::new(&meta_stream, stream_factory);
+
+        let meta_state = MetaStateEvent::new(1);
+        let state_factory = StateEventFactory::new(1, 0);
+        let state_cloner = StateEventCloner::new(&meta_state, state_factory);
+
+        let stream_pre_state = StreamPreState::new();
+
+        let eventflux_context = Arc::new(EventFluxContext::new());
+        let app = Arc::new(EventFluxApp::new("TestApp".to_string()));
+        let app_ctx = Arc::new(EventFluxAppContext::new(
+            eventflux_context,
+            "TestApp".to_string(),
+            app,
+            String::new(),
+        ));
+        let query_ctx = Arc::new(EventFluxQueryContext::new(
+            app_ctx.clone(),
+            "test_query".to_string(),
+            None,
+        ));
+
+        let mut pre_proc = CountPreStateProcessor {
+            min_count: min,
+            max_count: max,
+            stream_processor: StreamPreStateProcessor::new(
+                0,
+                true, // is_start_state = true
+                StateType::Pattern,
+                app_ctx,
+                query_ctx,
+            ),
+        };
+
+        // CRITICAL: Enable EVERY pattern for sliding window behavior
+        pre_proc.stream_processor.set_every_pattern_flag(true);
+
+        pre_proc
+            .stream_processor
+            .set_stream_event_cloner(stream_cloner);
+        pre_proc
+            .stream_processor
+            .set_state_event_cloner(state_cloner);
+
+        let post_proc = Arc::new(Mutex::new(CountPostStateProcessor::new(min, max, 0)));
+
+        // Create custom post processor that tracks outputs
+        let tracker = Arc::new(OutputTracker::new());
+        let tracker_clone = Arc::clone(&tracker);
+
+        // Create wrapper that intercepts process() calls
+        struct TrackingPostProcessor {
+            inner: Arc<Mutex<CountPostStateProcessor>>,
+            tracker: Arc<OutputTracker>,
+        }
+
+        impl fmt::Debug for TrackingPostProcessor {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_struct("TrackingPostProcessor").finish()
+            }
+        }
+
+        impl PostStateProcessor for TrackingPostProcessor {
+            fn process(
+                &mut self,
+                chunk: Option<Box<dyn ComplexEvent>>,
+            ) -> Option<Box<dyn ComplexEvent>> {
+                // Track the output
+                if let Some(ref c) = chunk {
+                    if let Some(state_evt) = c.as_any().downcast_ref::<StateEvent>() {
+                        self.tracker.outputs.lock().unwrap().push(state_evt.clone());
+                    }
+                }
+                // Forward to real post processor
+                self.inner.lock().unwrap().process(chunk)
+            }
+
+            fn set_next_processor(&mut self, processor: Arc<Mutex<dyn PostStateProcessor>>) {
+                self.inner.lock().unwrap().set_next_processor(processor);
+            }
+
+            fn get_next_processor(&self) -> Option<Arc<Mutex<dyn PostStateProcessor>>> {
+                self.inner.lock().unwrap().get_next_processor()
+            }
+
+            fn state_id(&self) -> usize {
+                self.inner.lock().unwrap().state_id()
+            }
+
+            fn set_next_state_pre_processor(
+                &mut self,
+                next: Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>,
+            ) {
+                self.inner
+                    .lock()
+                    .unwrap()
+                    .set_next_state_pre_processor(next);
+            }
+
+            fn set_next_every_state_pre_processor(
+                &mut self,
+                next: Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>,
+            ) {
+                self.inner
+                    .lock()
+                    .unwrap()
+                    .set_next_every_state_pre_processor(next);
+            }
+
+            fn get_next_every_state_pre_processor(
+                &self,
+            ) -> Option<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>>
+            {
+                self.inner
+                    .lock()
+                    .unwrap()
+                    .get_next_every_state_pre_processor()
+            }
+
+            fn set_callback_pre_state_processor(
+                &mut self,
+                callback: Arc<
+                    Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>,
+                >,
+            ) {
+                self.inner
+                    .lock()
+                    .unwrap()
+                    .set_callback_pre_state_processor(callback);
+            }
+
+            fn is_event_returned(&self) -> bool {
+                self.inner.lock().unwrap().is_event_returned()
+            }
+
+            fn clear_processed_event(&mut self) {
+                self.inner.lock().unwrap().clear_processed_event();
+            }
+
+            fn this_state_pre_processor(
+                &self,
+            ) -> Option<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>>
+            {
+                self.inner.lock().unwrap().this_state_pre_processor()
+            }
+        }
+
+        let tracking_post = Arc::new(Mutex::new(TrackingPostProcessor {
+            inner: Arc::clone(&post_proc),
+            tracker: tracker_clone,
+        }));
+
+        pre_proc
+            .stream_processor
+            .set_this_state_post_processor(tracking_post);
+
+        (pre_proc, post_proc, tracker)
+    }
+
+    /// Test EVERY A{2,3} sliding window: A1, A2, A3 should produce 3 outputs
+    /// Window 1: [A1, A2] - outputs at A2
+    /// Window 1: [A1, A2, A3] - outputs at A3 (max reached, window closes)
+    /// Window 2: [A2, A3] - outputs at A3 (spawned at A2)
+    #[test]
+    fn test_every_sliding_window_a2_3_basic() {
+        use crate::core::event::stream::stream_event::StreamEvent;
+
+        let (mut pre_proc, _, tracker) = create_every_tracked_processors(2, 3);
+
+        // Initialize with first state
+        let initial_state = StateEvent::new(1, 0);
+        pre_proc.add_state(initial_state);
+        pre_proc.update_state();
+
+        // A1: pending=[SE([A1])], no output (count=1 < min=2)
+        let a1 = StreamEvent::new(100, 0, 0, 0);
+        pre_proc.process_and_return(Some(Box::new(a1)));
+        assert_eq!(tracker.get_output_count(), 0, "A1: No output yet (count=1)");
+
+        // A2: pending=[SE([A1,A2]), SE([A2])], output=[A1,A2]
+        // - SE([A1]) + A2 → SE([A1,A2]), count=2 >= min → OUTPUT
+        // - EVERY spawns SE([A2])
+        let a2 = StreamEvent::new(200, 0, 0, 0);
+        pre_proc.process_and_return(Some(Box::new(a2)));
+        assert_eq!(
+            tracker.get_output_count(),
+            1,
+            "A2: Output [A1,A2] (count=2)"
+        );
+
+        // A3: pending=[SE([A2,A3]), SE([A3])], outputs=[A1,A2,A3], [A2,A3]
+        // - SE([A1,A2]) + A3 → SE([A1,A2,A3]), count=3 == max → OUTPUT, remove
+        // - SE([A2]) + A3 → SE([A2,A3]), count=2 >= min → OUTPUT
+        // - EVERY spawns SE([A3])
+        let a3 = StreamEvent::new(300, 0, 0, 0);
+        pre_proc.process_and_return(Some(Box::new(a3)));
+        assert_eq!(
+            tracker.get_output_count(),
+            3,
+            "A3: Total 3 outputs - [A1,A2], [A1,A2,A3], [A2,A3]"
+        );
+    }
+
+    /// Test EVERY A{2,3} with 4 events: A1, A2, A3, A4
+    /// Expected outputs: [A1,A2], [A1,A2,A3], [A2,A3], [A2,A3,A4], [A3,A4]
+    #[test]
+    fn test_every_sliding_window_a2_3_with_4_events() {
+        use crate::core::event::stream::stream_event::StreamEvent;
+
+        let (mut pre_proc, _, tracker) = create_every_tracked_processors(2, 3);
+
+        let initial_state = StateEvent::new(1, 0);
+        pre_proc.add_state(initial_state);
+        pre_proc.update_state();
+
+        // Send 4 events
+        for i in 1..=4 {
+            let event = StreamEvent::new(i * 100, 0, 0, 0);
+            pre_proc.process_and_return(Some(Box::new(event)));
+        }
+
+        // Expected outputs:
+        // A1: 0 outputs (count=1)
+        // A2: 1 output ([A1,A2])
+        // A3: 2 outputs ([A1,A2,A3], [A2,A3])
+        // A4: 2 outputs ([A2,A3,A4], [A3,A4])
+        // Total: 5 outputs
+        assert_eq!(
+            tracker.get_output_count(),
+            5,
+            "EVERY A{{2,3}} with 4 events should produce 5 sliding window outputs"
+        );
+    }
+
+    /// Test EVERY A{3,3} (exactly 3) with 5 events
+    /// Expected: [A1,A2,A3], [A2,A3,A4], [A3,A4,A5]
+    #[test]
+    fn test_every_sliding_window_exactly_3_with_5_events() {
+        use crate::core::event::stream::stream_event::StreamEvent;
+
+        let (mut pre_proc, _, tracker) = create_every_tracked_processors(3, 3);
+
+        let initial_state = StateEvent::new(1, 0);
+        pre_proc.add_state(initial_state);
+        pre_proc.update_state();
+
+        // Send 5 events
+        for i in 1..=5 {
+            let event = StreamEvent::new(i * 100, 0, 0, 0);
+            pre_proc.process_and_return(Some(Box::new(event)));
+        }
+
+        // Expected outputs at each event:
+        // A1: 0 (count=1 < min=3)
+        // A2: 0 (count=2 < min=3)
+        // A3: 1 ([A1,A2,A3] reaches min=max=3)
+        // A4: 1 ([A2,A3,A4] reaches min=max=3)
+        // A5: 1 ([A3,A4,A5] reaches min=max=3)
+        // Total: 3 sliding windows
+        assert_eq!(
+            tracker.get_output_count(),
+            3,
+            "EVERY A{{3}} with 5 events should produce 3 sliding window outputs"
+        );
+    }
+
+    /// Test non-EVERY pattern does NOT create sliding windows
+    #[test]
+    fn test_non_every_no_sliding_window() {
+        use crate::core::event::stream::stream_event::StreamEvent;
+
+        // Use the regular (non-EVERY) tracked processors
+        let (mut pre_proc, _, tracker) = create_tracked_processors(2, 3);
+
+        let initial_state = StateEvent::new(1, 0);
+        pre_proc.add_state(initial_state);
+        pre_proc.update_state();
+
+        // Send 4 events
+        for i in 1..=4 {
+            let event = StreamEvent::new(i * 100, 0, 0, 0);
+            pre_proc.process_and_return(Some(Box::new(event)));
+        }
+
+        // Non-EVERY: Only single window accumulates
+        // A1: 0 (count=1)
+        // A2: 1 ([A1,A2])
+        // A3: 1 ([A1,A2,A3]) - max reached, window done
+        // A4: No more windows! Non-EVERY doesn't restart
+        // Total: 2 outputs from single window
+        assert_eq!(
+            tracker.get_output_count(),
+            2,
+            "Non-EVERY A{{2,3}} should NOT create sliding windows"
+        );
+    }
+
+    /// Test EVERY A{1,2} produces many sliding windows
+    #[test]
+    fn test_every_sliding_window_a1_2_with_4_events() {
+        use crate::core::event::stream::stream_event::StreamEvent;
+
+        let (mut pre_proc, _, tracker) = create_every_tracked_processors(1, 2);
+
+        let initial_state = StateEvent::new(1, 0);
+        pre_proc.add_state(initial_state);
+        pre_proc.update_state();
+
+        // Send 4 events
+        for i in 1..=4 {
+            let event = StreamEvent::new(i * 100, 0, 0, 0);
+            pre_proc.process_and_return(Some(Box::new(event)));
+        }
+
+        // Expected outputs:
+        // A1: 1 output ([A1]) - count=1 >= min=1
+        // A2: 2 outputs ([A1,A2] max, [A2]) - spawned window outputs immediately
+        // A3: 2 outputs ([A2,A3] max, [A3])
+        // A4: 2 outputs ([A3,A4] max, [A4])
+        // Total: 7 outputs
+        assert_eq!(
+            tracker.get_output_count(),
+            7,
+            "EVERY A{{1,2}} with 4 events should produce 7 outputs"
+        );
+    }
+
+    /// Test that sliding windows track events correctly in the chain
+    #[test]
+    fn test_every_sliding_window_event_chain_integrity() {
+        use crate::core::event::stream::stream_event::StreamEvent;
+
+        let (mut pre_proc, _, tracker) = create_every_tracked_processors(2, 2);
+
+        let initial_state = StateEvent::new(1, 0);
+        pre_proc.add_state(initial_state);
+        pre_proc.update_state();
+
+        // Send events with distinct values
+        let mut a1 = StreamEvent::new(0, 0, 0, 0);
+        a1.timestamp = 1000;
+        pre_proc.process_and_return(Some(Box::new(a1)));
+
+        let mut a2 = StreamEvent::new(0, 0, 0, 0);
+        a2.timestamp = 2000;
+        pre_proc.process_and_return(Some(Box::new(a2)));
+
+        let mut a3 = StreamEvent::new(0, 0, 0, 0);
+        a3.timestamp = 3000;
+        pre_proc.process_and_return(Some(Box::new(a3)));
+
+        // Should have 2 outputs: [A1,A2] and [A2,A3]
+        assert_eq!(tracker.get_output_count(), 2);
+
+        let outputs = tracker.get_outputs();
+
+        // First output should be [A1,A2] with timestamps 1000, 2000
+        if let Some(first_event) = outputs[0].get_stream_event(0) {
+            assert_eq!(first_event.timestamp, 1000, "First window starts at A1");
+            if let Some(next) = first_event.get_next() {
+                if let Some(next_stream) = next.as_any().downcast_ref::<StreamEvent>() {
+                    assert_eq!(next_stream.timestamp, 2000, "First window ends at A2");
+                }
+            }
+        }
+
+        // Second output should be [A2,A3] with timestamps 2000, 3000
+        if let Some(first_event) = outputs[1].get_stream_event(0) {
+            assert_eq!(first_event.timestamp, 2000, "Second window starts at A2");
+            if let Some(next) = first_event.get_next() {
+                if let Some(next_stream) = next.as_any().downcast_ref::<StreamEvent>() {
+                    assert_eq!(next_stream.timestamp, 3000, "Second window ends at A3");
+                }
+            }
+        }
+    }
+
+    /// Test EVERY A{2,5} produces correct sliding windows
+    #[test]
+    fn test_every_sliding_window_a2_5_comprehensive() {
+        use crate::core::event::stream::stream_event::StreamEvent;
+
+        let (mut pre_proc, _, tracker) = create_every_tracked_processors(2, 5);
+
+        let initial_state = StateEvent::new(1, 0);
+        pre_proc.add_state(initial_state);
+        pre_proc.update_state();
+
+        // Send 6 events: A1, A2, A3, A4, A5, A6
+        for i in 1..=6 {
+            let event = StreamEvent::new(i * 100, 0, 0, 0);
+            pre_proc.process_and_return(Some(Box::new(event)));
+        }
+
+        // Window 1 (starts A1): outputs at A2,A3,A4,A5 (4 outputs, closes at A5=max)
+        // Window 2 (starts A2): outputs at A3,A4,A5,A6 (4 outputs, closes at A6)
+        // Window 3 (starts A3): outputs at A4,A5,A6 (3 outputs)
+        // Window 4 (starts A4): outputs at A5,A6 (2 outputs)
+        // Window 5 (starts A5): outputs at A6 (1 output)
+        // Window 6 (starts A6): no output yet (count=1 < min=2)
+        //
+        // Actually let's trace more carefully:
+        // A1: pending=[SE([A1])], outputs=0
+        // A2: pending=[SE([A1,A2]), SE([A2])], outputs=1 ([A1,A2])
+        // A3: pending=[SE([A1,A2,A3]), SE([A2,A3]), SE([A3])], outputs=2 ([A1,A2,A3], [A2,A3])
+        // A4: pending=[SE([A1,A2,A3,A4]), SE([A2,A3,A4]), SE([A3,A4]), SE([A4])], outputs=3
+        // A5: pending=[SE([A2,A3,A4,A5]), SE([A3,A4,A5]), SE([A4,A5]), SE([A5])], outputs=4
+        //     (SE([A1,A2,A3,A4,A5]) hits max=5, removed)
+        // A6: pending=[SE([A3,A4,A5,A6]), SE([A4,A5,A6]), SE([A5,A6]), SE([A6])], outputs=4
+        //     (SE([A2,A3,A4,A5,A6]) hits max=5, removed)
+        //
+        // Total: 0 + 1 + 2 + 3 + 4 + 4 = 14 outputs
+
+        assert_eq!(
+            tracker.get_output_count(),
+            14,
+            "EVERY A{{2,5}} with 6 events should produce 14 sliding window outputs"
         );
     }
 }

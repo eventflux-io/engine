@@ -87,6 +87,14 @@ pub trait PostStateProcessor: Debug + Send + Sync {
         >,
     );
 
+    /// Get the next PreStateProcessor for 'every' semantics
+    /// This allows checking if EVERY loopback is configured
+    ///
+    /// Used by reset_state() to detect EVERY patterns and prevent reset
+    fn get_next_every_state_pre_processor(
+        &self,
+    ) -> Option<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>>;
+
     /// Check if event was returned to output processor
     /// Used for optimization to skip unnecessary processing
     fn is_event_returned(&self) -> bool;
@@ -188,12 +196,18 @@ mod tests {
             self.callback_pre_state_processor = Some(callback_pre_state_processor);
         }
 
+        fn get_next_every_state_pre_processor(
+            &self,
+        ) -> Option<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>> {
+            self.next_every_state_pre_processor.clone()
+        }
+
         fn is_event_returned(&self) -> bool {
             self.event_returned
         }
 
         fn clear_processed_event(&mut self) {
-            self.event_returned = false;
+            self.event_returned = false
         }
 
         fn this_state_pre_processor(&self) -> Option<Arc<Mutex<dyn PreStateProcessor>>> {
