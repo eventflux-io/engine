@@ -21,7 +21,6 @@ use crate::core::executor::{
     EventVariableFunctionExecutor, MultiValueVariableFunctionExecutor,
 };
 use crate::core::query::processor::ProcessingMode;
-use crate::core::query::selector::attribute::aggregator::*;
 use crate::query_api::{
     definition::attribute::Type as ApiAttributeType, // Import Type enum
     expression::{
@@ -533,142 +532,7 @@ pub fn parse_expression<'a>(
                         )?,
                     ))
                 }
-                (None | Some(""), "sum") => {
-                    let mut exec = SumAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "avg") => {
-                    let mut exec = AvgAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "count") => {
-                    let mut exec = CountAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "distinctCount") => {
-                    let mut exec = DistinctCountAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "min") => {
-                    let mut exec = MinAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "max") => {
-                    let mut exec = MaxAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "minForever") => {
-                    let mut exec = MinForeverAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "maxForever") => {
-                    let mut exec = MaxForeverAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
+                // All other functions (aggregators, scalar functions, scripts) are looked up from registry
                 _ => {
                     if let Some(factory) = context
                         .eventflux_app_context
@@ -741,7 +605,7 @@ pub fn parse_expression<'a>(
                             .join(", ");
                         Err(ExpressionParseError::new(
                             format!(
-                                "Unsupported or unknown function: {function_lookup_name}. Known scalar functions: [{scalars}]. Known aggregators: [{aggs}]"
+                                "Unsupported or unknown function: {function_lookup_name}. Known scalar functions: [{scalars}]. Known aggregators: [{aggs}]. If custom, register via EventFluxContext before parsing."
                             ),
                             &api_func.eventflux_element,
                             context.query_name,

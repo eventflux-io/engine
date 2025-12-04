@@ -284,6 +284,17 @@ The previous plan optimized for feature completeness (AI integration, distribute
 
 ---
 
+## Technical Debt & Architecture
+
+Documented architectural decisions and technical debt for future consideration:
+
+| Document | Status | Description |
+|----------|--------|-------------|
+| **[Extension Registry](feat/extension_registry/EXTENSION_REGISTRY_REQUIREMENT.md)** | ✅ Implemented | Centralized registry for all extension types (windows, aggregators, functions, sources, sinks). Manual registration for WASM compatibility. |
+| **[Unified Aggregation Logic](feat/unified_aggregation/UNIFIED_AGGREGATION_DESIGN.md)** | 📋 Proposed | Deduplicate aggregation logic between window and collection aggregators. Implement when adding new aggregation types. |
+
+---
+
 ## Release Philosophy
 
 Quality Gates:

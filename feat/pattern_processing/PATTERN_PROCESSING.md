@@ -136,6 +136,11 @@ src/core/query/input/stream/state/
 - Multi-instance pattern matching
 - WITHIN time constraints in chains
 
+**Collection Aggregations (Pattern Count Chains)**:
+- Collection aggregations (count/sum/avg/min/max/stdDev) run over bounded chains produced by count quantifiers; nulls are skipped.
+- Integer inputs keep integer precision; mixed float input forces float math. Overflow on integral return types yields `None` to avoid silent wrap.
+- Registry-backed: functions registered in `EventFluxContext` (`collection_aggregation_functions`) and consumed by pattern executors; keep this doc as the single source of truth for semantics.
+
 **Grammar Integration Notes**:
 - A+ (one or more), A* (zero or more) are **NOT SUPPORTED** (unbounded/zero-count patterns rejected)
 - Grammar parser integration with CountPreStateProcessor (bounded patterns only: A{n}, A{m,n} where min >= 1 and max is explicit)

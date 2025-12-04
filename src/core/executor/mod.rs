@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+pub mod collection_aggregation_executor;
 pub mod condition;
 pub mod constant_expression_executor;
 pub mod event_variable_function_executor;
@@ -11,6 +12,10 @@ pub mod math;
 pub mod multi_value_variable_function_executor;
 pub mod variable_expression_executor; // For incremental aggregation executors
 
+pub use self::collection_aggregation_executor::{
+    CollectionAvgExecutor, CollectionCountExecutor, CollectionMinMaxExecutor,
+    CollectionStdDevExecutor, CollectionSumExecutor, MinMaxType,
+};
 pub use self::condition::*;
 pub use self::constant_expression_executor::ConstantExpressionExecutor;
 pub use self::event_variable_function_executor::EventVariableFunctionExecutor;

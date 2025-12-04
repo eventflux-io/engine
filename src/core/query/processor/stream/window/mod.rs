@@ -526,41 +526,21 @@ pub fn create_window_processor(
     query_ctx: Arc<EventFluxQueryContext>,
     parse_ctx: &crate::core::util::parser::expression_parser::ExpressionParserContext,
 ) -> Result<Arc<Mutex<dyn Processor>>, String> {
+    // Look up window factory from registry
     if let Some(factory) = app_ctx
         .get_eventflux_context()
         .get_window_factory(&handler.name)
     {
         factory.create(handler, app_ctx, query_ctx, parse_ctx)
     } else {
-        match handler.name.as_str() {
-            "length" => Ok(Arc::new(Mutex::new(LengthWindowProcessor::from_handler(
-                handler, app_ctx, query_ctx, parse_ctx,
-            )?))),
-            "time" => Ok(Arc::new(Mutex::new(TimeWindowProcessor::from_handler(
-                handler, app_ctx, query_ctx, parse_ctx,
-            )?))),
-            "lengthBatch" => Ok(Arc::new(Mutex::new(
-                LengthBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
-            ))),
-            "timeBatch" => Ok(Arc::new(Mutex::new(
-                TimeBatchWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
-            ))),
-            "externalTime" => Ok(Arc::new(Mutex::new(
-                ExternalTimeWindowProcessor::from_handler(handler, app_ctx, query_ctx, parse_ctx)?,
-            ))),
-            "externalTimeBatch" => Ok(Arc::new(Mutex::new(
-                ExternalTimeBatchWindowProcessor::from_handler(
-                    handler, app_ctx, query_ctx, parse_ctx,
-                )?,
-            ))),
-            "session" => Ok(Arc::new(Mutex::new(SessionWindowProcessor::from_handler(
-                handler, app_ctx, query_ctx, parse_ctx,
-            )?))),
-            "sort" => Ok(Arc::new(Mutex::new(SortWindowProcessor::from_handler(
-                handler, app_ctx, query_ctx, parse_ctx,
-            )?))),
-            other => Err(format!("Unsupported window type '{other}'")),
-        }
+        // Provide helpful error message with available window types
+        let available = app_ctx
+            .get_eventflux_context()
+            .list_window_factory_names();
+        Err(format!(
+            "Unknown window type '{}'. Available: {:?}",
+            handler.name, available
+        ))
     }
 }
 

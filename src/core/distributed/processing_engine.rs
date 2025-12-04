@@ -504,7 +504,7 @@ impl LoadBalancer {
         }
     }
 
-    async fn assign_query(&self, query_id: &str) -> DistributedResult<String> {
+    async fn assign_query(&self, _query_id: &str) -> DistributedResult<String> {
         // Assign to least loaded node
         let loads = self.node_loads.read().await;
         loads

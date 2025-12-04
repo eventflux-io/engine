@@ -1,7 +1,8 @@
 # Grammar V1.2 Implementation Gap Analysis
 
-**Version**: 1.0
-**Date**: 2025-11-23
+**Version**: 1.1
+**Date**: 2025-11-27 (Updated)
+**Previous Date**: 2025-11-23
 **Status**: Gap Analysis Blueprint
 **Purpose**: Identify gaps between Grammar V1.2 requirements and current implementation before grammar integration
 
@@ -21,20 +22,24 @@
 
 ## Executive Summary
 
-### Overall Readiness: ~35% Complete
+### Overall Readiness: ~45% Complete (updated from 35%)
 
 **Current Implementation Status**:
 - ✅ **Phase 1 COMPLETE**: Pre/Post state processor architecture (195 tests)
 - ✅ **Phase 2a COMPLETE**: Count quantifiers for single patterns (52 tests)
 - ✅ **Phase 2b COMPLETE**: Pattern chaining with `->` operator (24 tests)
-- ❌ **Phase 3 NOT STARTED**: Absent patterns, EVERY support
-- ❌ **Phase 4 NOT STARTED**: Advanced features
+- ✅ **Phase 2c COMPLETE**: Array access runtime (14+ tests) - UPDATED 2025-11-27
+- ❌ **Phase 3 NOT STARTED**: Absent patterns
+- ❌ **Phase 4 NOT STARTED**: Advanced features (PARTITION BY, OUTPUT types)
 
-**Total Tests Passing**: 271 tests (pattern-specific)
+**Total Tests Passing**: 285+ tests (pattern-specific)
 
 **Critical Blockers for Grammar Integration**:
 1. ⚠️ **Parser does not exist** - No SQL parser for Pattern Grammar V1.2
-2. ⚠️ **Array access expressions** - `e[0]`, `e[last]` not implemented
+2. ✅ **Array access runtime** - COMPLETE! `IndexedVariableExecutor` works (2025-11-27)
+   - `e[0].attr`, `e[last].attr`, `e[n].attr` all work
+   - 14+ unit tests passing
+   - Parser support still needed
 3. ✅ **Logical operators runtime** - AND, OR via PatternChainBuilder.add_logical_group() (2025-11-25)
 4. ⚠️ **PARTITION BY runtime** - Multi-tenant isolation not implemented
 5. ⚠️ **Event-count WITHIN** - Only time-based WITHIN exists
@@ -44,6 +49,10 @@
    - See Section 7 for details
 7. ⚠️ **Absent patterns runtime** - AbsentStreamStateElement exists but no processor
 8. ⚠️ **OUTPUT event types** - OutputEventType enum exists but not wired to pattern runtime
+9. ⚠️ **Collection aggregations** - Executors needed for `count(e1)`, `avg(e1.price)` (2025-11-27)
+   - Window aggregators exist but use incremental semantics
+   - Need dedicated collection aggregation executors
+   - See `COLLECTION_AGGREGATIONS.md` for details
 
 ---
 
@@ -175,42 +184,49 @@ SELECT e1[0].userId,        -- First event
        count(e1)            -- Total count
 ```
 
-**Query API Status**: ⚠️ PARTIAL
-- No `ArrayIndexExpression` or similar in expression AST
+**Query API Status**: ✅ COMPLETE (updated 2025-11-27)
+- `IndexedVariable` AST node exists in `src/query_api/expression/indexed_variable.rs`
+- `EventIndex` enum with `Numeric(usize)` and `Last` variants
+- `Expression::IndexedVariable` variant exists
 
-**Runtime Status**: ❌ NOT IMPLEMENTED
-- `StateEvent.get_event_chain(position)` returns `Vec<&StreamEvent>` - data is available
-- No expression evaluator for `e[0]`, `e[last]` syntax
+**Runtime Status**: ✅ COMPLETE (updated 2025-11-27)
+- `IndexedVariableExecutor` fully implemented in `src/core/executor/indexed_variable_executor.rs`
+- 14+ comprehensive unit tests passing
+- Supports:
+  - `e[0]` → first event ✅
+  - `e[1]`, `e[2]`, ... → specific index ✅
+  - `e[last]` → last event (dynamic resolution) ✅
+  - Out-of-bounds → returns `None` (safe handling) ✅
+- Uses `StateEvent.get_event_chain()` for event chain traversal
 
 **Parser Status**: ❌ NOT IMPLEMENTED
 - No parser for array index syntax
 
-**Expression Evaluator Status**: ❌ NOT IMPLEMENTED
-- Need `ArrayIndexExecutor` to evaluate `e[index]`
-- Must support:
-  - `e[0]` → first event
-  - `e[1]`, `e[2]`, ... → specific index
-  - `e[last]` → last event (dynamic resolution)
-  - Out-of-bounds → returns `null` (not error)
+**Expression Evaluator Status**: ✅ COMPLETE
+- `IndexedVariableExecutor` implements `ExpressionExecutor` trait
+- Works with `StateEvent` for pattern queries
+- Handles all attribute types (INT, LONG, DOUBLE, STRING, etc.)
 
 **Gap**:
-- **CRITICAL**: Entire array access feature missing
-  1. Parser: Parse `alias[index].attribute` syntax
-  2. Query API: Add `ArrayIndexExpression` AST node
-  3. Executor: Implement `ArrayIndexExecutor`
-  4. Integration: Wire to StateEvent.get_event_chain()
+- **Parser only**: Parse `alias[index].attribute` syntax
+  1. Parse `e1[0]`, `e1[last]`, `e1[n]` syntax
+  2. Map to `IndexedVariable` AST node
+  3. Compiler wires to existing `IndexedVariableExecutor`
 
-**Implementation Effort**: **Large** (5-7 days)
+**Implementation Effort**: **Small** (1-2 days) - reduced from 5-7 days
 - Parser: 1-2 days (conflict resolution with float literals like `1.0`)
-- Query API: 1 day (new AST node)
-- Executor: 2-3 days (array indexing, `last` keyword, null handling)
-- Tests: 1-2 days (comprehensive edge cases)
+- Query API: ✅ ALREADY COMPLETE
+- Executor: ✅ ALREADY COMPLETE (14+ tests passing)
+- Integration: Minimal wiring needed
 
 **Dependencies**:
 - StateEvent infrastructure (COMPLETE ✅)
-- Expression evaluator framework
+- Expression evaluator framework (COMPLETE ✅)
+- IndexedVariableExecutor (COMPLETE ✅)
 
 **Priority**: **P0** - Required for SELECT clause with count quantifiers
+
+**See**: `feat/pattern_processing/COLLECTION_AGGREGATIONS.md` for detailed status
 
 ---
 
@@ -714,44 +730,60 @@ e2=DataAccessStream AS data
 
 ---
 
-### 15. Aggregation Functions
+### 15. Aggregation Functions (Collection Aggregations)
 
 **Grammar Requirement**:
 ```sql
-SELECT count(e1) as attempts,
-       avg(e1.price) as avgPrice,
+SELECT count(e1) as attempts,        -- Count events in collection
+       avg(e1.price) as avgPrice,    -- Average over collection
        max(e1.temp) - min(e1.temp) as range
 ```
 
-**Query API Status**: ✅ LIKELY COMPLETE
-- Aggregation functions exist for windows, likely work for patterns
+**Important Distinction** (clarified 2025-11-27):
+- **Window Aggregations** (IMPLEMENTED): Incremental aggregation over streaming windows
+- **Collection Aggregations** (NOT IMPLEMENTED): Batch aggregation over pattern event collections
 
-**Runtime Status**: ⚠️ UNCLEAR
-- Need to verify aggregations work over event collections (count quantifiers)
-- `count(e1)` should count events in collection
-- `avg(e1.attr)` should average attribute over collection
+**Query API Status**: ⚠️ PARTIAL
+- Window aggregation expressions exist but are incremental (`process_add`/`process_remove`)
+- Collection aggregations need new expression type or detection logic
+- No `CollectionVariable` or collection-aware aggregation in AST
+
+**Runtime Status**: ❌ COLLECTION EXECUTORS NOT IMPLEMENTED (clarified 2025-11-27)
+- Existing window aggregators (`SumAttributeAggregatorExecutor`, etc.) use incremental semantics
+- Collection aggregations need **batch computation** over complete event chains
+- Required executors:
+  - `CollectionCountExecutor` - for `count(e1)`
+  - `CollectionSumExecutor` - for `sum(e1.price)`
+  - `CollectionAvgExecutor` - for `avg(e1.price)`
+  - `CollectionMinMaxExecutor` - for `min/max(e1.price)`
+- Infrastructure ready: `StateEvent.get_event_chain()`, `count_events_at()` WORK
 
 **Parser Status**: ❌ NOT IMPLEMENTED
-- No parser for aggregation functions in SELECT clause
+- No parser for collection aggregation syntax
+- Need to distinguish `count(e1)` (collection) from `count(column)` (window)
 
-**Expression Evaluator Status**: ⚠️ UNCLEAR
-- Need to verify aggregation executors can work with StateEvent collections
+**Expression Evaluator Status**: ❌ NOT IMPLEMENTED
+- Need dedicated collection aggregation executors
+- Cannot reuse window aggregators (different semantics)
 
 **Gap**:
-1. **Verify aggregation over collections** - Test count(e1), avg(e1.attr)
-2. **Parser**: Parse aggregation functions in SELECT clause
+1. **Create collection aggregation executors** - Separate from window aggregators
+2. **Parser**: Parse aggregation functions with collection detection
+3. **Compiler**: Wire to collection executors when argument is pattern alias
 
-**Implementation Effort**: **Medium** (3-5 days)
-- Investigation: 1 day
-- Runtime (if needed): 2-3 days
-- Parser: 1 day
+**Implementation Effort**: **Medium** (4-6 days)
+- Collection executors: 2-3 days (infrastructure exists)
+- Parser integration: 1-2 days
 - Tests: 1 day
 
 **Dependencies**:
-- Expression evaluator framework
 - StateEvent infrastructure (COMPLETE ✅)
+- `StateEvent.get_event_chain()` (COMPLETE ✅)
+- `MultiValueVariableFunctionExecutor` (EXISTS - can be leveraged)
 
-**Priority**: **P1** - Important for analytics, but simple projections work for basic cases
+**Priority**: **P1** - Important for analytics, simple projections and array access work for basic cases
+
+**See**: `feat/pattern_processing/COLLECTION_AGGREGATIONS.md` for detailed analysis and implementation plan
 
 ---
 
@@ -759,21 +791,21 @@ SELECT count(e1) as attempts,
 
 ### Priority 0 (P0): Critical Blockers - Must Have Before Grammar Integration
 
-**Timeline**: 3-4 weeks
+**Timeline**: 2-3 weeks (reduced from 3-4 weeks)
 
 | Feature | Effort | Status | Notes |
 |---------|--------|--------|-------|
 | **Parser Foundation** | 1 week | ❌ | EventFluxDialect, basic pattern statement parser |
 | **PATTERN/SEQUENCE modes** | 2-3 days | ❌ | Parse FROM PATTERN/SEQUENCE |
 | **Sequence operator (->)** | 1 day | ❌ | Parse -> and map to NextStateElement |
-| **Count quantifiers** | 2 days | ❌ | Parse {n,m}, +, *, ? syntax |
+| **Count quantifiers** | 2 days | ❌ | Parse {n,m} syntax (bounded only) |
 | **Event aliases** | 1 day | ❌ | Parse e1=StreamName, StreamName AS e1 |
 | **Filter conditions** | 1-3 days | ❌ | Parse [expression] syntax |
 | **Time expressions** | 1 day | ❌ | Parse n time_unit |
 | **Time-based WITHIN** | 1-2 days | ❌ | Parse WITHIN duration |
-| **Array access expressions** | 5-7 days | ❌ | Parse e[0], e[last], implement executor |
+| **Array access expressions** | 1-2 days | ✅ Runtime COMPLETE | Parser only - IndexedVariableExecutor works (2025-11-27) |
 
-**Total P0 Effort**: ~3-4 weeks (15-20 days)
+**Total P0 Effort**: ~2-3 weeks (12-16 days) - reduced due to Array Access runtime complete
 
 **Deliverable**: Can parse and execute basic pattern queries with count quantifiers, sequences, filters, and array access.
 
@@ -781,7 +813,7 @@ SELECT count(e1) as attempts,
 
 ### Priority 1 (P1): Important Features - Should Have Soon
 
-**Timeline**: 2-3 weeks
+**Timeline**: 3-4 weeks
 
 | Feature | Effort | Status | Notes |
 |---------|--------|--------|-------|
@@ -789,11 +821,11 @@ SELECT count(e1) as attempts,
 | **EVERY multi-instance** | 1-2 days | ✅ Runtime COMPLETE | Parser only - runtime complete, 10 tests passing (2025-11-25) |
 | **Cross-stream references** | 5-7 days | ❌ | Parse e1.attr in e2 filters |
 | **PARTITION BY** | 10-15 days | ❌ | Major architecture, multi-tenant isolation |
-| **Aggregation functions** | 3-5 days | ⚠️ | Verify over collections, parse SELECT |
+| **Collection aggregations** | 4-6 days | ❌ | Need executors for count(e1), avg(e1.price) - see COLLECTION_AGGREGATIONS.md |
 
-**Total P1 Effort**: ~3-4 weeks (17-29 days)
+**Total P1 Effort**: ~3-4 weeks (20-30 days)
 
-**Deliverable**: Production-ready pattern processing with multi-instance, partitioning, and aggregations.
+**Deliverable**: Production-ready pattern processing with multi-instance, partitioning, and collection aggregations.
 
 ---
 
@@ -1205,19 +1237,28 @@ INSERT INTO SecurityAlerts;
 ### Critical Gaps Identified
 
 1. No parser exists - Entire Grammar V1.2 parser must be built
-2. Array access missing - Critical for count quantifiers in SELECT
+2. ✅ **Array access runtime COMPLETE** - `IndexedVariableExecutor` works (2025-11-27)
 3. PARTITION BY missing - Major architecture work needed
 4. ✅ **EVERY runtime WORKING** - Basic true overlapping verified (2025-11-25)
 5. ✅ **Logical operators WORKING** - PatternChainBuilder.add_logical_group() added (2025-11-25)
 6. Event-count WITHIN missing - New runtime feature needed
 7. Absent patterns not started - Phase 3 work, requires TimerWheel
+8. Collection aggregations - Executors needed for `count(e1)`, `avg(e1.price)` (2025-11-27)
 
 ### Total Effort Estimate
 
-- **P0 (Critical)**: 3-4 weeks
+- **P0 (Critical)**: 2-3 weeks (reduced from 3-4 weeks - array access runtime done)
 - **P1 (Important)**: 3-4 weeks
 - **P2 (Advanced)**: 2-3 weeks
-- **Total**: ~8-11 weeks for full Grammar V1.2 implementation
+- **Total**: ~7-10 weeks for full Grammar V1.2 implementation
+
+**Status Update** (2025-11-27):
+- ✅ **ARRAY ACCESS RUNTIME COMPLETE** (NEW)
+  - `IndexedVariableExecutor` fully implemented
+  - `e[0].attr`, `e[last].attr`, `e[n].attr` all work
+  - 14+ unit tests passing
+  - Parser support is the only remaining gap
+  - See `feat/pattern_processing/COLLECTION_AGGREGATIONS.md` for details
 
 **Status Update** (2025-11-26):
 - ✅ **EVERY TRUE OVERLAPPING VERIFIED WORKING**
@@ -1237,11 +1278,11 @@ INSERT INTO SecurityAlerts;
 
 ### Recommended Approach
 
-1. **Start with P0 features** - Get basic patterns working (4 weeks)
-2. **Add P1 features incrementally** - Production readiness (6 weeks)
+1. **Start with P0 features** - Get basic patterns working (2-3 weeks)
+2. **Add P1 features incrementally** - Production readiness (5-6 weeks total)
 3. **P2 features as needed** - Based on user demand (3 weeks)
 
-**Minimum Viable Grammar**: P0 features (4 weeks) enables:
+**Minimum Viable Grammar**: P0 features (2-3 weeks) enables:
 - Basic sequences with `->` operator
 - Count quantifiers with array access
 - Time-based WITHIN constraints

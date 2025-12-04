@@ -32,6 +32,27 @@ See MILESTONES.md for details.
 
 ---
 
+## 📋 Technical Debt & Architecture Documents
+
+Documented technical debt and architectural improvements for future consideration:
+
+| Document | Status | Priority | Description |
+|----------|--------|----------|-------------|
+| **[Extension Registry](feat/extension_registry/EXTENSION_REGISTRY_REQUIREMENT.md)** | ✅ Implemented | P1 | Centralized registry replacing hardcoded extension switches |
+| **[Unified Aggregation Logic](feat/unified_aggregation/UNIFIED_AGGREGATION_DESIGN.md)** | 📋 Proposed | P2 | Single aggregation logic for both window and pattern aggregators |
+
+### Extension Registry (Implemented)
+
+Eliminated hardcoded switch statements for extensions. All extensions now registered in `EventFluxContext::register_default_extensions()`. Manual registration chosen over automatic discovery (`inventory`/`linkme` crates) for WASM compatibility.
+
+### Unified Aggregation Logic (Technical Debt)
+
+Window aggregators (`AttributeAggregatorExecutor`) and collection aggregators (`CollectionAggregationFunction`) duplicate core aggregation logic (sum, avg, min, max, etc.). Proposed solution: single `AggregationLogic` trait used by both executor types.
+
+**Trigger for implementation**: When adding new aggregation types (median, percentile) or fixing bugs affecting both implementations.
+
+---
+
 ## 🎯 NEXT PRIORITY: Ship a Usable Product
 
 **Goal**: First production user within 3-6 months
