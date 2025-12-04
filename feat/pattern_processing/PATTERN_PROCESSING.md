@@ -1,9 +1,9 @@
 # EventFlux Pattern Processing - Design & Requirements Document
 
-**Document Version**: 2.4 (Phase 1 & 2 Complete)
+**Document Version**: 2.5
 **Created**: 2025-10-26
-**Last Updated**: 2025-11-05
-**Status**: Phase 1 & 2 Complete, Phase 3-4 Planned
+**Last Updated**: 2025-12-04
+**Status**: Phase 1 & 2 Complete (including 2c-2f), Phase 3-4 Planned
 **Target Milestone**: M2 (Pattern Processing) - Phase 2 complete, Phase 3-4 planned for M5+
 
 ---
@@ -12,11 +12,16 @@
 
 **This is a DESIGN & REQUIREMENTS document tracking pattern processing implementation progress.**
 
-**Current Status (Updated 2025-11-05)**:
-- Phase 1 COMPLETE: Pre/Post state processor architecture (195 tests passing)
-- Phase 2 COMPLETE: Count quantifiers with pattern chaining (52 + 24 = 76 tests passing)
-- Total pattern processing tests: 271 tests passing (195 + 76)
-- Total codebase tests: 1,436 tests passing
+**Current Status (Updated 2025-12-04)**:
+- Phase 1 COMPLETE: Pre/Post state processor architecture (195 tests)
+- Phase 2a COMPLETE: Count quantifiers for single patterns (52 tests)
+- Phase 2b COMPLETE: Pattern chaining with -> operator (24 tests)
+- Phase 2c COMPLETE: Array access runtime (14+ tests)
+- Phase 2d COMPLETE: Cross-stream references runtime (6 tests)
+- Phase 2e COMPLETE: EVERY multi-instance runtime (10 tests)
+- Phase 2f COMPLETE: Collection aggregation executors (50+ tests)
+- Total pattern processing tests: 370+ tests
+- Total codebase tests: 1,436+ tests
 
 **Phase 1 Implemented**:
 - StateEvent structure with multi-stream tracking
@@ -36,8 +41,14 @@
 - WITHIN time constraints in pattern chains (reactive validation)
 - Pattern vs Sequence modes in chains
 - Multi-instance pattern matching
+- IndexedVariableExecutor for array access (e[0], e[last], e[n])
+- Cross-stream filter conditions (e2[price > e1.price])
+- EVERY overlapping and sliding window patterns
+- Logical operators via PatternChainBuilder.add_logical_group()
+- Collection aggregation executors (count, sum, avg, min, max, stdDev)
+- CollectionAggregationFunction trait and registry integration
 
-**Phase 3-4 NOT IMPLEMENTED**: Absent patterns, advanced features planned for M5+
+**Phase 3-4 NOT IMPLEMENTED**: Absent patterns, PARTITION BY, event-count WITHIN
 
 **What This Document Provides**:
 - Phase 1 & 2 completion status and achievements

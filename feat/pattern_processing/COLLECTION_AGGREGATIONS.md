@@ -1,8 +1,8 @@
 # Collection Aggregations for Pattern Events
 
-**Status**: EXECUTORS COMPLETE (P1 - Parser Integration Pending)
-**Date**: 2025-11-27 (Executors Implemented)
-**Previous Date**: 2025-11-23
+**Status**: COMPLETE (Parser Integration Pending)
+**Date**: 2025-12-04 (Updated)
+**Previous Date**: 2025-11-27
 
 ## Overview
 
@@ -125,7 +125,8 @@ All collection aggregation executors are now implemented in `src/core/executor/c
 - Stateless batch computation (no incremental state needed)
 - Proper null handling (SQL-like: nulls are excluded)
 - Type preservation for min/max/sum (INT→INT, LONG→LONG, etc.)
-- Comprehensive test coverage (42 tests)
+- Comprehensive test coverage (50+ tests)
+- Registry integration in EventFluxContext
 
 **Test Coverage:**
 - Basic aggregation tests for each executor
@@ -523,27 +524,19 @@ Parser integration can follow once pattern grammar parser work begins.
 
 ## Conclusion
 
-Collection aggregations are **EXECUTORS COMPLETE**:
+Collection aggregations runtime is complete:
 
 | Feature | Status |
 |---------|--------|
-| Array access (`e[0].attr`, `e[last].attr`) | ✅ RUNTIME COMPLETE |
-| StateEvent event chain infrastructure | ✅ COMPLETE |
-| Collection aggregation executors | ✅ COMPLETE |
-| Parser support | ❌ NOT IMPLEMENTED |
+| Array access (`e[0].attr`, `e[last].attr`) | COMPLETE |
+| StateEvent event chain infrastructure | COMPLETE |
+| Collection aggregation executors | COMPLETE |
+| Registry integration | COMPLETE |
+| Parser support | NOT IMPLEMENTED |
 
-**Current Status**: All executors implemented and tested, parser integration pending
-**Priority**: P2 (parser integration)
-**Remaining Effort**: 1-2 days (parser integration only)
-**Next Step**: Implement parser support to wire SQL syntax to executors
+Remaining: Parser integration (1-2 days)
 
 ---
 
-**Document Version**: 3.0
-**Last Updated**: 2025-11-27
-**Change Summary**:
-- Collection aggregation executors FULLY IMPLEMENTED
-- 5 executors: Count, Sum, Avg, MinMax, StdDev
-- 42 comprehensive unit tests
-- Proper null handling, type preservation
-- Ready for parser integration
+**Document Version**: 3.1
+**Last Updated**: 2025-12-04

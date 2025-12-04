@@ -1,8 +1,8 @@
 # Grammar V1.2 Implementation Gap Analysis
 
-**Version**: 1.1
-**Date**: 2025-11-27 (Updated)
-**Previous Date**: 2025-11-23
+**Version**: 1.2
+**Date**: 2025-12-04 (Updated)
+**Previous Date**: 2025-11-27
 **Status**: Gap Analysis Blueprint
 **Purpose**: Identify gaps between Grammar V1.2 requirements and current implementation before grammar integration
 
@@ -22,37 +22,32 @@
 
 ## Executive Summary
 
-### Overall Readiness: ~45% Complete (updated from 35%)
+### Overall Readiness: ~70% Complete (updated from 45%)
 
 **Current Implementation Status**:
-- ✅ **Phase 1 COMPLETE**: Pre/Post state processor architecture (195 tests)
-- ✅ **Phase 2a COMPLETE**: Count quantifiers for single patterns (52 tests)
-- ✅ **Phase 2b COMPLETE**: Pattern chaining with `->` operator (24 tests)
-- ✅ **Phase 2c COMPLETE**: Array access runtime (14+ tests) - UPDATED 2025-11-27
-- ❌ **Phase 3 NOT STARTED**: Absent patterns
-- ❌ **Phase 4 NOT STARTED**: Advanced features (PARTITION BY, OUTPUT types)
+- Phase 1 COMPLETE: Pre/Post state processor architecture (195 tests)
+- Phase 2a COMPLETE: Count quantifiers for single patterns (52 tests)
+- Phase 2b COMPLETE: Pattern chaining with `->` operator (24 tests)
+- Phase 2c COMPLETE: Array access runtime (14+ tests)
+- Phase 2d COMPLETE: Cross-stream references runtime (6 tests)
+- Phase 2e COMPLETE: EVERY multi-instance runtime (10 tests)
+- Phase 2f COMPLETE: Collection aggregation executors (50+ tests)
+- Phase 3 NOT STARTED: Absent patterns
+- Phase 4 NOT STARTED: Advanced features (PARTITION BY, OUTPUT types)
 
-**Total Tests Passing**: 285+ tests (pattern-specific)
+**Total Tests Passing**: 370+ tests (pattern-specific)
 
-**Critical Blockers for Grammar Integration**:
-1. ⚠️ **Parser does not exist** - No SQL parser for Pattern Grammar V1.2
-2. ✅ **Array access runtime** - COMPLETE! `IndexedVariableExecutor` works (2025-11-27)
-   - `e[0].attr`, `e[last].attr`, `e[n].attr` all work
-   - 14+ unit tests passing
-   - Parser support still needed
-3. ✅ **Logical operators runtime** - AND, OR via PatternChainBuilder.add_logical_group() (2025-11-25)
-4. ⚠️ **PARTITION BY runtime** - Multi-tenant isolation not implemented
-5. ⚠️ **Event-count WITHIN** - Only time-based WITHIN exists
-6. ✅ **EVERY multi-instance** - COMPLETE! (verified 2025-11-26)
-   - Basic overlapping: A1→A2→B3 correctly produces 2 matches (A1-B3, A2-B3)
-   - Sliding window with count quantifiers: EVERY A{2,3}→B with 4 A events produces 5 outputs
-   - See Section 7 for details
-7. ⚠️ **Absent patterns runtime** - AbsentStreamStateElement exists but no processor
-8. ⚠️ **OUTPUT event types** - OutputEventType enum exists but not wired to pattern runtime
-9. ⚠️ **Collection aggregations** - Executors needed for `count(e1)`, `avg(e1.price)` (2025-11-27)
-   - Window aggregators exist but use incremental semantics
-   - Need dedicated collection aggregation executors
-   - See `COLLECTION_AGGREGATIONS.md` for details
+**Status for Grammar Integration**:
+1. Parser does not exist - No SQL parser for Pattern Grammar V1.2
+2. Array access runtime - COMPLETE. `IndexedVariableExecutor` works. Parser needed.
+3. Logical operators runtime - COMPLETE. AND, OR via PatternChainBuilder.add_logical_group(). Parser needed.
+4. Cross-stream references runtime - COMPLETE. Condition function receives StateEvent. Parser needed.
+5. EVERY multi-instance - COMPLETE. Overlapping and sliding window working. Parser needed.
+6. Collection aggregations - COMPLETE. All executors implemented (count, sum, avg, min, max, stdDev). Parser needed.
+7. PARTITION BY runtime - Not implemented. Multi-tenant isolation not available.
+8. Event-count WITHIN - Not implemented. Only time-based WITHIN exists.
+9. Absent patterns runtime - Not implemented. AbsentStreamStateElement exists but no processor.
+10. OUTPUT event types - Not implemented. OutputEventType enum exists but not wired to pattern runtime.
 
 ---
 
@@ -586,44 +581,29 @@ FROM PATTERN (
 )
 ```
 
-**Query API Status**: ✅ WORKS
+**Query API Status**: COMPLETE
 - VariableExpressionExecutor supports cross-stream references via position array
 
-**Runtime Status**: ⚠️ PARTIALLY WORKS
-- SELECT clause: VariableExpressionExecutor can access any stream in StateEvent ✓
-- Filter conditions: condition_fn signature only accepts &StreamEvent, NOT &StateEvent ✗
-- StateEvent has multi-stream tracking, infrastructure is ready
+**Runtime Status**: COMPLETE (2025-11-23)
+- Condition function signature: `Fn(&StateEvent) -> bool`
+- Filter receives full StateEvent with all matched events
+- Current event added to StateEvent before filter evaluation
+- 6 tests passing in `tests/pattern_filter_cross_stream_test.rs`
 
-**Parser Status**: ❌ NOT IMPLEMENTED
+**Parser Status**: NOT IMPLEMENTED
 - No parser for filter conditions `[expression]`
 - No parser for cross-stream references `e1.attribute`
 
-**Critical Gap**: Filter conditions cannot access previous events
-- Current: `condition_fn: Fn(&StreamEvent) -> bool`
-- Required: `condition_fn: Fn(&StateEvent, &StreamEvent) -> bool`
-- Location: `src/core/query/input/stream/state/stream_pre_state_processor.rs:109, 245-249, 519`
-- Impact: Patterns like `e2[price > e1.price]` will NOT work in filters
-
 **Gap**:
-1. **CRITICAL**: Update condition_fn signature to accept StateEvent context
-2. **CRITICAL**: Wire expression executors to filter evaluation
-3. **Parser**: Parse `[expression]` filter syntax
-4. **Parser**: Parse `alias.attribute` cross-stream references
+- Parser only: Parse `[expression]` filter syntax and `alias.attribute` cross-stream references
 
-**Implementation Effort**: **Large** (5-7 days)
-- Update condition signature: 1-2 days
-- Expression executor integration: 2-3 days
-- Parser: 2-3 days
-- Tests: 2 days
+**Implementation Effort**: 2-3 days (parser only)
 
-**Dependencies**:
-- StateEvent infrastructure (COMPLETE ✅)
-- Expression evaluator framework (COMPLETE ✅)
-- Condition signature update (REQUIRED - P0)
+**Dependencies**: None - runtime complete
 
-**Priority**: **P0** - CRITICAL BLOCKER for pattern filters with cross-stream references
+**Priority**: P0 - Required for conditional pattern matching
 
-**See**: `feat/pattern_processing/CROSS_STREAM_REFERENCES_ANALYSIS.md` for detailed analysis
+**See**: `feat/pattern_processing/CROSS_STREAM_FILTER_IMPLEMENTATION.md` for implementation details
 
 ---
 
@@ -739,107 +719,94 @@ SELECT count(e1) as attempts,        -- Count events in collection
        max(e1.temp) - min(e1.temp) as range
 ```
 
-**Important Distinction** (clarified 2025-11-27):
-- **Window Aggregations** (IMPLEMENTED): Incremental aggregation over streaming windows
-- **Collection Aggregations** (NOT IMPLEMENTED): Batch aggregation over pattern event collections
+**Important Distinction**:
+- Window Aggregations: Incremental aggregation over streaming windows (process_add/process_remove)
+- Collection Aggregations: Batch aggregation over pattern event collections
 
-**Query API Status**: ⚠️ PARTIAL
-- Window aggregation expressions exist but are incremental (`process_add`/`process_remove`)
-- Collection aggregations need new expression type or detection logic
-- No `CollectionVariable` or collection-aware aggregation in AST
+**Query API Status**: COMPLETE
+- `CollectionAggregationFunction` trait defined in `src/core/extension/mod.rs`
+- 6 built-in functions registered: count, sum, avg, min, max, stdDev
 
-**Runtime Status**: ❌ COLLECTION EXECUTORS NOT IMPLEMENTED (clarified 2025-11-27)
-- Existing window aggregators (`SumAttributeAggregatorExecutor`, etc.) use incremental semantics
-- Collection aggregations need **batch computation** over complete event chains
-- Required executors:
-  - `CollectionCountExecutor` - for `count(e1)`
-  - `CollectionSumExecutor` - for `sum(e1.price)`
-  - `CollectionAvgExecutor` - for `avg(e1.price)`
-  - `CollectionMinMaxExecutor` - for `min/max(e1.price)`
-- Infrastructure ready: `StateEvent.get_event_chain()`, `count_events_at()` WORK
+**Runtime Status**: COMPLETE (2025-12-04)
+- All collection aggregation executors implemented in `src/core/executor/collection_aggregation_executor.rs`
+- Executors: `CollectionCountExecutor`, `CollectionSumExecutor`, `CollectionAvgExecutor`, `CollectionMinMaxExecutor`, `CollectionStdDevExecutor`
+- Uses `StateEvent.get_event_chain()` for event chain traversal
+- Null handling: nulls skipped (SQL semantics)
+- Type preservation: INT inputs preserve LONG output, overflow detection
+- 50+ unit tests passing
+- Registry integration: functions registered in `EventFluxContext`
 
-**Parser Status**: ❌ NOT IMPLEMENTED
+**Parser Status**: NOT IMPLEMENTED
 - No parser for collection aggregation syntax
 - Need to distinguish `count(e1)` (collection) from `count(column)` (window)
 
-**Expression Evaluator Status**: ❌ NOT IMPLEMENTED
-- Need dedicated collection aggregation executors
-- Cannot reuse window aggregators (different semantics)
-
 **Gap**:
-1. **Create collection aggregation executors** - Separate from window aggregators
-2. **Parser**: Parse aggregation functions with collection detection
-3. **Compiler**: Wire to collection executors when argument is pattern alias
+- Parser only: Parse aggregation functions and detect collection vs window context
+- Compiler: Wire to collection executors when argument is pattern alias
 
-**Implementation Effort**: **Medium** (4-6 days)
-- Collection executors: 2-3 days (infrastructure exists)
-- Parser integration: 1-2 days
-- Tests: 1 day
+**Implementation Effort**: 1-2 days (parser integration only)
 
-**Dependencies**:
-- StateEvent infrastructure (COMPLETE ✅)
-- `StateEvent.get_event_chain()` (COMPLETE ✅)
-- `MultiValueVariableFunctionExecutor` (EXISTS - can be leveraged)
+**Dependencies**: None - runtime complete
 
-**Priority**: **P1** - Important for analytics, simple projections and array access work for basic cases
+**Priority**: P1 - Important for analytics on pattern matches
 
-**See**: `feat/pattern_processing/COLLECTION_AGGREGATIONS.md` for detailed analysis and implementation plan
+**See**: `feat/pattern_processing/COLLECTION_AGGREGATIONS.md` for implementation details
 
 ---
 
 ## Implementation Priorities
 
-### Priority 0 (P0): Critical Blockers - Must Have Before Grammar Integration
+### Priority 0 (P0): Parser Work - All Runtime Complete
 
-**Timeline**: 2-3 weeks (reduced from 3-4 weeks)
+**Timeline**: 2 weeks
 
-| Feature | Effort | Status | Notes |
-|---------|--------|--------|-------|
-| **Parser Foundation** | 1 week | ❌ | EventFluxDialect, basic pattern statement parser |
-| **PATTERN/SEQUENCE modes** | 2-3 days | ❌ | Parse FROM PATTERN/SEQUENCE |
-| **Sequence operator (->)** | 1 day | ❌ | Parse -> and map to NextStateElement |
-| **Count quantifiers** | 2 days | ❌ | Parse {n,m} syntax (bounded only) |
-| **Event aliases** | 1 day | ❌ | Parse e1=StreamName, StreamName AS e1 |
-| **Filter conditions** | 1-3 days | ❌ | Parse [expression] syntax |
-| **Time expressions** | 1 day | ❌ | Parse n time_unit |
-| **Time-based WITHIN** | 1-2 days | ❌ | Parse WITHIN duration |
-| **Array access expressions** | 1-2 days | ✅ Runtime COMPLETE | Parser only - IndexedVariableExecutor works (2025-11-27) |
+| Feature | Parser Effort | Runtime Status | Notes |
+|---------|---------------|----------------|-------|
+| Parser Foundation | 1 week | N/A | EventFluxDialect, basic pattern statement parser |
+| PATTERN/SEQUENCE modes | 2-3 days | COMPLETE | Parse FROM PATTERN/SEQUENCE |
+| Sequence operator (->) | 1 day | COMPLETE | Parse -> and map to NextStateElement |
+| Count quantifiers | 2 days | COMPLETE | Parse {n,m} syntax (bounded only) |
+| Event aliases | 1 day | COMPLETE | Parse e1=StreamName, StreamName AS e1 |
+| Filter conditions | 1-3 days | COMPLETE | Parse [expression] syntax |
+| Cross-stream references | 2-3 days | COMPLETE | Parse e1.attr in e2 filters (6 tests) |
+| Time expressions | 1 day | COMPLETE | Parse n time_unit |
+| Time-based WITHIN | 1-2 days | COMPLETE | Parse WITHIN duration |
+| Array access expressions | 1-2 days | COMPLETE | Parser only - IndexedVariableExecutor works (14+ tests) |
 
-**Total P0 Effort**: ~2-3 weeks (12-16 days) - reduced due to Array Access runtime complete
+**Total P0 Effort**: ~2 weeks (parser implementation only)
 
-**Deliverable**: Can parse and execute basic pattern queries with count quantifiers, sequences, filters, and array access.
-
----
-
-### Priority 1 (P1): Important Features - Should Have Soon
-
-**Timeline**: 3-4 weeks
-
-| Feature | Effort | Status | Notes |
-|---------|--------|--------|-------|
-| **Logical operators (AND, OR)** | 1 day | ✅ Runtime COMPLETE | Parser only - PatternChainBuilder.add_logical_group() ready (2025-11-25) |
-| **EVERY multi-instance** | 1-2 days | ✅ Runtime COMPLETE | Parser only - runtime complete, 10 tests passing (2025-11-25) |
-| **Cross-stream references** | 5-7 days | ❌ | Parse e1.attr in e2 filters |
-| **PARTITION BY** | 10-15 days | ❌ | Major architecture, multi-tenant isolation |
-| **Collection aggregations** | 4-6 days | ❌ | Need executors for count(e1), avg(e1.price) - see COLLECTION_AGGREGATIONS.md |
-
-**Total P1 Effort**: ~3-4 weeks (20-30 days)
-
-**Deliverable**: Production-ready pattern processing with multi-instance, partitioning, and collection aggregations.
+**Deliverable**: Parse and execute pattern queries with count quantifiers, sequences, filters, cross-stream references, and array access.
 
 ---
 
-### Priority 2 (P2): Advanced Features - Nice to Have
+### Priority 1 (P1): Additional Parser + Minor Runtime
 
-**Timeline**: 3-4 weeks
+**Timeline**: 1-2 weeks
 
-| Feature | Effort | Status | Notes |
-|---------|--------|--------|-------|
-| **Absent patterns (NOT ... FOR)** | 7-10 days | ❌ | Requires TimerWheel, Phase 3 |
-| **Event-count WITHIN** | 3-4 days | ❌ | Event counter per instance |
-| **OUTPUT event types** | 3-4 days | ❌ | Wire to pattern runtime |
+| Feature | Parser Effort | Runtime Status | Notes |
+|---------|---------------|----------------|-------|
+| Logical operators (AND, OR) | 1 day | COMPLETE | PatternChainBuilder.add_logical_group() ready (16 tests) |
+| EVERY multi-instance | 1-2 days | COMPLETE | Overlapping + sliding window working (10 tests) |
+| Collection aggregations | 1-2 days | COMPLETE | All executors implemented (50+ tests) |
 
-**Total P2 Effort**: ~2-3 weeks (13-18 days)
+**Total P1 Effort**: ~1 week (parser integration only)
+
+**Deliverable**: Pattern queries with logical operators, EVERY patterns, and collection aggregations.
+
+---
+
+### Priority 2 (P2): Runtime Not Implemented
+
+**Timeline**: 4-6 weeks (requires runtime implementation)
+
+| Feature | Effort | Runtime Status | Notes |
+|---------|--------|----------------|-------|
+| PARTITION BY | 10-15 days | NOT IMPLEMENTED | Multi-tenant isolation, major architecture |
+| Absent patterns (NOT ... FOR) | 7-10 days | NOT IMPLEMENTED | Requires TimerWheel, Phase 3 |
+| Event-count WITHIN | 3-4 days | NOT IMPLEMENTED | Event counter per instance |
+| OUTPUT event types | 3-4 days | NOT IMPLEMENTED | Wire OutputEventType to pattern runtime |
+
+**Total P2 Effort**: 4-6 weeks (runtime + parser)
 
 **Deliverable**: Advanced CEP features for debugging and absence detection.
 
@@ -1234,75 +1201,43 @@ INSERT INTO SecurityAlerts;
 
 ## Summary
 
-### Critical Gaps Identified
+### Runtime Status (2025-12-04)
 
-1. No parser exists - Entire Grammar V1.2 parser must be built
-2. ✅ **Array access runtime COMPLETE** - `IndexedVariableExecutor` works (2025-11-27)
-3. PARTITION BY missing - Major architecture work needed
-4. ✅ **EVERY runtime WORKING** - Basic true overlapping verified (2025-11-25)
-5. ✅ **Logical operators WORKING** - PatternChainBuilder.add_logical_group() added (2025-11-25)
-6. Event-count WITHIN missing - New runtime feature needed
-7. Absent patterns not started - Phase 3 work, requires TimerWheel
-8. Collection aggregations - Executors needed for `count(e1)`, `avg(e1.price)` (2025-11-27)
+Runtime complete (parser needed):
+- Pre/Post state processor architecture (195 tests)
+- Count quantifiers A{n}, A{m,n} (52 tests)
+- Pattern chaining A -> B -> C (24 tests)
+- Array access e[0], e[last], e[n] (14+ tests)
+- Cross-stream references e2[price > e1.price] (6 tests)
+- EVERY multi-instance with sliding window (10 tests)
+- Logical operators AND, OR (16 tests)
+- Collection aggregations count, sum, avg, min, max, stdDev (50+ tests)
+- Time-based WITHIN constraints (3+ tests)
 
-### Total Effort Estimate
+Runtime not implemented:
+- PARTITION BY - Multi-tenant isolation
+- Absent patterns (NOT ... FOR) - Requires TimerWheel
+- Event-count WITHIN - Only time-based exists
+- OUTPUT event types - Enum exists but not wired
 
-- **P0 (Critical)**: 2-3 weeks (reduced from 3-4 weeks - array access runtime done)
-- **P1 (Important)**: 3-4 weeks
-- **P2 (Advanced)**: 2-3 weeks
-- **Total**: ~7-10 weeks for full Grammar V1.2 implementation
+### Effort Estimate
 
-**Status Update** (2025-11-27):
-- ✅ **ARRAY ACCESS RUNTIME COMPLETE** (NEW)
-  - `IndexedVariableExecutor` fully implemented
-  - `e[0].attr`, `e[last].attr`, `e[n].attr` all work
-  - 14+ unit tests passing
-  - Parser support is the only remaining gap
-  - See `feat/pattern_processing/COLLECTION_AGGREGATIONS.md` for details
+- P0 + P1 (parser only): 2-3 weeks
+- P2 (runtime + parser): 4-6 weeks
+- Total for full Grammar V1.2: 6-9 weeks
 
-**Status Update** (2025-11-26):
-- ✅ **EVERY TRUE OVERLAPPING VERIFIED WORKING**
-  - Test: A1→A2→B3 correctly produces 2 matches (A1-B3, A2-B3)
-  - See test `test_true_every_overlapping_multiple_a_before_b`
-- ✅ **SLIDING WINDOW WITH COUNT QUANTIFIERS NOW WORKING** (2025-11-26)
-  - EVERY A{3}→B with 5 A events produces 3 sliding windows
-  - 7 new tests in count_pre_state_processor.rs
-  - See `feat/pattern_processing/EVERY_REFERENCE.md` for full details
-- ✅ **LOGICAL OPERATORS (AND/OR) NOW FULLY SUPPORTED**
-  - PatternChainBuilder.add_logical_group() method added
-  - LogicalGroupConfig with and()/or() helpers
-  - 16 new unit tests for logical groups
-  - See `feat/pattern_processing/EVERY_REFERENCE.md` for full details
-- All EVERY runtime features are complete - only parser needed
-- See `feat/pattern_processing/EVERY_REFERENCE.md` for full details
+### Parser Deliverable
 
-### Recommended Approach
-
-1. **Start with P0 features** - Get basic patterns working (2-3 weeks)
-2. **Add P1 features incrementally** - Production readiness (5-6 weeks total)
-3. **P2 features as needed** - Based on user demand (3 weeks)
-
-**Minimum Viable Grammar**: P0 features (2-3 weeks) enables:
-- Basic sequences with `->` operator
+With 2-3 weeks of parser work, can execute:
+- Sequences with -> operator
 - Count quantifiers with array access
+- Cross-stream filter conditions
 - Time-based WITHIN constraints
-- Filter conditions
-- Event aliases
-
-This is sufficient for ~70% of pattern processing use cases.
-
----
-
-**Next Steps**:
-1. Review this gap analysis with team
-2. Prioritize features based on user requirements
-3. Create detailed parser design document
-4. Implement Phase 1: Parser Foundation
-5. TDD approach: Tests first, then implementation
+- EVERY patterns with overlapping
+- Logical operators AND, OR
+- Collection aggregations
 
 ---
 
-**Document Version**: 1.0
-**Status**: Ready for Review
-**Author**: EventFlux Pattern Processing Team
-**Review Date**: TBD
+**Document Version**: 1.2
+**Last Updated**: 2025-12-04

@@ -1,8 +1,8 @@
 # EventFlux Rust Implementation Milestones
 
-Last Updated: 2025-11-18
+Last Updated: 2025-12-04
 Current Status: M2 Pattern Processing Phase 2 Complete
-Test Status: 1,436 passing tests (271 pattern processing tests)
+Test Status: 1,436+ passing tests (370+ pattern processing tests)
 
 ---
 
@@ -86,19 +86,34 @@ Sub-phases:
 - Phase 2b.4: WITHIN support (3 tests + 1 ignored)
 - Phase 2b.5: Integration testing (5 tests)
 
-**Code Quality**:
-- Cleanup: Deleted 782 lines of obsolete code
-- Test refactoring: Eliminated 470+ lines of duplicate code
-- Common test utilities: Created shared module (257 lines)
-- Full test suite: 1,436 tests passing
+**Phase 2c: Array Access Runtime** - Complete (2025-11-27)
+- IndexedVariableExecutor for e[0], e[last], e[n]
+- 14+ tests passing
+
+**Phase 2d: Cross-Stream References** - Complete (2025-11-23)
+- Condition function receives StateEvent
+- Filter can access previous events in pattern
+- 6 tests passing
+
+**Phase 2e: EVERY Multi-Instance** - Complete (2025-11-26)
+- Overlapping pattern instances
+- Sliding window with count quantifiers
+- 10 tests passing
+
+**Phase 2f: Collection Aggregations** - Complete (2025-12-04)
+- CollectionAggregationFunction trait
+- Executors: count, sum, avg, min, max, stdDev
+- Registry integration in EventFluxContext
+- 50+ tests passing
 
 **Remaining Work**:
-- Query parser migration from deprecated processors (8-12 hours, blocked)
-- Delete deprecated logical_processor.rs and sequence_processor.rs
+- Parser for pattern grammar (runtime complete)
 
-**Deferred to M3 Grammar**:
-- A+, A* syntax support (core logic complete)
-- Grammar parser integration with CountPreStateProcessor
+**Not Implemented**:
+- A+, A* syntax (unbounded patterns rejected by design)
+- PARTITION BY (multi-tenant isolation)
+- Absent patterns (NOT ... FOR)
+- Event-count WITHIN
 
 ### Phase 3: Absent Patterns - Not Started
 
