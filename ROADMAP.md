@@ -705,16 +705,18 @@ SELECT tick FROM TimerInput;
 - ⏳ WebSocket, gRPC, MQTT - Planned for M3+
 - **Status**: Core configuration framework complete, production extensions in development
 
-### **Strategic Benefits of Hybrid Architecture**
+### **Parser Architecture** ✅ **COMPLETE**
 
-| Feature               | Current (LALRPOP)            | Future (Hybrid: sqlparser-rs + Pattern Parser) | Impact                                                   |
-|-----------------------|------------------------------|------------------------------------------------|----------------------------------------------------------|
-| **SQL Support**       | ❌ No SQL precedence handling | ✅ Battle-tested SQL parser                     | 🚀 **MAJOR** - Full SQL compatibility without rebuilding |
-| **CEP Patterns**      | ✅ Basic pattern support      | ✅ Dedicated pattern parser                     | 🚀 **MAJOR** - Clean separation of concerns              |
-| **Error Recovery**    | ⚠️ Limited LR(1) recovery    | ✅ Sophisticated hand-written recovery          | 🚀 **MAJOR** - Production-quality error handling         |
-| **Component Parsing** | ❌ Full context required      | ✅ Fragment parsing naturally supported         | 🔧 **HIGH** - IDE integration ready                      |
-| **Maintenance**       | ⚠️ Complex grammar conflicts | ✅ Two focused parsers                          | 📖 **HIGH** - Easier to maintain and extend              |
-| **Performance**       | ✅ Fast LR(1)                 | ✅ Hand-optimized recursive descent             | ⚡ **HIGH** - No LR(1) limitations                        |
+**Status**: LALRPOP completely removed (December 2024). All parsing now via vendored `datafusion-sqlparser-rs`.
+
+| Feature               | Implementation                                  | Status |
+|-----------------------|-------------------------------------------------|--------|
+| **SQL Support**       | vendored `datafusion-sqlparser-rs` (v0.59 fork) | ✅ Production |
+| **CEP Patterns**      | Runtime pattern processors (M2 complete)        | ✅ Production |
+| **Error Recovery**    | Sophisticated hand-written recovery             | ✅ Production |
+| **Component Parsing** | `sql_compiler` module with `SqlConverter`       | ✅ Production |
+| **Maintenance**       | Single SQL parser, no LALRPOP complexity        | ✅ Simplified |
+| **Performance**       | Hand-optimized recursive descent                | ✅ Optimal |
 
 ---
 
@@ -1330,8 +1332,8 @@ individual features.
 
 - **M1 Completion**: ✅ **ACHIEVED** - SQL foundation production ready
 - **Next Focus**: M2 Essential Connectivity (I/O ecosystem)
-- **Architecture**: SQL-only engine with sqlparser-rs
-- **Files**: `src/query_compiler/`, `src/core/sql/`, `feat/grammar/GRAMMAR.md`
+- **Architecture**: SQL-only engine with vendored sqlparser-rs
+- **Files**: `src/sql_compiler/`, `vendor/datafusion-sqlparser-rs/`, `feat/grammar/GRAMMAR.md`
 
 #### **6. Comprehensive Monitoring & Metrics Framework** (Observability)
 

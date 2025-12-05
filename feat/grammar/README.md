@@ -70,19 +70,18 @@ runtime.start();
 
 ## Document Status
 
-**Last Updated**: 2025-10-06
+**Last Updated**: 2025-12-04
 
-**Implementation Status**: ✅ M1 COMPLETE
-- 675 tests passing
-- 74 tests ignored (non-M1 features)
-- 0 tests failing
+**Implementation Status**: ✅ M2 Pattern Processing Complete
+- 1,436+ tests passing (370+ pattern processing tests)
 - SQL-only production engine
+- LALRPOP parser completely removed (December 2024)
 
 **What Changed**:
-- ✅ Merged all grammar documentation into single GRAMMAR.md
-- ✅ Removed redundant files (GRAMMAR_STATUS.md, SQL_IMPLEMENTATION_DESIGN.md, SQL_IMPLEMENTATION_MECHANICS.md)
+- ✅ LALRPOP `query_compiler` module completely removed
+- ✅ All parsing via vendored `datafusion-sqlparser-rs` (`sql_compiler` module)
 - ✅ Single source of truth for all grammar information
-- ✅ No more conflicting or outdated documentation
+- ✅ No legacy parser dependencies
 
 ---
 

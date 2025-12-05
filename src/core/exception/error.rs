@@ -169,7 +169,7 @@ pub enum EventFluxError {
         class_name: Option<String>,
     },
 
-    /// Parser errors from LALRPOP
+    /// Parser errors from SQL parser
     #[error("Parse error: {message}")]
     ParseError {
         message: String,

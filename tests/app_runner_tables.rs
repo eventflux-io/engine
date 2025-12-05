@@ -18,7 +18,9 @@ use eventflux_rust::core::config::eventflux_context::EventFluxContext;
 use eventflux_rust::core::event::value::AttributeValue;
 use eventflux_rust::core::eventflux_manager::EventFluxManager;
 use eventflux_rust::core::persistence::data_source::{DataSource, DataSourceConfig};
-use eventflux_rust::query_compiler::{parse_expression, parse_set_clause};
+use eventflux_rust::query_api::execution::query::output::stream::UpdateSet;
+use eventflux_rust::query_api::expression::condition::compare::Operator as CompareOp;
+use eventflux_rust::query_api::expression::{Expression, Variable};
 use rusqlite::Connection;
 use std::any::Any;
 use std::sync::{Arc, Mutex};
@@ -90,12 +92,15 @@ async fn cache_table_crud_via_app_runner() {
         .get_table("T")
         .unwrap();
 
-    let cond_expr = parse_expression("'a'").unwrap();
+    let cond_expr = Expression::value_string("a".to_string());
     let cond = table.compile_condition(cond_expr);
-    let us = parse_set_clause("set v = 'b'").unwrap();
+    let us = UpdateSet::new().add_set_attribute(
+        Variable::new("v".to_string()),
+        Expression::value_string("b".to_string()),
+    );
     let us_comp = table.compile_update_set(us);
     assert!(table.update(&*cond, &*us_comp).unwrap());
-    let cond_b_expr = parse_expression("'b'").unwrap();
+    let cond_b_expr = Expression::value_string("b".to_string());
     let cond_b = table.compile_condition(cond_b_expr);
     assert!(table.contains(&*cond_b).unwrap());
     assert_eq!(
@@ -135,13 +140,24 @@ async fn jdbc_table_crud_via_app_runner() {
         .eventflux_app_context
         .get_eventflux_context();
     let table = ctx.get_table("J").unwrap();
-    let cond_expr = parse_expression("v == 'x'").unwrap();
+    let cond_expr = Expression::compare(
+        Expression::variable("v".to_string()),
+        CompareOp::Equal,
+        Expression::value_string("x".to_string()),
+    );
     let cond = table.compile_condition(cond_expr);
     assert!(table.contains(&*cond).unwrap());
-    let us = parse_set_clause("set v = 'y'").unwrap();
+    let us = UpdateSet::new().add_set_attribute(
+        Variable::new("v".to_string()),
+        Expression::value_string("y".to_string()),
+    );
     let us_comp = table.compile_update_set(us);
     assert!(table.update(&*cond, &*us_comp).unwrap());
-    let cond_y_expr = parse_expression("v == 'y'").unwrap();
+    let cond_y_expr = Expression::compare(
+        Expression::variable("v".to_string()),
+        CompareOp::Equal,
+        Expression::value_string("y".to_string()),
+    );
     let cond_y = table.compile_condition(cond_y_expr);
     assert_eq!(
         table.find(&*cond_y).unwrap(),
@@ -263,18 +279,32 @@ async fn cache_and_jdbc_tables_eviction_and_queries() {
     let cache = ctx.get_table("C").unwrap();
     let jdbc = ctx.get_table("J3").unwrap();
 
-    let cond_a = cache.compile_condition(parse_expression("'a'").unwrap());
+    let cond_a = cache.compile_condition(Expression::value_string("a".to_string()));
     assert!(cache.contains(&*cond_a).unwrap());
-    let us_x = cache.compile_update_set(parse_set_clause("set v = 'x'").unwrap());
+    let us_x = cache.compile_update_set(UpdateSet::new().add_set_attribute(
+        Variable::new("v".to_string()),
+        Expression::value_string("x".to_string()),
+    ));
     assert!(cache.update(&*cond_a, &*us_x).unwrap());
-    let cond_x = cache.compile_condition(parse_expression("'x'").unwrap());
+    let cond_x = cache.compile_condition(Expression::value_string("x".to_string()));
     assert!(cache.contains(&*cond_x).unwrap());
 
-    let cond_b_j = jdbc.compile_condition(parse_expression("v == 'b'").unwrap());
+    let cond_b_j = jdbc.compile_condition(Expression::compare(
+        Expression::variable("v".to_string()),
+        CompareOp::Equal,
+        Expression::value_string("b".to_string()),
+    ));
     assert!(jdbc.contains(&*cond_b_j).unwrap());
-    let us_y = jdbc.compile_update_set(parse_set_clause("set v = 'y'").unwrap());
+    let us_y = jdbc.compile_update_set(UpdateSet::new().add_set_attribute(
+        Variable::new("v".to_string()),
+        Expression::value_string("y".to_string()),
+    ));
     assert!(jdbc.update(&*cond_b_j, &*us_y).unwrap());
-    let cond_y = jdbc.compile_condition(parse_expression("v == 'y'").unwrap());
+    let cond_y = jdbc.compile_condition(Expression::compare(
+        Expression::variable("v".to_string()),
+        CompareOp::Equal,
+        Expression::value_string("y".to_string()),
+    ));
     assert_eq!(
         jdbc.find(&*cond_y).unwrap(),
         Some(vec![AttributeValue::String("y".into())])
@@ -283,8 +313,8 @@ async fn cache_and_jdbc_tables_eviction_and_queries() {
     runner.send("In", vec![AttributeValue::String("c".into())]);
     std::thread::sleep(std::time::Duration::from_millis(50));
 
-    let cond_b = cache.compile_condition(parse_expression("'b'").unwrap());
-    let cond_c = cache.compile_condition(parse_expression("'c'").unwrap());
+    let cond_b = cache.compile_condition(Expression::value_string("b".to_string()));
+    let cond_c = cache.compile_condition(Expression::value_string("c".to_string()));
     assert!(cache.contains(&*cond_b).unwrap());
     assert!(cache.contains(&*cond_c).unwrap());
     assert!(!cache.contains(&*cond_x).unwrap());
@@ -292,8 +322,16 @@ async fn cache_and_jdbc_tables_eviction_and_queries() {
     assert!(jdbc.contains(&*cond_y).unwrap());
     assert!(jdbc.delete(&*cond_y).unwrap());
     assert!(!jdbc.contains(&*cond_y).unwrap());
-    let cond_a_j = jdbc.compile_condition(parse_expression("v == 'a'").unwrap());
-    let cond_c_j = jdbc.compile_condition(parse_expression("v == 'c'").unwrap());
+    let cond_a_j = jdbc.compile_condition(Expression::compare(
+        Expression::variable("v".to_string()),
+        CompareOp::Equal,
+        Expression::value_string("a".to_string()),
+    ));
+    let cond_c_j = jdbc.compile_condition(Expression::compare(
+        Expression::variable("v".to_string()),
+        CompareOp::Equal,
+        Expression::value_string("c".to_string()),
+    ));
     assert!(jdbc.contains(&*cond_a_j).unwrap());
     assert!(jdbc.contains(&*cond_c_j).unwrap());
 

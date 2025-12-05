@@ -434,7 +434,7 @@ fn test_state_persistence() {
 
 The @Async annotation implementation demonstrates the complete pattern for adding annotation support to EventFlux Rust. This includes grammar rules, parser integration, and runtime configuration.
 
-**Grammar Pattern for Minimal and Parameterized Annotations:**
+**Grammar Pattern for Minimal and Parameterized Annotations (legacy LALRPOP illustration; current parser uses `sql_compiler`/sqlparser-rs):**
 ```lalrpop
 // Support both minimal and parameterized annotations
 pub AnnotationStmt: Annotation = {

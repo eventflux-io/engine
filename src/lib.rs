@@ -2,7 +2,6 @@
 
 pub mod core;
 pub mod query_api;
-pub mod query_compiler;
 pub mod sql_compiler;
 
 #[cfg(test)]
