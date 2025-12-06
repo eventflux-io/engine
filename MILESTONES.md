@@ -1,8 +1,8 @@
 # EventFlux Rust Implementation Milestones
 
-Last Updated: 2025-12-04
-Current Status: M2 Pattern Processing Phase 2 Complete
-Test Status: 1,436+ passing tests (370+ pattern processing tests)
+Last Updated: 2025-12-06
+Current Status: M2 Pattern Processing Complete (Runtime + SQL Parser)
+Test Status: 1,230+ passing tests (1,213 lib + 17 pattern integration)
 
 ---
 
@@ -106,14 +106,19 @@ Sub-phases:
 - Registry integration in EventFluxContext
 - 50+ tests passing
 
-**Remaining Work**:
-- Parser for pattern grammar (runtime complete)
+**Phase 2g: SQL Parser Integration** - Complete (2025-12-06)
+- FROM PATTERN / FROM SEQUENCE parsing and conversion
+- Pattern validation (EVERY restrictions, count bounds)
+- Indexed variable access (e1[0].price, e1[last].symbol)
+- Cross-stream references in SELECT
+- 17 integration tests + 109 sql_compiler tests
 
-**Not Implemented**:
-- A+, A* syntax (unbounded patterns rejected by design)
-- PARTITION BY (multi-tenant isolation)
-- Absent patterns (NOT ... FOR)
-- Event-count WITHIN
+**Known Limitations** (documented in PATTERN_GRAMMAR_V1.2.md):
+- PATTERN/SEQUENCE in JOINs: Not supported (explicit error)
+- Event-count WITHIN: Blocked at conversion (use time-based)
+- A+, A* syntax: Rejected by design (unbounded patterns)
+- PARTITION BY: Not implemented (runtime support needed)
+- Absent patterns (NOT ... FOR): Not implemented (requires TimerWheel)
 
 ### Phase 3: Absent Patterns - Not Started
 

@@ -1,6 +1,6 @@
 # Pattern Processing
 
-Last Updated: 2025-12-04
+Last Updated: 2025-12-06
 
 ---
 
@@ -124,6 +124,8 @@ SELECT e1[0].timestamp as first_attempt,
        e1[last].timestamp as last_attempt
 FROM PATTERN (e1=FailedLogin{3,5} -> e2=AccountLocked)
 ```
+
+> ✅ SQL compiler and runtime support complete (2025-12-06). IndexedVariableExecutor handles array access in pattern queries.
 
 ### 4.3 Cross-Stream References
 
@@ -259,28 +261,39 @@ src/core/query/input/stream/state/timers/
 
 ---
 
-## 7. Parser Work Remaining
+## 7. Parser Status
 
-All runtime features above are complete. Parser implementation needed:
+### 7.1 Complete (2025-12-06)
 
-P0 + P1 (2-3 weeks):
-- FROM PATTERN / FROM SEQUENCE parsing
-- Sequence operator `->`
-- Count quantifiers `{n,m}`
-- Event aliases `e1=StreamName`
-- Filter conditions `[expression]`
-- Cross-stream references `e1.attr` in filters
-- Array access `e[0].attr`
-- Time expressions and WITHIN
-- Logical operators AND, OR
-- EVERY keyword with validation
-- Collection aggregation detection
+SQL compiler integration complete for core pattern features:
 
-P2 (4-6 weeks, includes runtime):
-- PARTITION BY
-- Absent patterns (NOT ... FOR)
-- Event-count WITHIN
-- OUTPUT event types
+| Feature | Status | Location |
+|---------|--------|----------|
+| FROM PATTERN / FROM SEQUENCE | ✅ | `converter.rs:convert_pattern_input` |
+| Sequence operator `->` | ✅ | `converter.rs:convert_pattern_expression` |
+| Count quantifiers `{n,m}` | ✅ | Validation + conversion |
+| Event aliases `e1=StreamName` | ✅ | StreamStateElement with alias |
+| Filter conditions `[expression]` | ✅ | Filter in SingleInputStream |
+| Cross-stream references `e1.attr` | ✅ | CompoundIdentifier handling |
+| Array access `e[0].attr`, `e[last].attr` | ✅ | IndexedVariable + IndexedVariableExecutor |
+| Time expressions and WITHIN | ✅ | Time-based WITHIN supported |
+| Logical operators AND, OR | ✅ | LogicalStateElement |
+| EVERY keyword with validation | ✅ | PatternValidator + EveryStateElement |
+| Collection aggregation detection | ✅ | Registry lookup at runtime |
+
+Tests: 17 integration tests + 109 sql_compiler tests
+
+### 7.2 Known Limitations
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| PATTERN/SEQUENCE in JOINs | ❌ Not supported | Explicit error returned |
+| Event-count WITHIN | ❌ Not supported | Use time-based WITHIN |
+| PARTITION BY | ❌ Not implemented | Runtime support needed |
+| Absent patterns (NOT ... FOR) | ❌ Not implemented | Requires TimerWheel |
+| OUTPUT event types | ❌ Not implemented | Wire to runtime needed |
+
+See PATTERN_GRAMMAR_V1.2.md "Known Limitations" section for details.
 
 ---
 

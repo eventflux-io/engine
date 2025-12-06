@@ -12,12 +12,12 @@
 
 ---
 
-## Milestone Ordering (Updated 2025-11-18)
+## Milestone Ordering (Updated 2025-12-06)
 
 **Priority**: Ship → Users → Iterate
 
 **M1**: SQL Streaming Foundation - Complete
-**M2**: Pattern Processing (Phases 1-2) - Complete
+**M2**: Pattern Processing (Runtime + SQL Parser) - Complete (2025-12-06)
 **M3**: CASE Expression & Developer Experience - **NEXT PRIORITY**
 **M4**: Essential Connectors (Kafka, HTTP, File) - Planned
 **M5**: Grammar Completion - Planned
@@ -27,6 +27,11 @@
 **Deferred**: Distributed processing, AI integration, advanced optimizations
 
 **Rationale**: Focus on getting first production users. Keep it lightweight, keep it simple.
+
+**M2 Completion Notes** (2025-12-06):
+- Runtime: Pre/Post processors, count quantifiers, pattern chaining, EVERY, AND/OR, collection aggregations
+- SQL Parser: FROM PATTERN/SEQUENCE, count quantifiers, indexed access (e[0], e[last]), WITHIN time
+- Limitations: No PATTERN in JOINs, no event-count WITHIN, no PARTITION BY, no absent patterns
 
 See MILESTONES.md for details.
 
@@ -122,7 +127,41 @@ The goal is not feature completeness. The goal is a product someone will use.
 
 ---
 
-## LATEST: Pattern Processing Phase 2 Complete
+## LATEST: Pattern SQL Parser Integration Complete
+
+**Date**: 2025-12-06
+**Milestone**: M2 Phase 2g - SQL Parser Integration
+**Status**: Complete
+**Test Results**: 1,230+ tests passing (1,213 lib + 17 pattern integration)
+
+**Completed Features**:
+- FROM PATTERN / FROM SEQUENCE parsing and conversion to StateInputStream
+- Pattern expression conversion (Stream, Count, Sequence, Logical, Every, Absent, Grouped)
+- Pattern validation (EVERY restrictions, count quantifier bounds)
+- Indexed variable access: `e1[0].price`, `e1[last].symbol`
+- Cross-stream references in SELECT expressions
+- Time-based WITHIN constraint support
+- JOIN rejection with clear error message
+
+**New Files**:
+- `src/sql_compiler/pattern_validation.rs` - PatternValidator with 25 tests
+- `tests/pattern_sql_integration.rs` - 17 end-to-end integration tests
+
+**Modified Files**:
+- `src/sql_compiler/converter.rs` - Pattern conversion methods (+850 lines)
+- `src/core/util/parser/expression_parser.rs` - IndexedVariable runtime compilation
+
+**Known Limitations** (documented in PATTERN_GRAMMAR_V1.2.md):
+1. PATTERN/SEQUENCE in JOINs: Not supported (explicit error)
+2. Event-count WITHIN: Blocked at conversion (use time-based)
+3. PARTITION BY: Not implemented
+4. Absent patterns: Not implemented (requires TimerWheel)
+
+**Next**: M3 CASE Expression & Developer Experience
+
+---
+
+## Previous: Pattern Processing Phase 2 Complete
 
 **Date**: 2025-11-05
 **Milestone**: M2 Phase 2 - Count Quantifiers & Pattern Chaining

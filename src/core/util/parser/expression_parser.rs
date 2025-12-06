@@ -614,12 +614,94 @@ pub fn parse_expression<'a>(
                 }
             }
         }
-        ApiExpression::IndexedVariable(_indexed_var) => {
-            // IndexedVariable requires pattern context and specialized compilation
-            // For now, return error - this will be implemented when wiring to pattern compiler
+        ApiExpression::IndexedVariable(indexed_var) => {
+            let attribute_name = &indexed_var.attribute_name;
+            let stream_id_opt = indexed_var.stream_id.as_deref().or(Some(&context.default_source));
+
+            // Resolve stream position
+            let stream_id = stream_id_opt.ok_or_else(|| {
+                ExpressionParseError::new(
+                    "Indexed variable requires a stream identifier".to_string(),
+                    &indexed_var.eventflux_element,
+                    context.query_name,
+                )
+            })?;
+            let state_pos_i32 = *context.stream_positions.get(stream_id).ok_or_else(|| {
+                ExpressionParseError::new(
+                    format!(
+                        "Stream '{}' not found in pattern context. \
+                         Indexed variable access (e.g., e1[0].price) is only valid in PATTERN/SEQUENCE queries.",
+                        stream_id
+                    ),
+                    &indexed_var.eventflux_element,
+                    context.query_name,
+                )
+            })?;
+            let state_pos_usize = usize::try_from(state_pos_i32).map_err(|_| {
+                ExpressionParseError::new(
+                    format!("Invalid stream position for '{stream_id}'"),
+                    &indexed_var.eventflux_element,
+                    context.query_name,
+                )
+            })?;
+
+            // Find attribute meta to get position and type
+            let mut found: Option<([i32; 2], ApiAttributeType)> = None;
+
+            let mut check_meta = |meta: &MetaStreamEvent| -> Result<bool, ExpressionParseError> {
+                if let Some((idx, t)) = meta.find_attribute_info(attribute_name) {
+                    if found.is_none() {
+                        let idx_i32 = i32::try_from(*idx).map_err(|_| {
+                            ExpressionParseError::new(
+                                format!("Attribute index {} exceeds supported range", idx),
+                                &indexed_var.eventflux_element,
+                                context.query_name,
+                            )
+                        })?;
+                        found = Some((
+                            [
+                                crate::core::util::eventflux_constants::BEFORE_WINDOW_DATA_INDEX
+                                    as i32,
+                                idx_i32,
+                            ],
+                            *t,
+                        ));
+                    }
+                    return Ok(true);
+                }
+                Ok(false)
+            };
+
+            if let Some(meta) = context.stream_meta_map.get(stream_id) {
+                check_meta(meta)?;
+            } else if let Some(meta) = context.table_meta_map.get(stream_id) {
+                check_meta(meta)?;
+            } else if let Some(meta) = context.window_meta_map.get(stream_id) {
+                check_meta(meta)?;
+            } else if let Some(meta) = context.aggregation_meta_map.get(stream_id) {
+                check_meta(meta)?;
+            } else if let Some(state_meta) = context.state_meta_map.get(stream_id) {
+                for opt_meta in state_meta.meta_stream_events.iter().flatten() {
+                    let set = check_meta(opt_meta)?;
+                    if set {
+                        break;
+                    }
+                }
+            }
+
+            if let Some((attr_position, attr_type)) = found {
+                return Ok(Box::new(crate::core::executor::IndexedVariableExecutor::new(
+                    state_pos_usize,
+                    indexed_var.index.clone(),
+                    attr_position,
+                    attr_type,
+                    attribute_name.to_string(),
+                )));
+            }
+
             Err(ExpressionParseError::new(
-                "IndexedVariable (array access) requires pattern context. Use expression compiler for patterns.".to_string(),
-                &_indexed_var.eventflux_element,
+                format!("Indexed variable '{stream_id}.{attribute_name}' not found"),
+                &indexed_var.eventflux_element,
                 context.query_name,
             ))
         }
