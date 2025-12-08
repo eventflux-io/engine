@@ -138,3 +138,10 @@ config/secrets.yaml
 # Docker
 docker-compose.override.yml
 references/siddhi/
+
+# Docusaurus website
+website/node_modules/
+website/.docusaurus/
+website/build/
+website/.cache-loader/
+website/.npm/

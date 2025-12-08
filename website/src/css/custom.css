@@ -1,0 +1,374 @@
+/**
+ * Eventflux Custom Styles
+ * Material Design Color Palette
+ *
+ * Primary: Cyan (replacing Turquoise)
+ * Secondary: Teal
+ * Accent: Deep Purple
+ *
+ * Material Design Colors Used:
+ * - Cyan 500: #00BCD4, 600: #00ACC1, 700: #0097A7
+ * - Teal 500: #009688, 600: #00897B, 700: #00796B
+ * - Deep Purple 300: #9575CD, 400: #7E57C2, 500: #673AB7
+ * - Blue Grey 800: #37474F, 900: #263238
+ */
+
+/* Light mode variables */
+:root {
+  /* Primary - Material Cyan */
+  --ifm-color-primary: #00ACC1; /* Cyan 600 */
+  --ifm-color-primary-dark: #0097A7; /* Cyan 700 */
+  --ifm-color-primary-darker: #00838F; /* Cyan 800 */
+  --ifm-color-primary-darkest: #006064; /* Cyan 900 */
+  --ifm-color-primary-light: #00BCD4; /* Cyan 500 */
+  --ifm-color-primary-lighter: #26C6DA; /* Cyan 400 */
+  --ifm-color-primary-lightest: #4DD0E1; /* Cyan 300 */
+
+  /* Material Design palette */
+  --md-cyan-500: #00BCD4;
+  --md-cyan-600: #00ACC1;
+  --md-cyan-700: #0097A7;
+  --md-teal-500: #009688;
+  --md-teal-600: #00897B;
+  --md-teal-700: #00796B;
+  --md-deep-purple-300: #9575CD;
+  --md-deep-purple-400: #7E57C2;
+  --md-deep-purple-500: #673AB7;
+  --md-blue-grey-700: #455A64;
+  --md-blue-grey-800: #37474F;
+  --md-blue-grey-900: #263238;
+
+  /* Text colors - Material Blue Grey */
+  --ifm-heading-color: #263238; /* Blue Grey 900 */
+  --ifm-font-color-base: #37474F; /* Blue Grey 800 */
+  --ifm-font-color-secondary: #607D8B; /* Blue Grey 500 */
+
+  /* Background */
+  --ifm-background-color: #FFFFFF;
+  --ifm-background-surface-color: #FAFAFA; /* Grey 50 */
+
+  /* Code */
+  --ifm-code-font-size: 95%;
+  --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', 'Fira Code', monospace;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 188, 212, 0.1);
+}
+
+/* Dark mode variables */
+[data-theme='dark'] {
+  /* Primary - Lighter Cyan for dark mode */
+  --ifm-color-primary: #4DD0E1; /* Cyan 300 */
+  --ifm-color-primary-dark: #26C6DA; /* Cyan 400 */
+  --ifm-color-primary-darker: #00BCD4; /* Cyan 500 */
+  --ifm-color-primary-darkest: #00ACC1; /* Cyan 600 */
+  --ifm-color-primary-light: #80DEEA; /* Cyan 200 */
+  --ifm-color-primary-lighter: #B2EBF2; /* Cyan 100 */
+  --ifm-color-primary-lightest: #E0F7FA; /* Cyan 50 */
+
+  /* Dark mode backgrounds - Material Blue Grey */
+  --ifm-background-color: #263238; /* Blue Grey 900 */
+  --ifm-background-surface-color: #37474F; /* Blue Grey 800 */
+  --ifm-navbar-background-color: #263238;
+  --ifm-footer-background-color: #1C252B;
+
+  /* Text colors for dark mode */
+  --ifm-heading-color: #ECEFF1; /* Blue Grey 50 */
+  --ifm-font-color-base: #CFD8DC; /* Blue Grey 100 */
+  --ifm-font-color-secondary: #90A4AE; /* Blue Grey 300 */
+
+  --docusaurus-highlighted-code-line-bg: rgba(77, 208, 225, 0.15);
+}
+
+/* Typography */
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-feature-settings: 'kern' 1, 'liga' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Navbar */
+.navbar {
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(0, 188, 212, 0.1);
+}
+
+[data-theme='light'] .navbar {
+  background-color: rgba(255, 255, 255, 0.95);
+}
+
+[data-theme='dark'] .navbar {
+  background-color: rgba(38, 50, 56, 0.95);
+  border-bottom: 1px solid rgba(77, 208, 225, 0.1);
+}
+
+.navbar__brand {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.navbar__logo {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  margin-right: 0.5rem;
+}
+
+.navbar__logo img {
+  height: 32px;
+  width: 32px;
+  transform: translateY(2px);
+}
+
+.navbar__title {
+  font-weight: 700;
+  font-size: 1.25rem;
+  line-height: 32px;
+  height: 32px;
+}
+
+.navbar__link {
+  font-weight: 500;
+}
+
+/* Code blocks */
+pre {
+  border-radius: 8px;
+  border: 1px solid rgba(0, 150, 136, 0.15);
+}
+
+code {
+  border-radius: 4px;
+}
+
+[data-theme='light'] pre {
+  background-color: #FAFAFA !important;
+}
+
+[data-theme='dark'] pre {
+  background-color: #37474F !important;
+}
+
+/* Hero gradient */
+.hero-gradient {
+  background: radial-gradient(ellipse at top, rgba(0, 188, 212, 0.12) 0%, transparent 50%);
+}
+
+/* Scrollytelling section */
+.scroll-section {
+  background: linear-gradient(180deg, transparent 0%, rgba(0, 150, 136, 0.03) 50%, transparent 100%);
+}
+
+/* Primary button - Cyan to Teal gradient */
+.button--primary {
+  background: linear-gradient(135deg, #00BCD4 0%, #009688 100%);
+  border: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  color: white !important;
+}
+
+.button--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -5px rgba(0, 150, 136, 0.4);
+  color: white !important;
+}
+
+/* Secondary button */
+.button--secondary {
+  border: 2px solid var(--ifm-color-primary);
+  background: transparent;
+}
+
+[data-theme='light'] .button--secondary {
+  color: #00796B; /* Teal 700 */
+  border-color: #00796B;
+}
+
+[data-theme='light'] .button--secondary:hover {
+  color: #7E57C2; /* Deep Purple 400 */
+  border-color: #7E57C2;
+  background: rgba(126, 87, 194, 0.08);
+}
+
+[data-theme='dark'] .button--secondary:hover {
+  color: #B39DDB; /* Deep Purple 200 */
+  border-color: #B39DDB;
+  background: rgba(179, 157, 219, 0.1);
+}
+
+/* Footer */
+.footer {
+  border-top: 1px solid rgba(0, 150, 136, 0.1);
+}
+
+[data-theme='light'] .footer {
+  background-color: #FAFAFA;
+}
+
+.footer__title {
+  color: var(--ifm-color-primary);
+  font-weight: 600;
+}
+
+/* Documentation */
+.markdown h1 {
+  font-weight: 700;
+}
+
+[data-theme='light'] .markdown h2 {
+  border-bottom: 1px solid rgba(0, 150, 136, 0.15);
+  padding-bottom: 0.5rem;
+}
+
+[data-theme='dark'] .markdown h2 {
+  border-bottom: 1px solid rgba(77, 208, 225, 0.15);
+  padding-bottom: 0.5rem;
+}
+
+/* Admonitions */
+.admonition {
+  border-radius: 8px;
+  border-left-width: 4px;
+}
+
+/* Tables */
+table {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+[data-theme='light'] table thead {
+  background-color: rgba(0, 150, 136, 0.08);
+}
+
+[data-theme='dark'] table thead {
+  background-color: rgba(77, 208, 225, 0.1);
+}
+
+/* Sidebar */
+[data-theme='light'] .theme-doc-sidebar-container {
+  border-right: 1px solid rgba(0, 150, 136, 0.1);
+}
+
+[data-theme='dark'] .theme-doc-sidebar-container {
+  border-right: 1px solid rgba(77, 208, 225, 0.1);
+}
+
+/* Links - Teal 700 → Deep Purple 400 on hover */
+[data-theme='light'] a {
+  color: #00796B; /* Teal 700 */
+}
+
+[data-theme='light'] a:hover,
+[data-theme='light'] a:active {
+  color: #7E57C2; /* Deep Purple 400 */
+}
+
+[data-theme='dark'] a {
+  color: #4DB6AC; /* Teal 300 */
+}
+
+[data-theme='dark'] a:hover,
+[data-theme='dark'] a:active {
+  color: #B39DDB; /* Deep Purple 200 */
+}
+
+/* Animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease-out forwards;
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(0, 188, 212, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(0, 188, 212, 0.5);
+  }
+}
+
+.glow-accent {
+  animation: pulseGlow 3s ease-in-out infinite;
+}
+
+/* Responsive */
+@media (max-width: 996px) {
+  .hero__title {
+    font-size: 2.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero__title {
+    font-size: 2rem;
+  }
+}
+
+/* Scrollbar - Light */
+[data-theme='light'] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+[data-theme='light'] ::-webkit-scrollbar-track {
+  background: #FAFAFA;
+}
+
+[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background: #B0BEC5; /* Blue Grey 200 */
+  border-radius: 4px;
+}
+
+[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+  background: #90A4AE; /* Blue Grey 300 */
+}
+
+/* Scrollbar - Dark */
+[data-theme='dark'] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+[data-theme='dark'] ::-webkit-scrollbar-track {
+  background: #263238;
+}
+
+[data-theme='dark'] ::-webkit-scrollbar-thumb {
+  background: #455A64; /* Blue Grey 700 */
+  border-radius: 4px;
+}
+
+[data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
+  background: #546E7A; /* Blue Grey 600 */
+}
+
+/* Gradient text utility */
+.gradient-text {
+  background: linear-gradient(135deg, #00BCD4 0%, #009688 50%, #7E57C2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+[data-theme='dark'] .gradient-text {
+  background: linear-gradient(135deg, #4DD0E1 0%, #4DB6AC 50%, #B39DDB 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
