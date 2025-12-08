@@ -64,9 +64,11 @@ These rules were created after a catastrophic incident where sed commands delete
 
 EventFlux Rust is an experimental port of the Java-based EventFlux CEP (Complex Event Processing) engine to Rust. The project aims to create an **enterprise-grade distributed CEP engine** with superior performance characteristics leveraging Rust's memory safety and concurrency features.
 
-**Current Status**: M1.6 Complete - Native SQL parser with streaming extensions, 452 core tests passing.
+**Current Status**: M2 Pattern Processing Phase 2 Complete - Native SQL parser with streaming extensions, 1,436+ tests passing.
 
 **Architecture**: SQL-first CEP engine with high-performance crossbeam pipeline (>1M events/sec), enterprise state management, and distributed processing foundation.
+
+**Parser**: Vendored `datafusion-sqlparser-rs` via `sql_compiler` module. Legacy LALRPOP-based `query_compiler` has been completely removed (December 2024).
 
 ## Java Reference Implementation
 

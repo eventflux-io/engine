@@ -74,7 +74,7 @@ Parser architecture, SQL integration, and query language design.
 - MATCH_RECOGNIZE implementation strategy
 - Grammar design principles
 
-**Related Code**: `src/query_compiler/`
+**Related Code**: `src/sql_compiler/`
 
 **Status**: Hybrid Parser Strategy Planned
 

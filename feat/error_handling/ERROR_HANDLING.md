@@ -59,7 +59,7 @@ src/core/error/
 ### Error Usage Across Codebase
 ```
 src/core/persistence/    # StateError
-src/query_compiler/      # QueryError
+src/sql_compiler/        # QueryError
 src/core/runtime/        # RuntimeError
 src/core/stream/         # IOError
 ```

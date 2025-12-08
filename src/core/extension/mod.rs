@@ -1,5 +1,49 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+//! Extension System for EventFlux
+//!
+//! This module provides the factory traits and registration mechanisms for all
+//! extension points in EventFlux. Extensions are registered in `EventFluxContext`
+//! and looked up by name during query compilation.
+//!
+//! # Extension Types
+//!
+//! | Extension Type | Trait | Use Case |
+//! |---------------|-------|----------|
+//! | Window Processors | `WindowProcessorFactory` | `WINDOW length(10)` |
+//! | Window Aggregators | `AttributeAggregatorFactory` | `sum(price)`, `avg(price)` in windows |
+//! | Collection Aggregators | `CollectionAggregationFunction` | `sum(e1.price)` in patterns |
+//! | Scalar Functions | `ScalarFunctionExecutor` | `convert()`, `coalesce()`, `abs()` |
+//! | Sources | `SourceFactory` | Kafka, HTTP, Timer sources |
+//! | Sinks | `SinkFactory` | Kafka, HTTP, Log sinks |
+//! | Mappers | `SourceMapperFactory`, `SinkMapperFactory` | JSON, CSV, Avro mappers |
+//! | Tables | `TableFactory` | InMemory, JDBC, Cache tables |
+//!
+//! # Registration
+//!
+//! All built-in extensions are registered in `EventFluxContext::register_default_extensions()`.
+//! Custom extensions can be registered via `EventFluxContext::add_*_factory()` methods.
+//!
+//! # Example: Adding a Custom Aggregator
+//!
+//! ```ignore
+//! #[derive(Debug, Clone)]
+//! pub struct MedianAggregatorFactory;
+//!
+//! impl AttributeAggregatorFactory for MedianAggregatorFactory {
+//!     fn name(&self) -> &'static str { "median" }
+//!     fn create(&self) -> Box<dyn AttributeAggregatorExecutor> {
+//!         Box::new(MedianAggregatorExecutor::default())
+//!     }
+//!     fn clone_box(&self) -> Box<dyn AttributeAggregatorFactory> {
+//!         Box::new(self.clone())
+//!     }
+//! }
+//!
+//! // Register:
+//! context.add_attribute_aggregator_factory("median".to_string(), Box::new(MedianAggregatorFactory));
+//! ```
+
 pub mod example_factories;
 
 use std::fmt::Debug;
@@ -15,6 +59,7 @@ use crate::core::config::{
 };
 use crate::core::query::processor::Processor;
 use crate::core::query::selector::attribute::aggregator::AttributeAggregatorExecutor;
+use crate::query_api::definition::attribute::Type as ApiAttributeType;
 use crate::query_api::execution::query::input::handler::WindowHandler;
 
 pub trait WindowProcessorFactory: Debug + Send + Sync {
@@ -38,10 +83,296 @@ pub trait AttributeAggregatorFactory: Debug + Send + Sync {
     fn name(&self) -> &'static str;
     fn create(&self) -> Box<dyn AttributeAggregatorExecutor>;
     fn clone_box(&self) -> Box<dyn AttributeAggregatorFactory>;
+
+    /// Number of arguments expected (0 for count(), 1 for sum(x), etc.)
+    fn arity(&self) -> usize {
+        1
+    }
+
+    /// Compute return type based on argument types
+    fn return_type(&self, arg_types: &[ApiAttributeType]) -> Result<ApiAttributeType, String> {
+        // Default: return DOUBLE for numeric aggregations
+        if arg_types.is_empty() {
+            Ok(ApiAttributeType::LONG) // count()
+        } else {
+            Ok(ApiAttributeType::DOUBLE)
+        }
+    }
+
+    /// Description for documentation/help
+    fn description(&self) -> &str {
+        ""
+    }
 }
 impl Clone for Box<dyn AttributeAggregatorFactory> {
     fn clone(&self) -> Self {
         self.clone_box()
+    }
+}
+
+// ============================================================================
+// Collection Aggregation Function Trait
+// ============================================================================
+
+/// Trait for collection aggregation functions used in pattern queries.
+///
+/// Collection aggregations operate over bounded event collections created by
+/// count quantifiers (e.g., `e1{3,5}`). Unlike window aggregators which use
+/// incremental add/remove semantics, collection aggregations perform batch
+/// computation over complete collections.
+///
+/// # Example
+///
+/// ```sql
+/// FROM PATTERN (e1=FailedLogin{3,5} -> e2=AccountLocked)
+/// SELECT count(e1), sum(e1.responseTime), avg(e1.responseTime)
+/// ```
+///
+/// # Implementation
+///
+/// ```ignore
+/// #[derive(Debug, Clone)]
+/// pub struct MedianFunction;
+///
+/// impl CollectionAggregationFunction for MedianFunction {
+///     fn name(&self) -> &'static str { "median" }
+///     fn aggregate(&self, values: &[f64]) -> Option<f64> {
+///         if values.is_empty() { return None; }
+///         let mut sorted = values.to_vec();
+///         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+///         let mid = sorted.len() / 2;
+///         Some(if sorted.len() % 2 == 0 {
+///             (sorted[mid - 1] + sorted[mid]) / 2.0
+///         } else {
+///             sorted[mid]
+///         })
+///     }
+///     fn return_type(&self, _: ApiAttributeType) -> ApiAttributeType {
+///         ApiAttributeType::DOUBLE
+///     }
+///     fn clone_box(&self) -> Box<dyn CollectionAggregationFunction> {
+///         Box::new(self.clone())
+///     }
+/// }
+/// ```
+pub trait CollectionAggregationFunction: Debug + Send + Sync {
+    /// Unique name for this aggregation function (e.g., "sum", "avg", "median")
+    fn name(&self) -> &'static str;
+
+    /// Aggregate over a slice of numeric values.
+    ///
+    /// Returns `None` if the slice is empty or if no valid values exist.
+    /// This matches SQL NULL semantics for aggregations over empty sets.
+    fn aggregate(&self, values: &[f64]) -> Option<f64>;
+
+    /// Whether this function supports count-only mode (no attribute needed).
+    ///
+    /// When `true`, `count(e1)` is valid and counts events in the collection.
+    /// When `false`, an attribute must be provided (e.g., `sum(e1.price)`).
+    fn supports_count_only(&self) -> bool {
+        false
+    }
+
+    /// Determine the return type based on the input attribute type.
+    ///
+    /// - `avg` always returns DOUBLE
+    /// - `sum` preserves the input type (INT → LONG, FLOAT → DOUBLE)
+    /// - `min`/`max` preserve the input type
+    fn return_type(&self, input_type: ApiAttributeType) -> ApiAttributeType;
+
+    /// Clone this function for registry storage.
+    fn clone_box(&self) -> Box<dyn CollectionAggregationFunction>;
+
+    /// Description for documentation/help
+    fn description(&self) -> &str {
+        ""
+    }
+}
+
+impl Clone for Box<dyn CollectionAggregationFunction> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+// ============================================================================
+// Built-in Collection Aggregation Functions
+// ============================================================================
+
+/// Collection count function: `count(e1)` - counts events in collection
+#[derive(Debug, Clone)]
+pub struct CollectionCountFunction;
+
+impl CollectionAggregationFunction for CollectionCountFunction {
+    fn name(&self) -> &'static str {
+        "count"
+    }
+
+    fn aggregate(&self, values: &[f64]) -> Option<f64> {
+        Some(values.len() as f64)
+    }
+
+    fn supports_count_only(&self) -> bool {
+        true
+    }
+
+    fn return_type(&self, _input_type: ApiAttributeType) -> ApiAttributeType {
+        ApiAttributeType::LONG
+    }
+
+    fn clone_box(&self) -> Box<dyn CollectionAggregationFunction> {
+        Box::new(self.clone())
+    }
+
+    fn description(&self) -> &str {
+        "Counts events in a pattern collection"
+    }
+}
+
+/// Collection sum function: `sum(e1.price)` - sums attribute values
+#[derive(Debug, Clone)]
+pub struct CollectionSumFunction;
+
+impl CollectionAggregationFunction for CollectionSumFunction {
+    fn name(&self) -> &'static str {
+        "sum"
+    }
+
+    fn aggregate(&self, values: &[f64]) -> Option<f64> {
+        if values.is_empty() {
+            None
+        } else {
+            Some(values.iter().sum())
+        }
+    }
+
+    fn return_type(&self, input_type: ApiAttributeType) -> ApiAttributeType {
+        match input_type {
+            ApiAttributeType::INT | ApiAttributeType::LONG => ApiAttributeType::LONG,
+            _ => ApiAttributeType::DOUBLE,
+        }
+    }
+
+    fn clone_box(&self) -> Box<dyn CollectionAggregationFunction> {
+        Box::new(self.clone())
+    }
+
+    fn description(&self) -> &str {
+        "Sums attribute values across a pattern collection"
+    }
+}
+
+/// Collection average function: `avg(e1.price)` - averages attribute values
+#[derive(Debug, Clone)]
+pub struct CollectionAvgFunction;
+
+impl CollectionAggregationFunction for CollectionAvgFunction {
+    fn name(&self) -> &'static str {
+        "avg"
+    }
+
+    fn aggregate(&self, values: &[f64]) -> Option<f64> {
+        if values.is_empty() {
+            None
+        } else {
+            Some(values.iter().sum::<f64>() / values.len() as f64)
+        }
+    }
+
+    fn return_type(&self, _input_type: ApiAttributeType) -> ApiAttributeType {
+        ApiAttributeType::DOUBLE
+    }
+
+    fn clone_box(&self) -> Box<dyn CollectionAggregationFunction> {
+        Box::new(self.clone())
+    }
+
+    fn description(&self) -> &str {
+        "Averages attribute values across a pattern collection"
+    }
+}
+
+/// Collection min function: `min(e1.price)` - finds minimum value
+#[derive(Debug, Clone)]
+pub struct CollectionMinFunction;
+
+impl CollectionAggregationFunction for CollectionMinFunction {
+    fn name(&self) -> &'static str {
+        "min"
+    }
+
+    fn aggregate(&self, values: &[f64]) -> Option<f64> {
+        values.iter().copied().reduce(f64::min)
+    }
+
+    fn return_type(&self, input_type: ApiAttributeType) -> ApiAttributeType {
+        input_type
+    }
+
+    fn clone_box(&self) -> Box<dyn CollectionAggregationFunction> {
+        Box::new(self.clone())
+    }
+
+    fn description(&self) -> &str {
+        "Finds minimum attribute value in a pattern collection"
+    }
+}
+
+/// Collection max function: `max(e1.price)` - finds maximum value
+#[derive(Debug, Clone)]
+pub struct CollectionMaxFunction;
+
+impl CollectionAggregationFunction for CollectionMaxFunction {
+    fn name(&self) -> &'static str {
+        "max"
+    }
+
+    fn aggregate(&self, values: &[f64]) -> Option<f64> {
+        values.iter().copied().reduce(f64::max)
+    }
+
+    fn return_type(&self, input_type: ApiAttributeType) -> ApiAttributeType {
+        input_type
+    }
+
+    fn clone_box(&self) -> Box<dyn CollectionAggregationFunction> {
+        Box::new(self.clone())
+    }
+
+    fn description(&self) -> &str {
+        "Finds maximum attribute value in a pattern collection"
+    }
+}
+
+/// Collection standard deviation function: `stdDev(e1.price)`
+#[derive(Debug, Clone)]
+pub struct CollectionStdDevFunction;
+
+impl CollectionAggregationFunction for CollectionStdDevFunction {
+    fn name(&self) -> &'static str {
+        "stdDev"
+    }
+
+    fn aggregate(&self, values: &[f64]) -> Option<f64> {
+        if values.is_empty() {
+            return None;
+        }
+        let n = values.len() as f64;
+        let mean: f64 = values.iter().sum::<f64>() / n;
+        let sum_sq_diff: f64 = values.iter().map(|x| (x - mean).powi(2)).sum();
+        Some((sum_sq_diff / n).sqrt())
+    }
+
+    fn return_type(&self, _input_type: ApiAttributeType) -> ApiAttributeType {
+        ApiAttributeType::DOUBLE
+    }
+
+    fn clone_box(&self) -> Box<dyn CollectionAggregationFunction> {
+        Box::new(self.clone())
+    }
+
+    fn description(&self) -> &str {
+        "Computes population standard deviation across a pattern collection"
     }
 }
 
@@ -591,5 +922,106 @@ mod tests {
         let cloned = factory.clone_box();
         assert_eq!(cloned.name(), "timer");
         assert_eq!(cloned.supported_formats(), factory.supported_formats());
+    }
+
+    #[test]
+    fn test_collection_aggregation_functions_registered() {
+        let context = EventFluxContext::new();
+
+        // Verify all built-in collection aggregation functions are registered
+        let names = context.list_collection_aggregation_function_names();
+        assert!(names.contains(&"count".to_string()));
+        assert!(names.contains(&"sum".to_string()));
+        assert!(names.contains(&"avg".to_string()));
+        assert!(names.contains(&"min".to_string()));
+        assert!(names.contains(&"max".to_string()));
+        assert!(names.contains(&"stdDev".to_string()));
+    }
+
+    #[test]
+    fn test_collection_aggregation_function_lookup() {
+        let context = EventFluxContext::new();
+
+        // Test lookup and execution
+        let sum_fn = context.get_collection_aggregation_function("sum");
+        assert!(sum_fn.is_some());
+        let sum_fn = sum_fn.unwrap();
+        assert_eq!(sum_fn.name(), "sum");
+        assert_eq!(sum_fn.aggregate(&[1.0, 2.0, 3.0, 4.0]), Some(10.0));
+
+        let avg_fn = context.get_collection_aggregation_function("avg");
+        assert!(avg_fn.is_some());
+        let avg_fn = avg_fn.unwrap();
+        assert_eq!(avg_fn.name(), "avg");
+        assert_eq!(avg_fn.aggregate(&[1.0, 2.0, 3.0, 4.0]), Some(2.5));
+
+        let count_fn = context.get_collection_aggregation_function("count");
+        assert!(count_fn.is_some());
+        let count_fn = count_fn.unwrap();
+        assert!(count_fn.supports_count_only());
+        assert_eq!(count_fn.aggregate(&[1.0, 2.0, 3.0]), Some(3.0));
+
+        // Test non-existent function returns None
+        let unknown = context.get_collection_aggregation_function("unknown");
+        assert!(unknown.is_none());
+    }
+
+    #[test]
+    fn test_collection_aggregation_function_edge_cases() {
+        let context = EventFluxContext::new();
+
+        // Test empty input
+        let sum_fn = context.get_collection_aggregation_function("sum").unwrap();
+        assert_eq!(sum_fn.aggregate(&[]), None);
+
+        let avg_fn = context.get_collection_aggregation_function("avg").unwrap();
+        assert_eq!(avg_fn.aggregate(&[]), None);
+
+        // Count on empty returns 0
+        let count_fn = context.get_collection_aggregation_function("count").unwrap();
+        assert_eq!(count_fn.aggregate(&[]), Some(0.0));
+
+        // Test min/max
+        let min_fn = context.get_collection_aggregation_function("min").unwrap();
+        assert_eq!(min_fn.aggregate(&[5.0, 2.0, 8.0, 1.0]), Some(1.0));
+        assert_eq!(min_fn.aggregate(&[]), None);
+
+        let max_fn = context.get_collection_aggregation_function("max").unwrap();
+        assert_eq!(max_fn.aggregate(&[5.0, 2.0, 8.0, 1.0]), Some(8.0));
+        assert_eq!(max_fn.aggregate(&[]), None);
+    }
+
+    #[test]
+    fn test_window_factories_registered() {
+        let context = EventFluxContext::new();
+
+        // Verify all built-in window factories are registered
+        let names = context.list_window_factory_names();
+        assert!(names.contains(&"length".to_string()));
+        assert!(names.contains(&"time".to_string()));
+        assert!(names.contains(&"lengthBatch".to_string()));
+        assert!(names.contains(&"timeBatch".to_string()));
+        assert!(names.contains(&"externalTime".to_string()));
+        assert!(names.contains(&"externalTimeBatch".to_string()));
+        assert!(names.contains(&"session".to_string()));
+        assert!(names.contains(&"sort".to_string()));
+        assert!(names.contains(&"lossyCounting".to_string()));
+        assert!(names.contains(&"cron".to_string()));
+    }
+
+    #[test]
+    fn test_attribute_aggregators_registered() {
+        let context = EventFluxContext::new();
+
+        // Verify all built-in aggregators are registered
+        let names = context.list_attribute_aggregator_names();
+        assert!(names.contains(&"sum".to_string()));
+        assert!(names.contains(&"avg".to_string()));
+        assert!(names.contains(&"count".to_string()));
+        assert!(names.contains(&"min".to_string()));
+        assert!(names.contains(&"max".to_string()));
+        assert!(names.contains(&"distinctCount".to_string()));
+        assert!(names.contains(&"minForever".to_string()));
+        assert!(names.contains(&"maxForever".to_string()));
     }
 }

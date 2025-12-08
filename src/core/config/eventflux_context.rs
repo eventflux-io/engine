@@ -104,6 +104,9 @@ pub struct EventFluxContext {
         Arc<RwLock<HashMap<String, Box<dyn crate::core::extension::SinkMapperFactory>>>>,
     /// Table factories for creating table implementations
     table_factories: Arc<RwLock<HashMap<String, Box<dyn crate::core::extension::TableFactory>>>>,
+    /// Collection aggregation functions (for pattern queries)
+    collection_aggregation_functions:
+        Arc<RwLock<HashMap<String, Box<dyn crate::core::extension::CollectionAggregationFunction>>>>,
     /// Configurations for data sources keyed by name
     data_source_configs: Arc<RwLock<HashMap<String, DataSourceConfig>>>,
     /// Stores registered data sources. Key: data source name.
@@ -131,6 +134,7 @@ impl EventFluxContext {
             source_mapper_factories: Arc::new(RwLock::new(HashMap::new())),
             sink_mapper_factories: Arc::new(RwLock::new(HashMap::new())),
             table_factories: Arc::new(RwLock::new(HashMap::new())),
+            collection_aggregation_functions: Arc::new(RwLock::new(HashMap::new())),
             data_source_configs: Arc::new(RwLock::new(HashMap::new())),
             data_sources: Arc::new(RwLock::new(HashMap::new())),
             tables: Arc::new(RwLock::new(HashMap::new())),
@@ -385,11 +389,15 @@ impl EventFluxContext {
 
     fn register_default_extensions(&mut self) {
         use crate::core::executor::function::builtin_wrapper::register_builtin_scalar_functions;
-        use crate::core::extension::{LogSinkFactory, TimerSourceFactory};
+        use crate::core::extension::{
+            CollectionAvgFunction, CollectionCountFunction, CollectionMaxFunction,
+            CollectionMinFunction, CollectionStdDevFunction, CollectionSumFunction,
+            LogSinkFactory, TimerSourceFactory,
+        };
         use crate::core::query::processor::stream::window::{
             CronWindowFactory, ExternalTimeBatchWindowFactory, ExternalTimeWindowFactory,
             LengthBatchWindowFactory, LengthWindowFactory, LossyCountingWindowFactory,
-            TimeBatchWindowFactory, TimeWindowFactory,
+            SessionWindowFactory, SortWindowFactory, TimeBatchWindowFactory, TimeWindowFactory,
         };
         use crate::core::query::selector::attribute::aggregator::{
             AvgAttributeAggregatorFactory, CountAttributeAggregatorFactory,
@@ -419,6 +427,8 @@ impl EventFluxContext {
             Box::new(LossyCountingWindowFactory),
         );
         self.add_window_factory("cron".to_string(), Box::new(CronWindowFactory));
+        self.add_window_factory("session".to_string(), Box::new(SessionWindowFactory));
+        self.add_window_factory("sort".to_string(), Box::new(SortWindowFactory));
 
         self.add_attribute_aggregator_factory(
             "sum".to_string(),
@@ -458,6 +468,14 @@ impl EventFluxContext {
         self.add_table_factory("cache".to_string(), Box::new(CacheTableFactory));
         self.add_source_factory("timer".to_string(), Box::new(TimerSourceFactory));
         self.add_sink_factory("log".to_string(), Box::new(LogSinkFactory));
+
+        // Collection aggregation functions (for pattern queries)
+        self.add_collection_aggregation_function("count".to_string(), Box::new(CollectionCountFunction));
+        self.add_collection_aggregation_function("sum".to_string(), Box::new(CollectionSumFunction));
+        self.add_collection_aggregation_function("avg".to_string(), Box::new(CollectionAvgFunction));
+        self.add_collection_aggregation_function("min".to_string(), Box::new(CollectionMinFunction));
+        self.add_collection_aggregation_function("max".to_string(), Box::new(CollectionMaxFunction));
+        self.add_collection_aggregation_function("stdDev".to_string(), Box::new(CollectionStdDevFunction));
 
         register_builtin_scalar_functions(self);
     }
@@ -513,6 +531,16 @@ impl EventFluxContext {
     /// List the names of all registered attribute aggregators.
     pub fn list_attribute_aggregator_names(&self) -> Vec<String> {
         self.attribute_aggregator_factories
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// List the names of all registered window processors.
+    pub fn list_window_factory_names(&self) -> Vec<String> {
+        self.window_factories
             .read()
             .unwrap()
             .keys()
@@ -614,6 +642,42 @@ impl EventFluxContext {
     ) -> Option<Box<dyn crate::core::extension::TableFactory>> {
         self.table_factories.read().unwrap().get(name).cloned()
     }
+
+    // --- Collection Aggregation Function Methods ---
+
+    /// Add a collection aggregation function (for pattern queries)
+    pub fn add_collection_aggregation_function(
+        &self,
+        name: String,
+        func: Box<dyn crate::core::extension::CollectionAggregationFunction>,
+    ) {
+        self.collection_aggregation_functions
+            .write()
+            .unwrap()
+            .insert(name, func);
+    }
+
+    /// Get a collection aggregation function by name
+    pub fn get_collection_aggregation_function(
+        &self,
+        name: &str,
+    ) -> Option<Box<dyn crate::core::extension::CollectionAggregationFunction>> {
+        self.collection_aggregation_functions
+            .read()
+            .unwrap()
+            .get(name)
+            .cloned()
+    }
+
+    /// List the names of all registered collection aggregation functions
+    pub fn list_collection_aggregation_function_names(&self) -> Vec<String> {
+        self.collection_aggregation_functions
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
 }
 
 impl Default for EventFluxContext {
@@ -637,6 +701,7 @@ impl Clone for EventFluxContext {
             source_mapper_factories: Arc::clone(&self.source_mapper_factories),
             sink_mapper_factories: Arc::clone(&self.sink_mapper_factories),
             table_factories: Arc::clone(&self.table_factories),
+            collection_aggregation_functions: Arc::clone(&self.collection_aggregation_functions),
             data_source_configs: Arc::clone(&self.data_source_configs),
             data_sources: Arc::clone(&self.data_sources),
             tables: Arc::clone(&self.tables),

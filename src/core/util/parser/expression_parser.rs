@@ -21,7 +21,6 @@ use crate::core::executor::{
     EventVariableFunctionExecutor, MultiValueVariableFunctionExecutor,
 };
 use crate::core::query::processor::ProcessingMode;
-use crate::core::query::selector::attribute::aggregator::*;
 use crate::query_api::{
     definition::attribute::Type as ApiAttributeType, // Import Type enum
     expression::{
@@ -533,142 +532,7 @@ pub fn parse_expression<'a>(
                         )?,
                     ))
                 }
-                (None | Some(""), "sum") => {
-                    let mut exec = SumAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "avg") => {
-                    let mut exec = AvgAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "count") => {
-                    let mut exec = CountAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "distinctCount") => {
-                    let mut exec = DistinctCountAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "min") => {
-                    let mut exec = MinAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "max") => {
-                    let mut exec = MaxAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "minForever") => {
-                    let mut exec = MinForeverAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
-                (None | Some(""), "maxForever") => {
-                    let mut exec = MaxForeverAttributeAggregatorExecutor::default();
-                    exec.init(
-                        arg_execs,
-                        ProcessingMode::BATCH,
-                        false,
-                        &context.eventflux_query_context,
-                    )
-                    .map_err(|e| {
-                        ExpressionParseError::new(
-                            e,
-                            &api_func.eventflux_element,
-                            context.query_name,
-                        )
-                    })?;
-                    Ok(Box::new(exec))
-                }
+                // All other functions (aggregators, scalar functions, scripts) are looked up from registry
                 _ => {
                     if let Some(factory) = context
                         .eventflux_app_context
@@ -741,7 +605,7 @@ pub fn parse_expression<'a>(
                             .join(", ");
                         Err(ExpressionParseError::new(
                             format!(
-                                "Unsupported or unknown function: {function_lookup_name}. Known scalar functions: [{scalars}]. Known aggregators: [{aggs}]"
+                                "Unsupported or unknown function: {function_lookup_name}. Known scalar functions: [{scalars}]. Known aggregators: [{aggs}]. If custom, register via EventFluxContext before parsing."
                             ),
                             &api_func.eventflux_element,
                             context.query_name,
@@ -749,6 +613,97 @@ pub fn parse_expression<'a>(
                     }
                 }
             }
+        }
+        ApiExpression::IndexedVariable(indexed_var) => {
+            let attribute_name = &indexed_var.attribute_name;
+            let stream_id_opt = indexed_var.stream_id.as_deref().or(Some(&context.default_source));
+
+            // Resolve stream position
+            let stream_id = stream_id_opt.ok_or_else(|| {
+                ExpressionParseError::new(
+                    "Indexed variable requires a stream identifier".to_string(),
+                    &indexed_var.eventflux_element,
+                    context.query_name,
+                )
+            })?;
+            let state_pos_i32 = *context.stream_positions.get(stream_id).ok_or_else(|| {
+                ExpressionParseError::new(
+                    format!(
+                        "Stream '{}' not found in pattern context. \
+                         Indexed variable access (e.g., e1[0].price) is only valid in PATTERN/SEQUENCE queries.",
+                        stream_id
+                    ),
+                    &indexed_var.eventflux_element,
+                    context.query_name,
+                )
+            })?;
+            let state_pos_usize = usize::try_from(state_pos_i32).map_err(|_| {
+                ExpressionParseError::new(
+                    format!("Invalid stream position for '{stream_id}'"),
+                    &indexed_var.eventflux_element,
+                    context.query_name,
+                )
+            })?;
+
+            // Find attribute meta to get position and type
+            let mut found: Option<([i32; 2], ApiAttributeType)> = None;
+
+            let mut check_meta = |meta: &MetaStreamEvent| -> Result<bool, ExpressionParseError> {
+                if let Some((idx, t)) = meta.find_attribute_info(attribute_name) {
+                    if found.is_none() {
+                        let idx_i32 = i32::try_from(*idx).map_err(|_| {
+                            ExpressionParseError::new(
+                                format!("Attribute index {} exceeds supported range", idx),
+                                &indexed_var.eventflux_element,
+                                context.query_name,
+                            )
+                        })?;
+                        found = Some((
+                            [
+                                crate::core::util::eventflux_constants::BEFORE_WINDOW_DATA_INDEX
+                                    as i32,
+                                idx_i32,
+                            ],
+                            *t,
+                        ));
+                    }
+                    return Ok(true);
+                }
+                Ok(false)
+            };
+
+            if let Some(meta) = context.stream_meta_map.get(stream_id) {
+                check_meta(meta)?;
+            } else if let Some(meta) = context.table_meta_map.get(stream_id) {
+                check_meta(meta)?;
+            } else if let Some(meta) = context.window_meta_map.get(stream_id) {
+                check_meta(meta)?;
+            } else if let Some(meta) = context.aggregation_meta_map.get(stream_id) {
+                check_meta(meta)?;
+            } else if let Some(state_meta) = context.state_meta_map.get(stream_id) {
+                for opt_meta in state_meta.meta_stream_events.iter().flatten() {
+                    let set = check_meta(opt_meta)?;
+                    if set {
+                        break;
+                    }
+                }
+            }
+
+            if let Some((attr_position, attr_type)) = found {
+                return Ok(Box::new(crate::core::executor::IndexedVariableExecutor::new(
+                    state_pos_usize,
+                    indexed_var.index.clone(),
+                    attr_position,
+                    attr_type,
+                    attribute_name.to_string(),
+                )));
+            }
+
+            Err(ExpressionParseError::new(
+                format!("Indexed variable '{stream_id}.{attribute_name}' not found"),
+                &indexed_var.eventflux_element,
+                context.query_name,
+            ))
         }
     }
 }

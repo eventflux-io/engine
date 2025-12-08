@@ -12,12 +12,12 @@
 
 ---
 
-## Milestone Ordering (Updated 2025-11-18)
+## Milestone Ordering (Updated 2025-12-06)
 
 **Priority**: Ship → Users → Iterate
 
 **M1**: SQL Streaming Foundation - Complete
-**M2**: Pattern Processing (Phases 1-2) - Complete
+**M2**: Pattern Processing (Runtime + SQL Parser) - Complete (2025-12-06)
 **M3**: CASE Expression & Developer Experience - **NEXT PRIORITY**
 **M4**: Essential Connectors (Kafka, HTTP, File) - Planned
 **M5**: Grammar Completion - Planned
@@ -28,7 +28,33 @@
 
 **Rationale**: Focus on getting first production users. Keep it lightweight, keep it simple.
 
+**M2 Completion Notes** (2025-12-06):
+- Runtime: Pre/Post processors, count quantifiers, pattern chaining, EVERY, AND/OR, collection aggregations
+- SQL Parser: FROM PATTERN/SEQUENCE, count quantifiers, indexed access (e[0], e[last]), WITHIN time
+- Limitations: No PATTERN in JOINs, no event-count WITHIN, no PARTITION BY, no absent patterns
+
 See MILESTONES.md for details.
+
+---
+
+## 📋 Technical Debt & Architecture Documents
+
+Documented technical debt and architectural improvements for future consideration:
+
+| Document | Status | Priority | Description |
+|----------|--------|----------|-------------|
+| **[Extension Registry](feat/extension_registry/EXTENSION_REGISTRY_REQUIREMENT.md)** | ✅ Implemented | P1 | Centralized registry replacing hardcoded extension switches |
+| **[Unified Aggregation Logic](feat/unified_aggregation/UNIFIED_AGGREGATION_DESIGN.md)** | 📋 Proposed | P2 | Single aggregation logic for both window and pattern aggregators |
+
+### Extension Registry (Implemented)
+
+Eliminated hardcoded switch statements for extensions. All extensions now registered in `EventFluxContext::register_default_extensions()`. Manual registration chosen over automatic discovery (`inventory`/`linkme` crates) for WASM compatibility.
+
+### Unified Aggregation Logic (Technical Debt)
+
+Window aggregators (`AttributeAggregatorExecutor`) and collection aggregators (`CollectionAggregationFunction`) duplicate core aggregation logic (sum, avg, min, max, etc.). Proposed solution: single `AggregationLogic` trait used by both executor types.
+
+**Trigger for implementation**: When adding new aggregation types (median, percentile) or fixing bugs affecting both implementations.
 
 ---
 
@@ -101,7 +127,41 @@ The goal is not feature completeness. The goal is a product someone will use.
 
 ---
 
-## LATEST: Pattern Processing Phase 2 Complete
+## LATEST: Pattern SQL Parser Integration Complete
+
+**Date**: 2025-12-06
+**Milestone**: M2 Phase 2g - SQL Parser Integration
+**Status**: Complete
+**Test Results**: 1,230+ tests passing (1,213 lib + 17 pattern integration)
+
+**Completed Features**:
+- FROM PATTERN / FROM SEQUENCE parsing and conversion to StateInputStream
+- Pattern expression conversion (Stream, Count, Sequence, Logical, Every, Absent, Grouped)
+- Pattern validation (EVERY restrictions, count quantifier bounds)
+- Indexed variable access: `e1[0].price`, `e1[last].symbol`
+- Cross-stream references in SELECT expressions
+- Time-based WITHIN constraint support
+- JOIN rejection with clear error message
+
+**New Files**:
+- `src/sql_compiler/pattern_validation.rs` - PatternValidator with 25 tests
+- `tests/pattern_sql_integration.rs` - 17 end-to-end integration tests
+
+**Modified Files**:
+- `src/sql_compiler/converter.rs` - Pattern conversion methods (+850 lines)
+- `src/core/util/parser/expression_parser.rs` - IndexedVariable runtime compilation
+
+**Known Limitations** (documented in PATTERN_GRAMMAR_V1.2.md):
+1. PATTERN/SEQUENCE in JOINs: Not supported (explicit error)
+2. Event-count WITHIN: Blocked at conversion (use time-based)
+3. PARTITION BY: Not implemented
+4. Absent patterns: Not implemented (requires TimerWheel)
+
+**Next**: M3 CASE Expression & Developer Experience
+
+---
+
+## Previous: Pattern Processing Phase 2 Complete
 
 **Date**: 2025-11-05
 **Milestone**: M2 Phase 2 - Count Quantifiers & Pattern Chaining
@@ -684,16 +744,18 @@ SELECT tick FROM TimerInput;
 - ⏳ WebSocket, gRPC, MQTT - Planned for M3+
 - **Status**: Core configuration framework complete, production extensions in development
 
-### **Strategic Benefits of Hybrid Architecture**
+### **Parser Architecture** ✅ **COMPLETE**
 
-| Feature               | Current (LALRPOP)            | Future (Hybrid: sqlparser-rs + Pattern Parser) | Impact                                                   |
-|-----------------------|------------------------------|------------------------------------------------|----------------------------------------------------------|
-| **SQL Support**       | ❌ No SQL precedence handling | ✅ Battle-tested SQL parser                     | 🚀 **MAJOR** - Full SQL compatibility without rebuilding |
-| **CEP Patterns**      | ✅ Basic pattern support      | ✅ Dedicated pattern parser                     | 🚀 **MAJOR** - Clean separation of concerns              |
-| **Error Recovery**    | ⚠️ Limited LR(1) recovery    | ✅ Sophisticated hand-written recovery          | 🚀 **MAJOR** - Production-quality error handling         |
-| **Component Parsing** | ❌ Full context required      | ✅ Fragment parsing naturally supported         | 🔧 **HIGH** - IDE integration ready                      |
-| **Maintenance**       | ⚠️ Complex grammar conflicts | ✅ Two focused parsers                          | 📖 **HIGH** - Easier to maintain and extend              |
-| **Performance**       | ✅ Fast LR(1)                 | ✅ Hand-optimized recursive descent             | ⚡ **HIGH** - No LR(1) limitations                        |
+**Status**: LALRPOP completely removed (December 2024). All parsing now via vendored `datafusion-sqlparser-rs`.
+
+| Feature               | Implementation                                  | Status |
+|-----------------------|-------------------------------------------------|--------|
+| **SQL Support**       | vendored `datafusion-sqlparser-rs` (v0.59 fork) | ✅ Production |
+| **CEP Patterns**      | Runtime pattern processors (M2 complete)        | ✅ Production |
+| **Error Recovery**    | Sophisticated hand-written recovery             | ✅ Production |
+| **Component Parsing** | `sql_compiler` module with `SqlConverter`       | ✅ Production |
+| **Maintenance**       | Single SQL parser, no LALRPOP complexity        | ✅ Simplified |
+| **Performance**       | Hand-optimized recursive descent                | ✅ Optimal |
 
 ---
 
@@ -1309,8 +1371,8 @@ individual features.
 
 - **M1 Completion**: ✅ **ACHIEVED** - SQL foundation production ready
 - **Next Focus**: M2 Essential Connectivity (I/O ecosystem)
-- **Architecture**: SQL-only engine with sqlparser-rs
-- **Files**: `src/query_compiler/`, `src/core/sql/`, `feat/grammar/GRAMMAR.md`
+- **Architecture**: SQL-only engine with vendored sqlparser-rs
+- **Files**: `src/sql_compiler/`, `vendor/datafusion-sqlparser-rs/`, `feat/grammar/GRAMMAR.md`
 
 #### **6. Comprehensive Monitoring & Metrics Framework** (Observability)
 

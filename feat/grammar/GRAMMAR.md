@@ -55,7 +55,7 @@ let app = "define stream StockStream (symbol string, price double);";
 // This will fail - use SQL syntax instead
 ```
 
-**LALRPOP Parser**: Remains in codebase at `src/query_compiler/grammar.lalrpop` for reference only, not used by the engine.
+**Note**: The legacy LALRPOP-based `query_compiler` module has been completely removed from the codebase (December 2024). All parsing is now exclusively through the vendored `datafusion-sqlparser-rs` via the `sql_compiler` module.
 
 ---
 
@@ -941,8 +941,8 @@ JOIN News ON Trades.symbol = News.symbol;
 
 ```rust
 // Old (LALRPOP parser - reference only)
-use eventflux_rust::query_compiler::parse;
-let app = parse("define stream ...").unwrap();
+use eventflux_rust::sql_compiler::parse_sql_application;
+let app = parse_sql_application("define stream ...").unwrap();
 
 // New (SQL parser - production)
 use eventflux_rust::sql_compiler::parse_sql_application;

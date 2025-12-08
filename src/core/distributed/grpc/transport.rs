@@ -285,7 +285,7 @@ impl GrpcTransport {
                     message: format!("Failed to connect to {}: {}", endpoint, e),
                 })?;
 
-        let mut client = TransportClient::new(channel);
+        let client = TransportClient::new(channel);
 
         // Configure compression - using identity for now (compression is handled at payload level)
         // Note: Tonic compression methods depend on specific feature flags and versions

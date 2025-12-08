@@ -1,8 +1,8 @@
 # EventFlux Rust Implementation Milestones
 
-Last Updated: 2025-11-18
-Current Status: M2 Pattern Processing Phase 2 Complete
-Test Status: 1,436 passing tests (271 pattern processing tests)
+Last Updated: 2025-12-06
+Current Status: M2 Pattern Processing Complete (Runtime + SQL Parser)
+Test Status: 1,230+ passing tests (1,213 lib + 17 pattern integration)
 
 ---
 
@@ -86,19 +86,39 @@ Sub-phases:
 - Phase 2b.4: WITHIN support (3 tests + 1 ignored)
 - Phase 2b.5: Integration testing (5 tests)
 
-**Code Quality**:
-- Cleanup: Deleted 782 lines of obsolete code
-- Test refactoring: Eliminated 470+ lines of duplicate code
-- Common test utilities: Created shared module (257 lines)
-- Full test suite: 1,436 tests passing
+**Phase 2c: Array Access Runtime** - Complete (2025-11-27)
+- IndexedVariableExecutor for e[0], e[last], e[n]
+- 14+ tests passing
 
-**Remaining Work**:
-- Query parser migration from deprecated processors (8-12 hours, blocked)
-- Delete deprecated logical_processor.rs and sequence_processor.rs
+**Phase 2d: Cross-Stream References** - Complete (2025-11-23)
+- Condition function receives StateEvent
+- Filter can access previous events in pattern
+- 6 tests passing
 
-**Deferred to M3 Grammar**:
-- A+, A* syntax support (core logic complete)
-- Grammar parser integration with CountPreStateProcessor
+**Phase 2e: EVERY Multi-Instance** - Complete (2025-11-26)
+- Overlapping pattern instances
+- Sliding window with count quantifiers
+- 10 tests passing
+
+**Phase 2f: Collection Aggregations** - Complete (2025-12-04)
+- CollectionAggregationFunction trait
+- Executors: count, sum, avg, min, max, stdDev
+- Registry integration in EventFluxContext
+- 50+ tests passing
+
+**Phase 2g: SQL Parser Integration** - Complete (2025-12-06)
+- FROM PATTERN / FROM SEQUENCE parsing and conversion
+- Pattern validation (EVERY restrictions, count bounds)
+- Indexed variable access (e1[0].price, e1[last].symbol)
+- Cross-stream references in SELECT
+- 17 integration tests + 109 sql_compiler tests
+
+**Known Limitations** (documented in PATTERN_GRAMMAR_V1.2.md):
+- PATTERN/SEQUENCE in JOINs: Not supported (explicit error)
+- Event-count WITHIN: Blocked at conversion (use time-based)
+- A+, A* syntax: Rejected by design (unbounded patterns)
+- PARTITION BY: Not implemented (runtime support needed)
+- Absent patterns (NOT ... FOR): Not implemented (requires TimerWheel)
 
 ### Phase 3: Absent Patterns - Not Started
 
@@ -281,6 +301,17 @@ The previous plan optimized for feature completeness (AI integration, distribute
 2. Make it useful (M4 connectors)
 3. Make it production-ready (M5-M6)
 4. Grow based on user feedback
+
+---
+
+## Technical Debt & Architecture
+
+Documented architectural decisions and technical debt for future consideration:
+
+| Document | Status | Description |
+|----------|--------|-------------|
+| **[Extension Registry](feat/extension_registry/EXTENSION_REGISTRY_REQUIREMENT.md)** | ✅ Implemented | Centralized registry for all extension types (windows, aggregators, functions, sources, sinks). Manual registration for WASM compatibility. |
+| **[Unified Aggregation Logic](feat/unified_aggregation/UNIFIED_AGGREGATION_DESIGN.md)** | 📋 Proposed | Deduplicate aggregation logic between window and collection aggregators. Implement when adding new aggregation types. |
 
 ---
 

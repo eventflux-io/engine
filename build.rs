@@ -1,15 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 fn main() {
-    // Generate LALRPOP parser
-    match lalrpop::process_root() {
-        Ok(()) => println!("cargo:rerun-if-changed=src/query_compiler/grammar.lalrpop"),
-        Err(e) => {
-            eprintln!("LALRPOP failed: {}", e);
-            std::process::exit(1);
-        }
-    }
-
     // Compile protobuf definitions
     if let Err(e) = tonic_build::configure()
         .build_server(true)

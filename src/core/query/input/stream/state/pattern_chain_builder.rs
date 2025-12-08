@@ -9,12 +9,82 @@
 
 use super::count_post_state_processor::CountPostStateProcessor;
 use super::count_pre_state_processor::CountPreStateProcessor;
+use super::logical_post_state_processor::LogicalPostStateProcessor;
+use super::logical_pre_state_processor::LogicalPreStateProcessor;
 use super::post_state_processor::PostStateProcessor;
 use super::pre_state_processor::PreStateProcessor;
 use super::stream_pre_state_processor::StateType;
 use crate::core::config::eventflux_app_context::EventFluxAppContext;
 use crate::core::config::eventflux_query_context::EventFluxQueryContext;
 use std::sync::{Arc, Mutex};
+
+// Re-export LogicalType for public use
+pub use super::logical_pre_state_processor::LogicalType;
+
+/// Configuration for a logical group (AND/OR between two pattern steps)
+#[derive(Debug, Clone)]
+pub struct LogicalGroupConfig {
+    /// Type of logical operation (AND or OR)
+    pub logical_type: LogicalType,
+    /// Left side of the logical expression
+    pub left: PatternStepConfig,
+    /// Right side of the logical expression
+    pub right: PatternStepConfig,
+}
+
+impl LogicalGroupConfig {
+    pub fn new(logical_type: LogicalType, left: PatternStepConfig, right: PatternStepConfig) -> Self {
+        Self {
+            logical_type,
+            left,
+            right,
+        }
+    }
+
+    /// Create an AND group
+    pub fn and(left: PatternStepConfig, right: PatternStepConfig) -> Self {
+        Self::new(LogicalType::And, left, right)
+    }
+
+    /// Create an OR group
+    pub fn or(left: PatternStepConfig, right: PatternStepConfig) -> Self {
+        Self::new(LogicalType::Or, left, right)
+    }
+
+    /// Validate this logical group's constraints
+    pub fn validate(&self) -> Result<(), String> {
+        self.left.validate()?;
+        self.right.validate()?;
+        Ok(())
+    }
+}
+
+/// A pattern element is either a simple step or a logical group
+#[derive(Debug, Clone)]
+pub enum PatternElement {
+    /// A single pattern step (e.g., e1=TempStream{1,3})
+    Step(PatternStepConfig),
+    /// A logical group (e.g., (e1=A AND e2=B) or (e1=A OR e2=B))
+    LogicalGroup(LogicalGroupConfig),
+}
+
+impl PatternElement {
+    /// Get the number of state positions this element consumes
+    pub fn state_count(&self) -> usize {
+        match self {
+            PatternElement::Step(_) => 1,
+            PatternElement::LogicalGroup(_) => 2, // Left and right each get a position
+        }
+    }
+
+    /// Validate this element
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            PatternElement::Step(step) => step.validate(),
+            PatternElement::LogicalGroup(group) => group.validate(),
+        }
+    }
+}
 
 /// Configuration for a single pattern step
 #[derive(Debug, Clone)]
@@ -29,6 +99,10 @@ pub struct PatternStepConfig {
     pub max_count: usize,
 }
 
+/// Sentinel value representing an unbounded/unspecified max_count.
+/// Used by parsers to indicate patterns like A+, A{1,}, A{n,} where max is not specified.
+pub const UNBOUNDED_MAX_COUNT: usize = usize::MAX;
+
 impl PatternStepConfig {
     pub fn new(alias: String, stream_name: String, min_count: usize, max_count: usize) -> Self {
         Self {
@@ -40,17 +114,33 @@ impl PatternStepConfig {
     }
 
     /// Validate this step's constraints
+    ///
+    /// Rules:
+    /// 1. min_count >= 1 (all steps must match at least one event)
+    /// 2. min_count <= max_count (logical consistency)
+    /// 3. max_count must be bounded (not UNBOUNDED_MAX_COUNT)
+    ///
+    /// Rejected patterns:
+    /// - A{0}, A{0,n}, A*, A? (zero-count: min_count must be >= 1)
+    /// - A+, A{1,}, A{n,} (unbounded: max_count must be explicitly specified)
     pub fn validate(&self) -> Result<(), String> {
+        if self.min_count == 0 {
+            return Err(format!(
+                "Step '{}': min_count must be >= 1 (got 0). Zero-count patterns (A*, A?, A{{0,n}}) are not supported.",
+                self.alias
+            ));
+        }
+        if self.max_count == UNBOUNDED_MAX_COUNT {
+            return Err(format!(
+                "Step '{}': max_count must be explicitly specified. \
+                Unbounded patterns (A+, A{{1,}}, A{{n,}}) are not supported. Use A{{min,max}} with explicit bounds.",
+                self.alias
+            ));
+        }
         if self.min_count > self.max_count {
             return Err(format!(
                 "Step '{}': min_count ({}) cannot be greater than max_count ({})",
                 self.alias, self.min_count, self.max_count
-            ));
-        }
-        if self.min_count == 0 {
-            return Err(format!(
-                "Step '{}': min_count must be >= 1 (got 0)",
-                self.alias
             ));
         }
         Ok(())
@@ -59,41 +149,99 @@ impl PatternStepConfig {
 
 /// Pattern chain builder for creating multi-processor chains
 pub struct PatternChainBuilder {
-    steps: Vec<PatternStepConfig>,
+    elements: Vec<PatternElement>,
     state_type: StateType,
     within_duration_ms: Option<i64>,
+    is_every: bool,
 }
 
 impl PatternChainBuilder {
     pub fn new(state_type: StateType) -> Self {
         Self {
-            steps: Vec::new(),
+            elements: Vec::new(),
             state_type,
             within_duration_ms: None,
+            is_every: false,
         }
     }
 
+    /// Add a simple pattern step (e.g., e1=TempStream{1,3})
     pub fn add_step(&mut self, step: PatternStepConfig) {
-        self.steps.push(step);
+        self.elements.push(PatternElement::Step(step));
+    }
+
+    /// Add a logical group (AND/OR between two steps)
+    ///
+    /// Example: For pattern `(e1=A AND e2=B) -> e3=C`
+    /// ```ignore
+    /// builder.add_logical_group(LogicalGroupConfig::and(
+    ///     PatternStepConfig::new("e1".into(), "A".into(), 1, 1),
+    ///     PatternStepConfig::new("e2".into(), "B".into(), 1, 1),
+    /// ));
+    /// builder.add_step(PatternStepConfig::new("e3".into(), "C".into(), 1, 1));
+    /// ```
+    pub fn add_logical_group(&mut self, group: LogicalGroupConfig) {
+        self.elements.push(PatternElement::LogicalGroup(group));
     }
 
     pub fn set_within(&mut self, duration_ms: i64) {
         self.within_duration_ms = Some(duration_ms);
     }
 
+    /// Get the total number of state positions (for calculating StateEvent size)
+    pub fn total_state_count(&self) -> usize {
+        self.elements.iter().map(|e| e.state_count()).sum()
+    }
+
+    /// Helper to get all steps (flattened) for backward compatibility
+    fn get_all_steps(&self) -> Vec<&PatternStepConfig> {
+        let mut steps = Vec::new();
+        for element in &self.elements {
+            match element {
+                PatternElement::Step(step) => steps.push(step),
+                PatternElement::LogicalGroup(group) => {
+                    steps.push(&group.left);
+                    steps.push(&group.right);
+                }
+            }
+        }
+        steps
+    }
+
+    /// Enable EVERY pattern (multi-instance matching with pattern restart)
+    ///
+    /// When enabled, completed patterns restart from the beginning, allowing
+    /// new pattern instances after each match. For example:
+    /// - Pattern: EVERY (A -> B)
+    /// - Events: A(1) → B(2) → A(3) → B(4)
+    /// - Matches: A1-B2 (completes, restarts) AND A3-B4 (new instance)
+    ///
+    /// Note: This implements "pattern restart" semantics, not simultaneous
+    /// overlapping instances. Each match triggers a restart for the next sequence.
+    ///
+    /// # Restrictions
+    /// - Only valid in PATTERN mode (not SEQUENCE)
+    /// - Should only be applied to top-level patterns (no nested EVERY)
+    pub fn set_every(&mut self, is_every: bool) {
+        self.is_every = is_every;
+    }
+
     /// Validate pattern chain constraints
     pub fn validate(&self) -> Result<(), String> {
-        if self.steps.is_empty() {
-            return Err("Pattern chain must have at least one step".to_string());
+        if self.elements.is_empty() {
+            return Err("Pattern chain must have at least one element".to_string());
         }
 
-        // Validate each step individually
-        for step in &self.steps {
-            step.validate()?;
+        // Validate each element individually
+        for element in &self.elements {
+            element.validate()?;
         }
+
+        // Get all steps (flattened) for validation
+        let all_steps = self.get_all_steps();
 
         // All steps: min >= 1 (no zero-count steps allowed, including first step)
-        for step in &self.steps {
+        for step in &all_steps {
             if step.min_count == 0 {
                 return Err(format!(
                     "Step '{}' must have min_count >= 1 (got 0)",
@@ -102,23 +250,53 @@ impl PatternChainBuilder {
             }
         }
 
-        // Last step: min == max (exact count)
-        let last_idx = self.steps.len() - 1;
-        if self.steps[last_idx].min_count != self.steps[last_idx].max_count {
-            return Err(format!(
-                "Last step '{}' must have exact count (min=max), got min={} max={}",
-                self.steps[last_idx].alias,
-                self.steps[last_idx].min_count,
-                self.steps[last_idx].max_count
-            ));
+        // Last element validation: min == max (exact count)
+        // For logical groups, both sides must have exact counts
+        let last_element = &self.elements[self.elements.len() - 1];
+        match last_element {
+            PatternElement::Step(step) => {
+                if step.min_count != step.max_count {
+                    return Err(format!(
+                        "Last step '{}' must have exact count (min=max), got min={} max={}",
+                        step.alias, step.min_count, step.max_count
+                    ));
+                }
+            }
+            PatternElement::LogicalGroup(group) => {
+                if group.left.min_count != group.left.max_count {
+                    return Err(format!(
+                        "Last logical group left '{}' must have exact count (min=max), got min={} max={}",
+                        group.left.alias, group.left.min_count, group.left.max_count
+                    ));
+                }
+                if group.right.min_count != group.right.max_count {
+                    return Err(format!(
+                        "Last logical group right '{}' must have exact count (min=max), got min={} max={}",
+                        group.right.alias, group.right.min_count, group.right.max_count
+                    ));
+                }
+            }
         }
 
         // All steps: min <= max (already enforced by PatternStepConfig.validate)
+
+        // EVERY validation: Only allowed in PATTERN mode, not SEQUENCE
+        if self.is_every && !matches!(self.state_type, StateType::Pattern) {
+            return Err(
+                "EVERY patterns are only supported in PATTERN mode, not SEQUENCE mode".to_string(),
+            );
+        }
 
         Ok(())
     }
 
     /// Build the processor chain
+    ///
+    /// Creates processors for each element and wires them together:
+    /// - Simple steps: CountPreStateProcessor → CountPostStateProcessor
+    /// - Logical groups: LogicalPreStateProcessor pairs → LogicalPostStateProcessor pairs
+    ///
+    /// Chain wiring: element[0] → element[1] → ... → element[n]
     pub fn build(
         self,
         app_context: Arc<EventFluxAppContext>,
@@ -126,65 +304,216 @@ impl PatternChainBuilder {
     ) -> Result<ProcessorChain, String> {
         self.validate()?;
 
+        // Collect all pre/post processors (as trait objects)
+        let mut pre_processors: Vec<Arc<Mutex<dyn PreStateProcessor>>> = Vec::new();
+        let mut post_processors: Vec<Arc<Mutex<dyn PostStateProcessor>>> = Vec::new();
+
+        // Keep concrete CountPreStateProcessor refs for backward compatibility
         let mut pre_processors_concrete: Vec<Arc<Mutex<CountPreStateProcessor>>> = Vec::new();
-        let mut post_processors_concrete: Vec<Arc<Mutex<CountPostStateProcessor>>> = Vec::new();
 
-        // Create PreStateProcessors
-        for (i, step) in self.steps.iter().enumerate() {
-            let pre = Arc::new(Mutex::new(CountPreStateProcessor::new(
-                step.min_count,
-                step.max_count,
-                i,      // state_id
-                i == 0, // is_start_state
-                self.state_type,
-                app_context.clone(),
-                query_context.clone(),
-            )));
+        // Track current state_id across all elements
+        let mut current_state_id: usize = 0;
 
-            // Set WITHIN on first processor
-            if i == 0 {
-                if let Some(within_ms) = self.within_duration_ms {
-                    pre.lock().unwrap().set_within_time(within_ms);
+        // Process each element
+        for (elem_idx, element) in self.elements.iter().enumerate() {
+            let is_first_element = elem_idx == 0;
+
+            match element {
+                PatternElement::Step(step) => {
+                    // Create CountPreStateProcessor
+                    let pre = Arc::new(Mutex::new(CountPreStateProcessor::new(
+                        step.min_count,
+                        step.max_count,
+                        current_state_id,
+                        is_first_element, // is_start_state
+                        self.state_type,
+                        app_context.clone(),
+                        query_context.clone(),
+                    )));
+
+                    // Set WITHIN on first processor
+                    if is_first_element {
+                        if let Some(within_ms) = self.within_duration_ms {
+                            pre.lock().unwrap().set_within_time(within_ms);
+                        }
+                    }
+
+                    // Create CountPostStateProcessor
+                    let post = Arc::new(Mutex::new(CountPostStateProcessor::new(
+                        step.min_count,
+                        step.max_count,
+                        current_state_id,
+                    )));
+
+                    // Wire Pre -> Post
+                    pre.lock()
+                        .unwrap()
+                        .stream_processor
+                        .set_this_state_post_processor(
+                            post.clone() as Arc<Mutex<dyn PostStateProcessor>>,
+                        );
+
+                    // Store processors
+                    pre_processors.push(pre.clone() as Arc<Mutex<dyn PreStateProcessor>>);
+                    post_processors.push(post.clone() as Arc<Mutex<dyn PostStateProcessor>>);
+                    pre_processors_concrete.push(pre);
+
+                    current_state_id += 1;
+                }
+                PatternElement::LogicalGroup(group) => {
+                    // Create LogicalPreStateProcessor pair (left and right)
+                    let left_state_id = current_state_id;
+                    let right_state_id = current_state_id + 1;
+
+                    let left_pre = Arc::new(Mutex::new(LogicalPreStateProcessor::new(
+                        left_state_id,
+                        is_first_element, // is_start_state (left is the "entry" for the group)
+                        group.logical_type,
+                        self.state_type,
+                        app_context.clone(),
+                        query_context.clone(),
+                    )));
+
+                    let right_pre = Arc::new(Mutex::new(LogicalPreStateProcessor::new(
+                        right_state_id,
+                        is_first_element, // Both are start states for logical groups
+                        group.logical_type,
+                        self.state_type,
+                        app_context.clone(),
+                        query_context.clone(),
+                    )));
+
+                    // Wire partners together (bidirectional)
+                    left_pre
+                        .lock()
+                        .unwrap()
+                        .set_partner_processor(right_pre.clone());
+                    right_pre
+                        .lock()
+                        .unwrap()
+                        .set_partner_processor(left_pre.clone());
+
+                    // Set WITHIN on first processors
+                    if is_first_element {
+                        if let Some(within_ms) = self.within_duration_ms {
+                            left_pre.lock().unwrap().set_within_time(within_ms);
+                            right_pre.lock().unwrap().set_within_time(within_ms);
+                        }
+                    }
+
+                    // Create LogicalPostStateProcessor pair
+                    let left_post = Arc::new(Mutex::new(LogicalPostStateProcessor::new(
+                        left_state_id,
+                        group.logical_type,
+                    )));
+
+                    let right_post = Arc::new(Mutex::new(LogicalPostStateProcessor::new(
+                        right_state_id,
+                        group.logical_type,
+                    )));
+
+                    // Wire partner post processors (for OR coordination)
+                    left_post
+                        .lock()
+                        .unwrap()
+                        .set_partner_post_processor(right_post.clone());
+                    right_post
+                        .lock()
+                        .unwrap()
+                        .set_partner_post_processor(left_post.clone());
+
+                    // Wire partner pre processors (for AND checking)
+                    left_post
+                        .lock()
+                        .unwrap()
+                        .set_partner_pre_processor(right_pre.clone());
+                    right_post
+                        .lock()
+                        .unwrap()
+                        .set_partner_pre_processor(left_pre.clone());
+
+                    // Wire this_state_pre_processor for each post
+                    left_post
+                        .lock()
+                        .unwrap()
+                        .set_this_state_pre_processor(
+                            left_pre.clone() as Arc<Mutex<dyn PreStateProcessor>>,
+                        );
+                    right_post
+                        .lock()
+                        .unwrap()
+                        .set_this_state_pre_processor(
+                            right_pre.clone() as Arc<Mutex<dyn PreStateProcessor>>,
+                        );
+
+                    // Store processors - left side is the "main" entry point
+                    pre_processors.push(left_pre.clone() as Arc<Mutex<dyn PreStateProcessor>>);
+                    pre_processors.push(right_pre.clone() as Arc<Mutex<dyn PreStateProcessor>>);
+                    post_processors.push(left_post.clone() as Arc<Mutex<dyn PostStateProcessor>>);
+                    post_processors.push(right_post.clone() as Arc<Mutex<dyn PostStateProcessor>>);
+
+                    // Note: We don't add logical processors to pre_processors_concrete
+                    // as they're a different type. Tests should use pre_processors directly.
+
+                    current_state_id += 2;
+                }
+            }
+        }
+
+        // Wire chain: Post[n] -> Pre[n+1] (for pattern chain forwarding)
+        // For logical groups, both posts should forward to the same next pre
+        let mut post_idx = 0;
+        for (elem_idx, element) in self.elements.iter().enumerate() {
+            let posts_for_element = element.state_count();
+
+            // Find the next element's first pre processor
+            if elem_idx + 1 < self.elements.len() {
+                let next_pre_idx = self.elements[..=elem_idx]
+                    .iter()
+                    .map(|e| e.state_count())
+                    .sum::<usize>();
+                let next_pre = &pre_processors[next_pre_idx];
+
+                // Wire all posts from this element to the next pre
+                for i in 0..posts_for_element {
+                    post_processors[post_idx + i]
+                        .lock()
+                        .unwrap()
+                        .set_next_state_pre_processor(next_pre.clone());
                 }
             }
 
-            pre_processors_concrete.push(pre);
+            post_idx += posts_for_element;
         }
 
-        // Create PostStateProcessors and wire chain
-        for i in 0..self.steps.len() {
-            let post = Arc::new(Mutex::new(CountPostStateProcessor::new(
-                self.steps[i].min_count,
-                self.steps[i].max_count,
-                i, // state_id
-            )));
+        // Wire EVERY loopback if enabled
+        if self.is_every {
+            // Get all posts from the last element
+            let last_element_start_idx: usize = self.elements[..self.elements.len() - 1]
+                .iter()
+                .map(|e| e.state_count())
+                .sum();
+            let last_element_count = self.elements.last().unwrap().state_count();
 
-            // Wire Pre -> Post
-            pre_processors_concrete[i]
-                .lock()
-                .unwrap()
-                .stream_processor
-                .set_this_state_post_processor(post.clone() as Arc<Mutex<dyn PostStateProcessor>>);
+            let first_pre = &pre_processors[0];
 
-            // Wire Post -> Next Pre (for pattern chain forwarding A -> B)
-            if i + 1 < self.steps.len() {
-                post.lock().unwrap().set_next_state_pre_processor(
-                    pre_processors_concrete[i + 1].clone() as Arc<Mutex<dyn PreStateProcessor>>,
-                );
+            // Set loopback on ALL posts from the last element
+            for i in 0..last_element_count {
+                post_processors[last_element_start_idx + i]
+                    .lock()
+                    .unwrap()
+                    .set_next_every_state_pre_processor(first_pre.clone());
             }
 
-            post_processors_concrete.push(post);
+            // Set EVERY flag on concrete CountPreStateProcessors
+            // (LogicalPreStateProcessors don't need this flag - they handle EVERY differently)
+            for pre in &pre_processors_concrete {
+                pre.lock()
+                    .unwrap()
+                    .stream_processor
+                    .set_every_pattern_flag(true);
+            }
         }
-
-        // Convert to trait objects for ProcessorChain
-        let pre_processors: Vec<Arc<Mutex<dyn PreStateProcessor>>> = pre_processors_concrete
-            .iter()
-            .map(|p| p.clone() as Arc<Mutex<dyn PreStateProcessor>>)
-            .collect();
-        let post_processors: Vec<Arc<Mutex<dyn PostStateProcessor>>> = post_processors_concrete
-            .iter()
-            .map(|p| p.clone() as Arc<Mutex<dyn PostStateProcessor>>)
-            .collect();
 
         // Clone first processor before moving the vector
         let first_processor = pre_processors[0].clone();
@@ -323,9 +652,46 @@ mod tests {
     }
 
     #[test]
+    fn test_pattern_step_config_validation_fail_unbounded_max() {
+        // Test A+ pattern (unbounded max_count using sentinel value)
+        let step =
+            PatternStepConfig::new("e1".to_string(), "S".to_string(), 1, UNBOUNDED_MAX_COUNT);
+        let result = step.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("must be explicitly specified"),
+            "Error should mention explicit specification required: {}",
+            err
+        );
+        assert!(
+            err.contains("Unbounded patterns"),
+            "Error should mention unbounded patterns: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_pattern_step_config_validation_success_large_bounded_max() {
+        // Test large but explicitly bounded max_count (should succeed)
+        let step = PatternStepConfig::new("e1".to_string(), "S".to_string(), 1, 100_000);
+        assert!(
+            step.validate().is_ok(),
+            "Large but explicit max_count should be allowed"
+        );
+    }
+
+    #[test]
+    fn test_pattern_step_config_validation_success_explicit_bounds() {
+        // Test explicitly bounded pattern A{1,10} (should succeed)
+        let step = PatternStepConfig::new("e1".to_string(), "S".to_string(), 1, 10);
+        assert!(step.validate().is_ok());
+    }
+
+    #[test]
     fn test_pattern_chain_builder_creation() {
         let builder = PatternChainBuilder::new(StateType::Sequence);
-        assert_eq!(builder.steps.len(), 0);
+        assert_eq!(builder.elements.len(), 0);
     }
 
     #[test]
@@ -337,7 +703,7 @@ mod tests {
             2,
             2,
         ));
-        assert_eq!(builder.steps.len(), 1);
+        assert_eq!(builder.elements.len(), 1);
     }
 
     #[test]
@@ -345,7 +711,7 @@ mod tests {
         let builder = PatternChainBuilder::new(StateType::Sequence);
         let result = builder.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("at least one step"));
+        assert!(result.unwrap_err().contains("at least one element"));
     }
 
     #[test]
@@ -508,6 +874,262 @@ mod tests {
         ));
 
         let result = builder.build(app_ctx, query_ctx);
+        assert!(result.is_ok());
+    }
+
+    // ===== LogicalGroupConfig Tests =====
+
+    #[test]
+    fn test_logical_group_config_creation() {
+        let left = PatternStepConfig::new("e1".to_string(), "A".to_string(), 1, 1);
+        let right = PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 1);
+        let group = LogicalGroupConfig::new(LogicalType::And, left.clone(), right.clone());
+
+        assert_eq!(group.logical_type, LogicalType::And);
+        assert_eq!(group.left.alias, "e1");
+        assert_eq!(group.right.alias, "e2");
+    }
+
+    #[test]
+    fn test_logical_group_config_and_helper() {
+        let left = PatternStepConfig::new("e1".to_string(), "A".to_string(), 1, 1);
+        let right = PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 1);
+        let group = LogicalGroupConfig::and(left, right);
+
+        assert_eq!(group.logical_type, LogicalType::And);
+    }
+
+    #[test]
+    fn test_logical_group_config_or_helper() {
+        let left = PatternStepConfig::new("e1".to_string(), "A".to_string(), 1, 1);
+        let right = PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 1);
+        let group = LogicalGroupConfig::or(left, right);
+
+        assert_eq!(group.logical_type, LogicalType::Or);
+    }
+
+    #[test]
+    fn test_logical_group_config_validation_success() {
+        let left = PatternStepConfig::new("e1".to_string(), "A".to_string(), 1, 1);
+        let right = PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 1);
+        let group = LogicalGroupConfig::and(left, right);
+
+        assert!(group.validate().is_ok());
+    }
+
+    #[test]
+    fn test_logical_group_config_validation_fail_left_invalid() {
+        let left = PatternStepConfig::new("e1".to_string(), "A".to_string(), 5, 2); // invalid: min > max
+        let right = PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 1);
+        let group = LogicalGroupConfig::and(left, right);
+
+        let result = group.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("min_count"));
+    }
+
+    #[test]
+    fn test_logical_group_config_validation_fail_right_invalid() {
+        let left = PatternStepConfig::new("e1".to_string(), "A".to_string(), 1, 1);
+        let right = PatternStepConfig::new("e2".to_string(), "B".to_string(), 0, 1); // invalid: min = 0
+        let group = LogicalGroupConfig::and(left, right);
+
+        let result = group.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("min_count must be >= 1"));
+    }
+
+    // ===== PatternElement Tests =====
+
+    #[test]
+    fn test_pattern_element_step_state_count() {
+        let step = PatternStepConfig::new("e1".to_string(), "A".to_string(), 1, 1);
+        let element = PatternElement::Step(step);
+
+        assert_eq!(element.state_count(), 1);
+    }
+
+    #[test]
+    fn test_pattern_element_logical_group_state_count() {
+        let left = PatternStepConfig::new("e1".to_string(), "A".to_string(), 1, 1);
+        let right = PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 1);
+        let group = LogicalGroupConfig::and(left, right);
+        let element = PatternElement::LogicalGroup(group);
+
+        assert_eq!(element.state_count(), 2); // Left and right each get a position
+    }
+
+    // ===== Builder with LogicalGroup Tests =====
+
+    #[test]
+    fn test_add_logical_group() {
+        let mut builder = PatternChainBuilder::new(StateType::Pattern);
+        let group = LogicalGroupConfig::and(
+            PatternStepConfig::new("e1".to_string(), "A".to_string(), 1, 1),
+            PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 1),
+        );
+        builder.add_logical_group(group);
+
+        assert_eq!(builder.elements.len(), 1);
+        assert_eq!(builder.total_state_count(), 2);
+    }
+
+    #[test]
+    fn test_total_state_count_mixed_elements() {
+        let mut builder = PatternChainBuilder::new(StateType::Pattern);
+
+        // Add a simple step (1 state)
+        builder.add_step(PatternStepConfig::new(
+            "e1".to_string(),
+            "A".to_string(),
+            1,
+            1,
+        ));
+
+        // Add a logical group (2 states)
+        builder.add_logical_group(LogicalGroupConfig::and(
+            PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 1),
+            PatternStepConfig::new("e3".to_string(), "C".to_string(), 1, 1),
+        ));
+
+        assert_eq!(builder.elements.len(), 2);
+        assert_eq!(builder.total_state_count(), 3); // 1 + 2
+    }
+
+    #[test]
+    fn test_build_chain_with_logical_group() {
+        let (app_ctx, query_ctx) = create_test_contexts();
+
+        let mut builder = PatternChainBuilder::new(StateType::Pattern);
+
+        // Pattern: (A AND B)
+        builder.add_logical_group(LogicalGroupConfig::and(
+            PatternStepConfig::new("e1".to_string(), "A".to_string(), 1, 1),
+            PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 1),
+        ));
+
+        let result = builder.build(app_ctx, query_ctx);
+        assert!(result.is_ok());
+
+        let chain = result.unwrap();
+        // Logical group creates 2 pre and 2 post processors
+        assert_eq!(chain.pre_processors.len(), 2);
+        assert_eq!(chain.post_processors.len(), 2);
+        // But no concrete CountPreStateProcessors (logical uses LogicalPreStateProcessor)
+        assert_eq!(chain.pre_processors_concrete.len(), 0);
+    }
+
+    #[test]
+    fn test_build_chain_with_step_then_logical_group() {
+        let (app_ctx, query_ctx) = create_test_contexts();
+
+        let mut builder = PatternChainBuilder::new(StateType::Pattern);
+
+        // Pattern: A -> (B AND C)
+        builder.add_step(PatternStepConfig::new(
+            "e1".to_string(),
+            "A".to_string(),
+            1,
+            1,
+        ));
+        builder.add_logical_group(LogicalGroupConfig::and(
+            PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 1),
+            PatternStepConfig::new("e3".to_string(), "C".to_string(), 1, 1),
+        ));
+
+        let result = builder.build(app_ctx, query_ctx);
+        assert!(result.is_ok());
+
+        let chain = result.unwrap();
+        // 1 step + 2 from logical group = 3 pre and 3 post processors
+        assert_eq!(chain.pre_processors.len(), 3);
+        assert_eq!(chain.post_processors.len(), 3);
+        // Only 1 concrete CountPreStateProcessor (from the step)
+        assert_eq!(chain.pre_processors_concrete.len(), 1);
+    }
+
+    #[test]
+    fn test_build_chain_with_logical_group_then_step() {
+        let (app_ctx, query_ctx) = create_test_contexts();
+
+        let mut builder = PatternChainBuilder::new(StateType::Pattern);
+
+        // Pattern: (A AND B) -> C
+        builder.add_logical_group(LogicalGroupConfig::and(
+            PatternStepConfig::new("e1".to_string(), "A".to_string(), 1, 1),
+            PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 1),
+        ));
+        builder.add_step(PatternStepConfig::new(
+            "e3".to_string(),
+            "C".to_string(),
+            1,
+            1,
+        ));
+
+        let result = builder.build(app_ctx, query_ctx);
+        assert!(result.is_ok());
+
+        let chain = result.unwrap();
+        // 2 from logical group + 1 step = 3 pre and 3 post processors
+        assert_eq!(chain.pre_processors.len(), 3);
+        assert_eq!(chain.post_processors.len(), 3);
+        // Only 1 concrete CountPreStateProcessor (from the step at the end)
+        assert_eq!(chain.pre_processors_concrete.len(), 1);
+    }
+
+    #[test]
+    fn test_build_chain_with_or_group() {
+        let (app_ctx, query_ctx) = create_test_contexts();
+
+        let mut builder = PatternChainBuilder::new(StateType::Pattern);
+
+        // Pattern: (A OR B)
+        builder.add_logical_group(LogicalGroupConfig::or(
+            PatternStepConfig::new("e1".to_string(), "A".to_string(), 1, 1),
+            PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 1),
+        ));
+
+        let result = builder.build(app_ctx, query_ctx);
+        assert!(result.is_ok());
+
+        let chain = result.unwrap();
+        assert_eq!(chain.pre_processors.len(), 2);
+        assert_eq!(chain.post_processors.len(), 2);
+    }
+
+    #[test]
+    fn test_validation_logical_group_last_element_not_exact() {
+        let mut builder = PatternChainBuilder::new(StateType::Pattern);
+
+        // Last element is a logical group where left has min != max
+        builder.add_logical_group(LogicalGroupConfig::and(
+            PatternStepConfig::new("e1".to_string(), "A".to_string(), 1, 3), // not exact!
+            PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 1),
+        ));
+
+        let result = builder.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must have exact count"));
+    }
+
+    #[test]
+    fn test_validation_logical_group_middle_element_ok() {
+        let mut builder = PatternChainBuilder::new(StateType::Pattern);
+
+        // Middle element is a logical group with range counts (allowed)
+        builder.add_logical_group(LogicalGroupConfig::and(
+            PatternStepConfig::new("e1".to_string(), "A".to_string(), 1, 3),
+            PatternStepConfig::new("e2".to_string(), "B".to_string(), 1, 3),
+        ));
+        // Last step must be exact
+        builder.add_step(PatternStepConfig::new(
+            "e3".to_string(),
+            "C".to_string(),
+            1,
+            1,
+        ));
+
+        let result = builder.validate();
         assert!(result.is_ok());
     }
 }

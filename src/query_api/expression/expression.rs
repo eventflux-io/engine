@@ -8,6 +8,7 @@ use super::attribute_function::AttributeFunction;
 use super::case::{Case, WhenClause};
 use super::condition::{And, Compare, CompareOperator, InOp, IsNull, Not, Or};
 use super::constant::{Constant, TimeUtil as ConstantTimeUtil}; // Corrected ConstantValue path
+use super::indexed_variable::IndexedVariable;
 use super::math::{Add, Divide, ModOp, Multiply, Subtract};
 use super::variable::Variable; // Renamed Operator to CompareOperator
 
@@ -16,6 +17,7 @@ use super::variable::Variable; // Renamed Operator to CompareOperator
 pub enum Expression {
     Constant(Constant),
     Variable(Variable),
+    IndexedVariable(Box<IndexedVariable>),
     AttributeFunction(Box<AttributeFunction>),
     Add(Box<Add>),
     Subtract(Box<Subtract>),
@@ -59,6 +61,32 @@ impl Expression {
     // Variable
     pub fn variable(attribute_name: String) -> Self {
         Expression::Variable(Variable::new(attribute_name))
+    }
+
+    // IndexedVariable - array access: e[0].attr, e[last].attr
+    pub fn indexed_variable_with_index(
+        attribute_name: String,
+        index: usize,
+        stream_id: Option<String>,
+        stream_index: Option<i32>,
+    ) -> Self {
+        let mut var = IndexedVariable::new_with_index(attribute_name, index);
+        if let (Some(sid), Some(sidx)) = (stream_id, stream_index) {
+            var = var.of_stream_with_index(sid, sidx);
+        }
+        Expression::IndexedVariable(Box::new(var))
+    }
+
+    pub fn indexed_variable_with_last(
+        attribute_name: String,
+        stream_id: Option<String>,
+        stream_index: Option<i32>,
+    ) -> Self {
+        let mut var = IndexedVariable::new_with_last(attribute_name);
+        if let (Some(sid), Some(sidx)) = (stream_id, stream_index) {
+            var = var.of_stream_with_index(sid, sidx);
+        }
+        Expression::IndexedVariable(Box::new(var))
     }
 
     // AttributeFunction
@@ -167,6 +195,7 @@ impl Expression {
         match self {
             Expression::Constant(c) => c.eventflux_element.query_context_start_index,
             Expression::Variable(v) => v.eventflux_element.query_context_start_index,
+            Expression::IndexedVariable(iv) => iv.eventflux_element.query_context_start_index,
             Expression::AttributeFunction(af) => af.eventflux_element.query_context_start_index,
             Expression::Add(a) => a.eventflux_element.query_context_start_index,
             Expression::Subtract(s) => s.eventflux_element.query_context_start_index,
@@ -187,6 +216,9 @@ impl Expression {
         match self {
             Expression::Constant(c) => c.eventflux_element.query_context_start_index = index,
             Expression::Variable(v) => v.eventflux_element.query_context_start_index = index,
+            Expression::IndexedVariable(iv) => {
+                iv.eventflux_element.query_context_start_index = index
+            }
             Expression::AttributeFunction(af) => {
                 af.eventflux_element.query_context_start_index = index
             }
@@ -209,6 +241,7 @@ impl Expression {
         match self {
             Expression::Constant(c) => c.eventflux_element.query_context_end_index,
             Expression::Variable(v) => v.eventflux_element.query_context_end_index,
+            Expression::IndexedVariable(iv) => iv.eventflux_element.query_context_end_index,
             Expression::AttributeFunction(af) => af.eventflux_element.query_context_end_index,
             Expression::Add(a) => a.eventflux_element.query_context_end_index,
             Expression::Subtract(s) => s.eventflux_element.query_context_end_index,
@@ -229,6 +262,9 @@ impl Expression {
         match self {
             Expression::Constant(c) => c.eventflux_element.query_context_end_index = index,
             Expression::Variable(v) => v.eventflux_element.query_context_end_index = index,
+            Expression::IndexedVariable(iv) => {
+                iv.eventflux_element.query_context_end_index = index
+            }
             Expression::AttributeFunction(af) => {
                 af.eventflux_element.query_context_end_index = index
             }

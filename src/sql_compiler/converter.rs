@@ -5,8 +5,9 @@
 //! Converts SQL statements to EventFlux query_api::Query structures.
 
 use sqlparser::ast::{
-    BinaryOperator, Expr as SqlExpr, JoinConstraint, JoinOperator, PartitionKey,
-    Select as SqlSelect, SetExpr, Statement, TableFactor, UnaryOperator,
+    AccessExpr, BinaryOperator, Expr as SqlExpr, JoinConstraint, JoinOperator, PartitionKey,
+    PatternExpression, PatternLogicalOp, PatternMode, Select as SqlSelect, SetExpr, Statement,
+    Subscript, TableFactor, UnaryOperator, WithinConstraint,
 };
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
@@ -17,12 +18,18 @@ use crate::core::query::processor::stream::window::types::{
     WINDOW_TYPE_TIME_BATCH,
 };
 use crate::query_api::execution::partition::Partition;
+use crate::query_api::execution::query::input::state::{
+    AbsentStreamStateElement, CountStateElement, EveryStateElement, LogicalStateElement,
+    LogicalStateElementType, NextStateElement, StateElement, StreamStateElement,
+};
 use crate::query_api::execution::query::input::stream::input_stream::InputStream;
 use crate::query_api::execution::query::input::stream::single_input_stream::SingleInputStream;
+use crate::query_api::execution::query::input::stream::state_input_stream::StateInputStream;
 use crate::query_api::execution::query::output::output_stream::{
     InsertIntoStreamAction, OutputStream, OutputStreamAction,
 };
 use crate::query_api::execution::query::Query;
+use crate::query_api::expression::indexed_variable::{EventIndex, IndexedVariable};
 use crate::query_api::expression::variable::Variable;
 use crate::query_api::expression::CompareOperator;
 use crate::query_api::expression::{Expression, WhenClause};
@@ -30,6 +37,7 @@ use crate::query_api::expression::{Expression, WhenClause};
 use super::catalog::SqlCatalog;
 use super::error::ConverterError;
 use super::expansion::SelectExpander;
+use super::pattern_validation::PatternValidator;
 use super::type_inference::TypeInferenceEngine;
 
 /// SQL to Query Converter
@@ -202,47 +210,66 @@ impl SqlConverter {
         // Check if this is a JOIN query
         let has_join = !select.from.is_empty() && !select.from[0].joins.is_empty();
 
-        let input_stream = if has_join {
+        let (input_stream, stream_name_for_selector) = if has_join {
             // Handle JOIN
-            Self::convert_join_from_clause(&select.from, &select.selection, catalog)?
+            let join_input = Self::convert_join_from_clause(&select.from, &select.selection, catalog)?;
+            (join_input, String::new())
         } else {
-            // Handle single stream
-            let stream_name = Self::extract_from_stream(&select.from)?;
+            // Handle single relation in FROM
+            let first = select.from.get(0).ok_or_else(|| {
+                ConverterError::ConversionFailed("No FROM clause found".to_string())
+            })?;
 
-            // Validate relation (stream or table) exists
-            catalog
-                .get_relation(&stream_name)
-                .map_err(|_| ConverterError::SchemaNotFound(stream_name.clone()))?;
+            match &first.relation {
+                TableFactor::Table { name, window, .. } => {
+                    let stream_name = name
+                        .0
+                        .last()
+                        .and_then(|part| part.as_ident())
+                        .map(|ident| ident.value.clone())
+                        .ok_or_else(|| {
+                            ConverterError::ConversionFailed("No table name in FROM".to_string())
+                        })?;
 
-            // Create InputStream (works for both streams and tables - runtime will differentiate)
-            let mut single_stream = SingleInputStream::new_basic(
-                stream_name.clone(),
-                false,      // is_inner_stream
-                false,      // is_fault_stream
-                None,       // stream_handler_id
-                Vec::new(), // pre_window_handlers
-            );
+                    // Validate relation (stream or table) exists
+                    catalog
+                        .get_relation(&stream_name)
+                        .map_err(|_| ConverterError::SchemaNotFound(stream_name.clone()))?;
 
-            // Add WINDOW if present from AST
-            if let Some(window_ast) = Self::extract_window_from_table_factor(&select.from) {
-                single_stream = Self::add_window_from_ast(single_stream, window_ast, catalog)?;
+                    // Create InputStream (works for both streams and tables - runtime will differentiate)
+                    let mut single_stream = SingleInputStream::new_basic(
+                        stream_name.clone(),
+                        false,      // is_inner_stream
+                        false,      // is_fault_stream
+                        None,       // stream_handler_id
+                        Vec::new(), // pre_window_handlers
+                    );
+
+                    // Add WINDOW if present from AST
+                    if let Some(window_ast) = window.as_ref() {
+                        single_stream = Self::add_window_from_ast(single_stream, window_ast, catalog)?;
+                    }
+
+                    // Add WHERE filter (BEFORE aggregation)
+                    if let Some(where_expr) = &select.selection {
+                        let filter_expr = Self::convert_expression(where_expr, catalog)?;
+                        single_stream = single_stream.filter(filter_expr);
+                    }
+
+                    (InputStream::Single(single_stream), stream_name)
+                }
+                TableFactor::Pattern { mode, pattern, within, .. } => {
+                    // Convert pattern/sequence to StateInputStream
+                    let state_input_stream =
+                        Self::convert_pattern_input(mode, pattern, within, catalog)?;
+                    (state_input_stream, String::new())
+                }
+                _ => {
+                    return Err(ConverterError::UnsupportedFeature(
+                        "Complex FROM clauses not supported".to_string(),
+                    ))
+                }
             }
-
-            // Add WHERE filter (BEFORE aggregation)
-            if let Some(where_expr) = &select.selection {
-                let filter_expr = Self::convert_expression(where_expr, catalog)?;
-                single_stream = single_stream.filter(filter_expr);
-            }
-
-            InputStream::Single(single_stream)
-        };
-
-        // Create Selector from SELECT clause
-        // For JOIN queries, we don't have a single stream name - use empty string as fallback
-        let stream_name_for_selector = if has_join {
-            String::new() // JOIN queries use qualified names (table.column)
-        } else {
-            Self::extract_from_stream(&select.from)?
         };
 
         let mut selector = SelectExpander::expand_select_items(
@@ -384,6 +411,12 @@ impl SqlConverter {
                 .ok_or_else(|| {
                     ConverterError::ConversionFailed("No table name in FROM".to_string())
                 }),
+            TableFactor::Pattern { mode, .. } => {
+                // Return the alias or generated name; actual conversion happens in select parsing
+                // We return a synthesized name to satisfy callers that expect a string.
+                let name = format!("{:?}_pattern", mode);
+                Ok(name)
+            }
             _ => Err(ConverterError::UnsupportedFeature(
                 "Complex FROM clauses not supported".to_string(),
             )),
@@ -452,6 +485,11 @@ impl SqlConverter {
 
                 left_stream
             }
+            TableFactor::Pattern { .. } => {
+                return Err(ConverterError::UnsupportedFeature(
+                    "JOIN against PATTERN/SEQUENCE inputs is not yet supported".to_string(),
+                ))
+            }
             _ => {
                 return Err(ConverterError::UnsupportedFeature(
                     "Complex left table in JOIN".to_string(),
@@ -493,6 +531,11 @@ impl SqlConverter {
                 }
 
                 right_stream
+            }
+            TableFactor::Pattern { .. } => {
+                return Err(ConverterError::UnsupportedFeature(
+                    "JOIN against PATTERN/SEQUENCE inputs is not yet supported".to_string(),
+                ))
             }
             _ => {
                 return Err(ConverterError::UnsupportedFeature(
@@ -672,6 +715,11 @@ impl SqlConverter {
                         "Multi-part identifiers not supported".to_string(),
                     ))
                 }
+            }
+
+            SqlExpr::CompoundFieldAccess { root, access_chain } => {
+                // Handle indexed access for pattern event collections: e1[0].price, e1[last].symbol
+                Self::convert_compound_field_access(root, access_chain, catalog)
             }
 
             SqlExpr::Value(value_with_span) => match &value_with_span.value {
@@ -997,6 +1045,331 @@ impl SqlConverter {
             )),
         }
     }
+
+    // ============================================================================
+    // Array Access Conversion Methods
+    // ============================================================================
+
+    /// Convert CompoundFieldAccess for pattern event collection access: e1[0].price, e1[last].symbol
+    ///
+    /// This handles indexed access to events in pattern event collections, where count
+    /// quantifiers like A{3,5} produce multiple events that can be accessed by index.
+    fn convert_compound_field_access(
+        root: &SqlExpr,
+        access_chain: &[AccessExpr],
+        _catalog: &SqlCatalog,
+    ) -> Result<Expression, ConverterError> {
+        // Extract stream alias from root (e.g., "e1" from e1[0].price)
+        let stream_id = match root {
+            SqlExpr::Identifier(ident) => ident.value.clone(),
+            _ => {
+                return Err(ConverterError::UnsupportedFeature(
+                    "Array access root must be an identifier (stream alias)".to_string(),
+                ))
+            }
+        };
+
+        // Validate access chain: must be [index].attribute format
+        if access_chain.len() != 2 {
+            return Err(ConverterError::UnsupportedFeature(format!(
+                "Expected [index].attribute format, got {} access elements",
+                access_chain.len()
+            )));
+        }
+
+        // Extract index from first element (Subscript)
+        let event_index = match &access_chain[0] {
+            AccessExpr::Subscript(Subscript::Index { index }) => {
+                Self::extract_event_index(index)?
+            }
+            _ => {
+                return Err(ConverterError::UnsupportedFeature(
+                    "First element must be array index [n] or [last]".to_string(),
+                ))
+            }
+        };
+
+        // Extract attribute name from second element (Dot)
+        let attribute_name = match &access_chain[1] {
+            AccessExpr::Dot(SqlExpr::Identifier(ident)) => ident.value.clone(),
+            _ => {
+                return Err(ConverterError::UnsupportedFeature(
+                    "Second element must be .attribute".to_string(),
+                ))
+            }
+        };
+
+        // Create IndexedVariable with stream id (position resolved during expression parsing)
+        let indexed_var = match event_index {
+            EventIndex::Numeric(idx) => IndexedVariable::new_with_index(attribute_name, idx)
+                .of_stream_with_index(stream_id, -1),
+            EventIndex::Last => IndexedVariable::new_with_last(attribute_name)
+                .of_stream_with_index(stream_id, -1),
+        };
+
+        Ok(Expression::IndexedVariable(Box::new(indexed_var)))
+    }
+
+    /// Extract EventIndex from a subscript expression
+    fn extract_event_index(index_expr: &SqlExpr) -> Result<EventIndex, ConverterError> {
+        match index_expr {
+            // Numeric index: e[0], e[1], e[2]
+            SqlExpr::Value(value_with_span) => {
+                if let sqlparser::ast::Value::Number(n, _) = &value_with_span.value {
+                    let idx: usize = n.parse().map_err(|_| {
+                        ConverterError::InvalidExpression(format!("Invalid array index: {}", n))
+                    })?;
+                    Ok(EventIndex::Numeric(idx))
+                } else {
+                    Err(ConverterError::InvalidExpression(
+                        "Array index must be a number or 'last'".to_string(),
+                    ))
+                }
+            }
+            // 'last' keyword: e[last]
+            SqlExpr::Identifier(ident) if ident.value.to_lowercase() == "last" => {
+                Ok(EventIndex::Last)
+            }
+            _ => Err(ConverterError::UnsupportedFeature(
+                "Array index must be numeric or 'last'".to_string(),
+            )),
+        }
+    }
+
+    // ============================================================================
+    // Pattern Conversion Methods
+    // ============================================================================
+
+    /// Convert a pattern TableFactor to InputStream
+    ///
+    /// This handles FROM PATTERN (...) and FROM SEQUENCE (...) clauses,
+    /// converting the pattern expression AST to Query API StateElements.
+    ///
+    /// Validation is performed before conversion to ensure the pattern
+    /// adheres to grammar rules (EVERY restrictions, count bounds, etc.)
+    pub fn convert_pattern_input(
+        mode: &PatternMode,
+        pattern: &PatternExpression,
+        within: &Option<WithinConstraint>,
+        catalog: &SqlCatalog,
+    ) -> Result<InputStream, ConverterError> {
+        // Validate pattern before conversion
+        PatternValidator::validate(mode, pattern).map_err(|errors| {
+            let error_messages: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+            ConverterError::ConversionFailed(format!(
+                "Pattern validation failed:\n  - {}",
+                error_messages.join("\n  - ")
+            ))
+        })?;
+
+        // Convert pattern expression to StateElement
+        let state_element = Self::convert_pattern_expression(pattern, catalog)?;
+
+        // Convert WITHIN constraint to ExpressionConstant
+        let within_time = match within {
+            Some(WithinConstraint::Time(expr)) => {
+                // Convert time expression (e.g., INTERVAL '10' SECOND) to milliseconds
+                let time_expr = Self::convert_expression(expr, catalog)?;
+                // Extract the constant value from the expression
+                match time_expr {
+                    Expression::Constant(c) => Some(c),
+                    _ => {
+                        return Err(ConverterError::UnsupportedFeature(
+                            "WITHIN time must be a constant expression".to_string(),
+                        ))
+                    }
+                }
+            }
+            Some(WithinConstraint::EventCount(count)) => {
+                return Err(ConverterError::UnsupportedFeature(
+                    format!("WITHIN {count} EVENTS is not yet supported; use time-based WITHIN"),
+                ));
+            }
+            None => None,
+        };
+
+        // Create StateInputStream based on mode
+        let state_input_stream = match mode {
+            PatternMode::Pattern => StateInputStream::pattern_stream(state_element, within_time),
+            PatternMode::Sequence => StateInputStream::sequence_stream(state_element, within_time),
+        };
+
+        Ok(InputStream::State(Box::new(state_input_stream)))
+    }
+
+    /// Convert PatternExpression AST to StateElement
+    fn convert_pattern_expression(
+        expr: &PatternExpression,
+        catalog: &SqlCatalog,
+    ) -> Result<StateElement, ConverterError> {
+        match expr {
+            PatternExpression::Stream {
+                alias,
+                stream_name,
+                filter,
+            } => {
+                // Get the stream name as string
+                let stream_id = stream_name
+                    .0
+                    .last()
+                    .and_then(|part| part.as_ident())
+                    .map(|ident| ident.value.clone())
+                    .ok_or_else(|| {
+                        ConverterError::ConversionFailed("Invalid stream name in pattern".to_string())
+                    })?;
+
+                // Create SingleInputStream with optional alias
+                let mut single_stream = SingleInputStream::new_basic(
+                    stream_id.clone(),
+                    false, // is_inner
+                    false, // is_fault
+                    None,  // stream_ref_id (will set via as_ref if alias present)
+                    Vec::new(),
+                );
+
+                // Add stream reference (alias) if present
+                if let Some(alias_ident) = alias {
+                    single_stream = single_stream.as_ref(alias_ident.value.clone());
+                }
+
+                // Add filter if present
+                if let Some(filter_expr) = filter {
+                    let converted_filter = Self::convert_expression(filter_expr, catalog)?;
+                    single_stream = single_stream.filter(converted_filter);
+                }
+
+                // Create StreamStateElement
+                let stream_state = StreamStateElement::new(single_stream);
+                Ok(StateElement::Stream(stream_state))
+            }
+
+            PatternExpression::Count {
+                pattern,
+                min_count,
+                max_count,
+            } => {
+                // First, convert the inner pattern to get the StreamStateElement
+                let inner = Self::convert_pattern_expression(pattern, catalog)?;
+
+                // Count quantifier requires a StreamStateElement, not arbitrary StateElement
+                let stream_state = match inner {
+                    StateElement::Stream(s) => s,
+                    _ => {
+                        return Err(ConverterError::UnsupportedFeature(
+                            "Count quantifier can only be applied to stream patterns".to_string(),
+                        ))
+                    }
+                };
+
+                // Guard against counts that exceed i32 range to avoid overflow
+                let min_i32 = i32::try_from(*min_count).map_err(|_| {
+                    ConverterError::UnsupportedFeature(format!(
+                        "Count quantifier lower bound {} exceeds supported range",
+                        min_count
+                    ))
+                })?;
+                let max_i32 = i32::try_from(*max_count).map_err(|_| {
+                    ConverterError::UnsupportedFeature(format!(
+                        "Count quantifier upper bound {} exceeds supported range",
+                        max_count
+                    ))
+                })?;
+
+                Ok(StateElement::Count(CountStateElement::new(
+                    stream_state,
+                    min_i32,
+                    max_i32,
+                )))
+            }
+
+            PatternExpression::Sequence { first, second } => {
+                // Convert both sides of the sequence
+                let first_state = Self::convert_pattern_expression(first, catalog)?;
+                let second_state = Self::convert_pattern_expression(second, catalog)?;
+
+                // Create NextStateElement (-> operator)
+                Ok(StateElement::Next(Box::new(NextStateElement::new(
+                    first_state,
+                    second_state,
+                ))))
+            }
+
+            PatternExpression::Logical { left, op, right } => {
+                // Convert both sides
+                let left_state = Self::convert_pattern_expression(left, catalog)?;
+                let right_state = Self::convert_pattern_expression(right, catalog)?;
+
+                // Map logical operator
+                let logical_type = match op {
+                    PatternLogicalOp::And => LogicalStateElementType::And,
+                    PatternLogicalOp::Or => LogicalStateElementType::Or,
+                };
+
+                Ok(StateElement::Logical(LogicalStateElement::new(
+                    left_state,
+                    logical_type,
+                    right_state,
+                )))
+            }
+
+            PatternExpression::Every { pattern } => {
+                // Convert the inner pattern
+                let inner_state = Self::convert_pattern_expression(pattern, catalog)?;
+
+                Ok(StateElement::Every(Box::new(EveryStateElement::new(
+                    inner_state,
+                ))))
+            }
+
+            PatternExpression::Absent {
+                stream_name,
+                duration,
+            } => {
+                // Get the stream name
+                let stream_id = stream_name
+                    .0
+                    .last()
+                    .and_then(|part| part.as_ident())
+                    .map(|ident| ident.value.clone())
+                    .ok_or_else(|| {
+                        ConverterError::ConversionFailed(
+                            "Invalid stream name in absent pattern".to_string(),
+                        )
+                    })?;
+
+                // Create SingleInputStream for the absent stream
+                let single_stream = SingleInputStream::new_basic(
+                    stream_id,
+                    false, // is_inner
+                    false, // is_fault
+                    None,  // stream_ref_id
+                    Vec::new(),
+                );
+
+                // Convert duration expression to constant
+                let duration_expr = Self::convert_expression(duration, catalog)?;
+                let duration_const = match duration_expr {
+                    Expression::Constant(c) => Some(c),
+                    _ => {
+                        return Err(ConverterError::UnsupportedFeature(
+                            "Absent pattern duration must be a constant".to_string(),
+                        ))
+                    }
+                };
+
+                // Create AbsentStreamStateElement
+                Ok(StateElement::AbsentStream(AbsentStreamStateElement::new(
+                    single_stream,
+                    duration_const,
+                )))
+            }
+
+            PatternExpression::Grouped { pattern } => {
+                // Grouped patterns just recurse into the inner pattern
+                Self::convert_pattern_expression(pattern, catalog)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1163,6 +1536,414 @@ mod tests {
             err_msg.contains("Type validation failed"),
             "Error message should mention type validation: {}",
             err_msg
+        );
+    }
+
+    // ============================================================================
+    // Pattern Conversion Tests
+    // ============================================================================
+
+    #[test]
+    fn test_convert_pattern_basic_stream() {
+        use sqlparser::ast::{Ident, ObjectName, ObjectNamePart};
+
+        let catalog = setup_catalog();
+
+        // Test basic stream pattern: e1=StockStream
+        let pattern = PatternExpression::Stream {
+            alias: Some(Ident::new("e1")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+
+        let result = SqlConverter::convert_pattern_expression(&pattern, &catalog);
+        assert!(result.is_ok(), "Should convert basic stream pattern");
+
+        let state_element = result.unwrap();
+        match state_element {
+            StateElement::Stream(stream_state) => {
+                assert_eq!(stream_state.get_stream_id(), "StockStream");
+            }
+            _ => panic!("Expected Stream state element"),
+        }
+    }
+
+    #[test]
+    fn test_convert_pattern_sequence() {
+        use sqlparser::ast::{Ident, ObjectName, ObjectNamePart};
+
+        let catalog = setup_catalog();
+
+        // Test sequence: A -> B
+        let stream_a = PatternExpression::Stream {
+            alias: Some(Ident::new("e1")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+        let stream_b = PatternExpression::Stream {
+            alias: Some(Ident::new("e2")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+        let pattern = PatternExpression::Sequence {
+            first: Box::new(stream_a),
+            second: Box::new(stream_b),
+        };
+
+        let result = SqlConverter::convert_pattern_expression(&pattern, &catalog);
+        assert!(result.is_ok(), "Should convert sequence pattern");
+
+        let state_element = result.unwrap();
+        match state_element {
+            StateElement::Next(next) => {
+                // Verify first and second are Stream elements
+                assert!(matches!(next.state_element.as_ref(), StateElement::Stream(_)));
+                assert!(matches!(next.next_state_element.as_ref(), StateElement::Stream(_)));
+            }
+            _ => panic!("Expected Next state element for sequence"),
+        }
+    }
+
+    #[test]
+    fn test_convert_pattern_count_quantifier() {
+        use sqlparser::ast::{Ident, ObjectName, ObjectNamePart};
+
+        let catalog = setup_catalog();
+
+        // Test count: A{3,5}
+        let stream_a = PatternExpression::Stream {
+            alias: Some(Ident::new("e1")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+        let pattern = PatternExpression::Count {
+            pattern: Box::new(stream_a),
+            min_count: 3,
+            max_count: 5,
+        };
+
+        let result = SqlConverter::convert_pattern_expression(&pattern, &catalog);
+        assert!(result.is_ok(), "Should convert count quantifier pattern");
+
+        let state_element = result.unwrap();
+        match state_element {
+            StateElement::Count(count) => {
+                assert_eq!(count.min_count, 3);
+                assert_eq!(count.max_count, 5);
+            }
+            _ => panic!("Expected Count state element"),
+        }
+    }
+
+    #[test]
+    fn test_convert_pattern_logical_and() {
+        use sqlparser::ast::{Ident, ObjectName, ObjectNamePart};
+
+        let catalog = setup_catalog();
+
+        // Test logical AND: A AND B
+        let stream_a = PatternExpression::Stream {
+            alias: Some(Ident::new("e1")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+        let stream_b = PatternExpression::Stream {
+            alias: Some(Ident::new("e2")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+        let pattern = PatternExpression::Logical {
+            left: Box::new(stream_a),
+            op: PatternLogicalOp::And,
+            right: Box::new(stream_b),
+        };
+
+        let result = SqlConverter::convert_pattern_expression(&pattern, &catalog);
+        assert!(result.is_ok(), "Should convert logical AND pattern");
+
+        let state_element = result.unwrap();
+        match state_element {
+            StateElement::Logical(logical) => {
+                assert_eq!(logical.logical_type, LogicalStateElementType::And);
+            }
+            _ => panic!("Expected Logical state element"),
+        }
+    }
+
+    #[test]
+    fn test_convert_pattern_every() {
+        use sqlparser::ast::{Ident, ObjectName, ObjectNamePart};
+
+        let catalog = setup_catalog();
+
+        // Test EVERY: EVERY(A -> B)
+        let stream_a = PatternExpression::Stream {
+            alias: Some(Ident::new("e1")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+        let stream_b = PatternExpression::Stream {
+            alias: Some(Ident::new("e2")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+        let sequence = PatternExpression::Sequence {
+            first: Box::new(stream_a),
+            second: Box::new(stream_b),
+        };
+        let pattern = PatternExpression::Every {
+            pattern: Box::new(sequence),
+        };
+
+        let result = SqlConverter::convert_pattern_expression(&pattern, &catalog);
+        assert!(result.is_ok(), "Should convert EVERY pattern");
+
+        let state_element = result.unwrap();
+        match state_element {
+            StateElement::Every(every) => {
+                // Inner should be a sequence
+                assert!(matches!(every.state_element.as_ref(), StateElement::Next(_)));
+            }
+            _ => panic!("Expected Every state element"),
+        }
+    }
+
+    #[test]
+    fn test_convert_pattern_input_pattern_mode() {
+        use sqlparser::ast::{Ident, ObjectName, ObjectNamePart};
+
+        let catalog = setup_catalog();
+
+        // Test convert_pattern_input with PATTERN mode
+        let stream_a = PatternExpression::Stream {
+            alias: Some(Ident::new("e1")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+
+        let result = SqlConverter::convert_pattern_input(
+            &PatternMode::Pattern,
+            &stream_a,
+            &None,
+            &catalog,
+        );
+
+        assert!(result.is_ok(), "Should convert pattern input");
+        let input_stream = result.unwrap();
+        assert!(matches!(input_stream, InputStream::State(_)));
+    }
+
+    #[test]
+    fn test_convert_pattern_input_sequence_mode() {
+        use sqlparser::ast::{Ident, ObjectName, ObjectNamePart};
+
+        let catalog = setup_catalog();
+
+        // Test convert_pattern_input with SEQUENCE mode
+        let stream_a = PatternExpression::Stream {
+            alias: Some(Ident::new("e1")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+        let stream_b = PatternExpression::Stream {
+            alias: Some(Ident::new("e2")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+        let sequence = PatternExpression::Sequence {
+            first: Box::new(stream_a),
+            second: Box::new(stream_b),
+        };
+
+        let result = SqlConverter::convert_pattern_input(
+            &PatternMode::Sequence,
+            &sequence,
+            &None,
+            &catalog,
+        );
+
+        assert!(result.is_ok(), "Should convert sequence input");
+        let input_stream = result.unwrap();
+        assert!(matches!(input_stream, InputStream::State(_)));
+    }
+
+    #[test]
+    fn test_convert_pattern_with_within_time() {
+        use sqlparser::ast::{DateTimeField, Ident, Interval, ObjectName, ObjectNamePart, Value};
+
+        let catalog = setup_catalog();
+
+        // Test WITHIN time constraint
+        let stream_a = PatternExpression::Stream {
+            alias: Some(Ident::new("e1")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+
+        // Create Interval expression using Value::Number which doesn't need span
+        let within = WithinConstraint::Time(Box::new(SqlExpr::Interval(Interval {
+            value: Box::new(SqlExpr::Value(Value::SingleQuotedString("10".to_string()).into())),
+            leading_field: Some(DateTimeField::Second),
+            leading_precision: None,
+            last_field: None,
+            fractional_seconds_precision: None,
+        })));
+
+        let result = SqlConverter::convert_pattern_input(
+            &PatternMode::Pattern,
+            &stream_a,
+            &Some(within),
+            &catalog,
+        );
+
+        assert!(result.is_ok(), "Should convert pattern with WITHIN");
+        if let InputStream::State(state) = result.unwrap() {
+            assert!(state.within_time.is_some());
+        } else {
+            panic!("Expected State input stream");
+        }
+    }
+
+    #[test]
+    fn test_convert_pattern_with_within_events_unsupported() {
+        use sqlparser::ast::{Ident, ObjectName, ObjectNamePart};
+
+        let catalog = setup_catalog();
+
+        // Test WITHIN event count constraint - currently not supported
+        let stream_a = PatternExpression::Stream {
+            alias: Some(Ident::new("e1")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+
+        let within = WithinConstraint::EventCount(100);
+
+        let result = SqlConverter::convert_pattern_input(
+            &PatternMode::Pattern,
+            &stream_a,
+            &Some(within),
+            &catalog,
+        );
+
+        // WITHIN EVENTS is not yet supported - should return error
+        assert!(result.is_err(), "WITHIN EVENTS should be unsupported");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("WITHIN") && err.contains("EVENTS") && err.contains("not yet supported"),
+            "Error should mention unsupported: {}",
+            err
+        );
+    }
+
+    // ============================================================================
+    // Pattern Validation Integration Tests
+    // ============================================================================
+
+    #[test]
+    fn test_convert_pattern_validates_every_in_sequence() {
+        use sqlparser::ast::{Ident, ObjectName, ObjectNamePart};
+
+        let catalog = setup_catalog();
+
+        // EVERY in SEQUENCE mode should be rejected
+        let stream_a = PatternExpression::Stream {
+            alias: Some(Ident::new("e1")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+        let pattern = PatternExpression::Every {
+            pattern: Box::new(stream_a),
+        };
+
+        let result = SqlConverter::convert_pattern_input(
+            &PatternMode::Sequence,
+            &pattern,
+            &None,
+            &catalog,
+        );
+
+        assert!(result.is_err(), "EVERY in SEQUENCE should be rejected");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("EVERY not allowed in SEQUENCE mode"),
+            "Error should mention EVERY not allowed: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_convert_pattern_validates_zero_count() {
+        use sqlparser::ast::{Ident, ObjectName, ObjectNamePart};
+
+        let catalog = setup_catalog();
+
+        // A{0,5} should be rejected (min_count must be >= 1)
+        let stream_a = PatternExpression::Stream {
+            alias: Some(Ident::new("e1")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+        let pattern = PatternExpression::Count {
+            pattern: Box::new(stream_a),
+            min_count: 0,
+            max_count: 5,
+        };
+
+        let result = SqlConverter::convert_pattern_input(
+            &PatternMode::Pattern,
+            &pattern,
+            &None,
+            &catalog,
+        );
+
+        assert!(result.is_err(), "Zero min_count should be rejected");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("min_count must be >= 1"),
+            "Error should mention min_count: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_convert_pattern_validates_nested_every() {
+        use sqlparser::ast::{Ident, ObjectName, ObjectNamePart};
+
+        let catalog = setup_catalog();
+
+        // (EVERY A) -> B should be rejected (EVERY must be at top level)
+        let stream_a = PatternExpression::Stream {
+            alias: Some(Ident::new("e1")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+        let stream_b = PatternExpression::Stream {
+            alias: Some(Ident::new("e2")),
+            stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new("StockStream"))]),
+            filter: None,
+        };
+        let every_a = PatternExpression::Every {
+            pattern: Box::new(stream_a),
+        };
+        let pattern = PatternExpression::Sequence {
+            first: Box::new(every_a),
+            second: Box::new(stream_b),
+        };
+
+        let result = SqlConverter::convert_pattern_input(
+            &PatternMode::Pattern,
+            &pattern,
+            &None,
+            &catalog,
+        );
+
+        assert!(result.is_err(), "Nested EVERY should be rejected");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("EVERY must be at top level"),
+            "Error should mention EVERY at top level: {}",
+            err
         );
     }
 }

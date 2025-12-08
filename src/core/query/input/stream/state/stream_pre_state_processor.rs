@@ -96,17 +96,23 @@ pub struct StreamPreStateProcessor {
     // Java: protected boolean isSuccessCondition
     success_condition: bool,
 
+    // EVERY pattern flag
+    // Set to true if this processor is part of an EVERY pattern
+    // Allows detection of EVERY semantics without checking post processors
+    is_every_pattern: bool,
+
     // Processor chain
     next_processor: Option<Arc<Mutex<dyn Processor>>>,
 
     // PostStateProcessor for this processor (CRITICAL for chaining)
     this_state_post_processor: Option<Arc<Mutex<dyn PostStateProcessor>>>,
 
-    // Condition function (simplified - will be expression executor in full impl)
-    // For now: always returns true (matches all events)
-    // In full implementation: would be ExpressionExecutor evaluating WHERE clause
+    // Condition function for filter evaluation
+    // Receives StateEvent containing all matched events (e1, e2, ...)
+    // This enables cross-stream references like: e2[price > e1.price]
+    // The current event being evaluated is already in StateEvent at position self.state_id
     // Uses Arc for shareability across clones (partitioned execution, state restoration)
-    condition_fn: Option<Arc<dyn Fn(&StreamEvent) -> bool + Send + Sync>>,
+    condition_fn: Option<Arc<dyn Fn(&StateEvent) -> bool + Send + Sync>>,
 }
 
 // Manual Debug implementation (condition_fn doesn't implement Debug)
@@ -146,6 +152,7 @@ impl StreamPreStateProcessor {
             query_context,
             state: Arc::new(Mutex::new(StreamPreState::new())),
             shared_state: Arc::new(ProcessorSharedState::new()),
+            is_every_pattern: false, // Set later by PatternChainBuilder if EVERY
             stream_event_cloner: None,
             state_event_cloner: None,
             within_time: None, // No constraint by default
@@ -229,22 +236,45 @@ impl StreamPreStateProcessor {
     ///
     /// **Usage**:
     /// ```rust,ignore
-    /// processor.set_condition(|event| {
-    ///     // Check event.before_window_data, etc.
-    ///     true // matches
+    /// // For processor at position 0: e1[value > 100]
+    /// e1_processor.set_condition(|state_event| {
+    ///     // Current event is at position 0
+    ///     if let Some(e1) = state_event.get_stream_event(0) {
+    ///         return e1.before_window_data[0].as_float().unwrap_or(0.0) > 100.0;
+    ///     }
+    ///     false
+    /// });
+    ///
+    /// // For processor at position 1: e2[price > e1.price]
+    /// e2_processor.set_condition(|state_event| {
+    ///     // Access previous event e1 from position 0
+    ///     if let Some(e1) = state_event.get_stream_event(0) {
+    ///         // Access current event e2 from position 1
+    ///         if let Some(e2) = state_event.get_stream_event(1) {
+    ///             let e1_price = e1.before_window_data[0].as_float().unwrap_or(0.0);
+    ///             let e2_price = e2.before_window_data[0].as_float().unwrap_or(0.0);
+    ///             return e2_price > e1_price;
+    ///         }
+    ///     }
+    ///     false
     /// });
     /// ```
     pub fn set_condition<F>(&mut self, condition: F)
     where
-        F: Fn(&StreamEvent) -> bool + Send + Sync + 'static,
+        F: Fn(&StateEvent) -> bool + Send + Sync + 'static,
     {
         self.condition_fn = Some(Arc::new(condition));
     }
 
-    /// Check if a stream event matches this processor's condition
-    fn matches_condition(&self, stream_event: &StreamEvent) -> bool {
+    /// Check if a state event matches this processor's condition
+    ///
+    /// **Parameters**:
+    /// - `state_event`: Full StateEvent with all matched events (including current at self.state_id)
+    ///
+    /// **Returns**: true if event matches condition, false otherwise
+    fn matches_condition(&self, state_event: &StateEvent) -> bool {
         match &self.condition_fn {
-            Some(f) => f(stream_event),
+            Some(f) => f(state_event),
             None => true, // No condition = match all
         }
     }
@@ -319,6 +349,21 @@ impl StreamPreStateProcessor {
         self.state_event_cloner = Some(cloner);
     }
 
+    /// Get state event cloner as Option (for CountPreStateProcessor EVERY logic)
+    pub fn get_state_event_cloner_option(&self) -> Option<&StateEventCloner> {
+        self.state_event_cloner.as_ref()
+    }
+
+    /// Set EVERY pattern flag
+    pub fn set_every_pattern_flag(&mut self, is_every: bool) {
+        self.is_every_pattern = is_every;
+    }
+
+    /// Get EVERY pattern flag
+    pub fn is_every_pattern(&self) -> bool {
+        self.is_every_pattern
+    }
+
     /// Get this state post processor (for CountPreStateProcessor)
     pub fn get_this_state_post_processor(&self) -> Option<Arc<Mutex<dyn PostStateProcessor>>> {
         self.this_state_post_processor.clone()
@@ -339,6 +384,7 @@ impl StreamPreStateProcessor {
             query_context: Arc::clone(&self.query_context),
             state: Arc::clone(&self.state),
             shared_state: Arc::clone(&self.shared_state),
+            is_every_pattern: self.is_every_pattern,
             stream_event_cloner: self.stream_event_cloner.clone(),
             state_event_cloner: self.state_event_cloner.clone(),
             within_time: self.within_time,
@@ -379,6 +425,7 @@ impl Processor for StreamPreStateProcessor {
             query_context: Arc::clone(query_context), // Use new query context
             state: Arc::clone(&self.state),           // Shared state across clones
             shared_state: Arc::clone(&self.shared_state), // Shared state across clones
+            is_every_pattern: self.is_every_pattern,
             stream_event_cloner: self.stream_event_cloner.clone(),
             state_event_cloner: self.state_event_cloner.clone(),
             within_time: self.within_time,
@@ -457,6 +504,26 @@ impl PreStateProcessor for StreamPreStateProcessor {
     }
 
     fn reset_state(&mut self) {
+        // EVERY pattern handling: Check if this is the start of an EVERY pattern
+        // If so, we should NOT clear pending to allow pattern restart with new events
+        let should_skip_reset = self.is_start_state && self.is_every_pattern;
+
+        if should_skip_reset {
+            // EVERY pattern: Don't clear pending, keep accepting new events
+            // Just reinitialize so new events can start new pattern instances
+            let mut state = self.state.lock().unwrap();
+
+            // Only reinitialize if new list is empty
+            if state.new_count() == 0 {
+                state.reset_initialized();
+                drop(state); // Release lock before calling init
+                self.init();
+            }
+            // Don't clear pending - this allows pattern to restart with accumulated events
+            return;
+        }
+
+        // Normal reset logic for non-EVERY patterns
         let mut state = self.state.lock().unwrap();
         state.clear_pending();
 
@@ -512,11 +579,16 @@ impl PreStateProcessor for StreamPreStateProcessor {
             // Clone the incoming StreamEvent
             let cloned_stream = self.clone_stream_event(&stream_event);
 
+            // Ensure StateEvent has enough positions for this processor's state_id
+            // Without this, set_event() will fail silently if position >= stream_events.len()
+            candidate_state.expand_to_size(self.state_id + 1);
+
             // Add the StreamEvent to the StateEvent at this processor's position
             candidate_state.set_event(self.state_id, cloned_stream);
 
             // Check if the event matches our condition
-            if self.matches_condition(&stream_event) {
+            // StateEvent contains all events including current one at self.state_id
+            if self.matches_condition(&candidate_state) {
                 // Match! This state progresses
                 return_events.push(candidate_state.clone());
 
@@ -617,15 +689,10 @@ impl PreStateProcessor for StreamPreStateProcessor {
         pending_list_mut.retain(|state_event| {
             if self.is_expired(state_event, timestamp) {
                 // Mark as EXPIRED (better lifecycle tracking)
-                let mut expired = state_event.clone();
-                expired.event_type = crate::core::event::complex_event::ComplexEventType::Expired;
-
-                // TODO Phase 2: Notify 'every' processor if configured
-                // if let Some(ref next_every) = self.next_every_state_pre_processor {
-                //     if let Ok(mut guard) = next_every.lock() {
-                //         guard.add_every_state(expired);
-                //     }
-                // }
+                let _expired = state_event.clone();
+                // Note: StreamPreStateProcessor handles expiration directly by removing from pending.
+                // More complex processors (CountPreStateProcessor, etc.) may notify callbacks
+                // for cleanup and restart logic when events expire.
 
                 false // Remove from pending
             } else {
@@ -947,11 +1014,13 @@ mod tests {
     fn test_process_and_return_with_condition() {
         let mut processor = create_test_processor(0, true, StateType::Pattern);
 
-        // Condition: price > 100
-        processor.set_condition(|event| {
-            if let Some(value) = event.before_window_data.get(0) {
-                if let AttributeValue::Float(price) = value {
-                    return *price > 100.0;
+        // Condition: price > 100 (accessing from position 0 in StateEvent)
+        processor.set_condition(|state_event| {
+            if let Some(stream_event) = state_event.get_stream_event(0) {
+                if let Some(value) = stream_event.before_window_data.get(0) {
+                    if let AttributeValue::Float(price) = value {
+                        return *price > 100.0;
+                    }
                 }
             }
             false
