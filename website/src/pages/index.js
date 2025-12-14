@@ -139,6 +139,30 @@ INSERT INTO FraudAlerts;`,
       language: 'sql',
       reversed: false,
     },
+    {
+      title: 'Dynamic Risk Classification',
+      icon: '⚖️',
+      scenario:
+        'Classify incoming events dynamically using SQL CASE expressions. Categorize transactions by risk level based on multiple conditions and route them to appropriate handlers.',
+      code: `-- Classify transactions by risk level
+SELECT tx_id, amount, country,
+       CASE
+           WHEN amount > 10000 AND country NOT IN ('US', 'UK')
+               THEN 'HIGH_RISK'
+           WHEN amount > 5000 THEN 'MEDIUM_RISK'
+           WHEN amount > 1000 THEN 'LOW_RISK'
+           ELSE 'MINIMAL_RISK'
+       END AS risk_level,
+       CASE type
+           WHEN 'WIRE' THEN 'Requires Review'
+           WHEN 'ACH' THEN 'Auto-process'
+           ELSE 'Manual Check'
+       END AS action
+FROM Transactions
+INSERT INTO RiskClassified;`,
+      language: 'sql',
+      reversed: true,
+    },
   ];
 
   return (

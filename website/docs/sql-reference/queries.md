@@ -182,17 +182,31 @@ INSERT INTO Processed;
 
 ### Conditional Expressions
 
+Eventflux supports both **Searched CASE** and **Simple CASE** syntax:
+
 ```sql
-SELECT
-    symbol,
-    CASE
-        WHEN price > 100 THEN 'HIGH'
-        WHEN price > 50 THEN 'MEDIUM'
-        ELSE 'LOW'
-    END AS price_tier
+-- Searched CASE: boolean conditions
+SELECT symbol,
+       CASE
+           WHEN price > 100 THEN 'HIGH'
+           WHEN price > 50 THEN 'MEDIUM'
+           ELSE 'LOW'
+       END AS price_tier
 FROM StockTrades
 INSERT INTO Categorized;
+
+-- Simple CASE: value matching
+SELECT symbol,
+       CASE status
+           WHEN 'ACTIVE' THEN 1
+           WHEN 'PENDING' THEN 2
+           ELSE 0
+       END AS status_code
+FROM Orders
+INSERT INTO StatusCodes;
 ```
+
+See [Functions Reference](/docs/sql-reference/functions#case-expression) for advanced CASE patterns including nested expressions.
 
 ### COALESCE and NULLIF
 

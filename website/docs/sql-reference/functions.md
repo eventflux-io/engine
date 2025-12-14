@@ -99,9 +99,14 @@ INSERT INTO ProcessedUsers;
 
 ### CASE Expression
 
+CASE expressions provide SQL-standard conditional logic with full support for both **Searched CASE** and **Simple CASE** syntax.
+
+#### Searched CASE (Boolean Conditions)
+
+Evaluates boolean conditions in order, returning the result of the first matching condition:
+
 ```sql
-SELECT symbol,
-       price,
+SELECT symbol, price,
        CASE
            WHEN price > 1000 THEN 'EXPENSIVE'
            WHEN price > 100 THEN 'MODERATE'
@@ -111,6 +116,100 @@ SELECT symbol,
 FROM Stocks
 INSERT INTO Categorized;
 ```
+
+#### Simple CASE (Value Matching)
+
+Compares an expression against multiple values:
+
+```sql
+SELECT symbol, status,
+       CASE status
+           WHEN 'ACTIVE' THEN 1
+           WHEN 'PENDING' THEN 2
+           WHEN 'INACTIVE' THEN 3
+           ELSE 0
+       END AS status_code
+FROM Orders
+INSERT INTO StatusCodes;
+```
+
+#### Nested CASE Expressions
+
+CASE expressions can be nested for complex decision trees:
+
+```sql
+SELECT symbol, price, volume,
+       CASE
+           WHEN price > 100 THEN
+               CASE
+                   WHEN volume > 1000 THEN 'PREMIUM_HIGH_VOL'
+                   ELSE 'PREMIUM_LOW_VOL'
+               END
+           ELSE
+               CASE
+                   WHEN volume > 1000 THEN 'BUDGET_HIGH_VOL'
+                   ELSE 'BUDGET_LOW_VOL'
+               END
+       END AS classification
+FROM Trades
+INSERT INTO Classified;
+```
+
+#### CASE in WHERE Clause
+
+Use CASE for conditional filtering:
+
+```sql
+SELECT *
+FROM Transactions
+WHERE CASE
+          WHEN amount > 10000 THEN true
+          ELSE false
+      END
+INSERT INTO HighValueTransactions;
+```
+
+#### Multiple CASE Expressions
+
+Combine multiple CASE expressions in a single query:
+
+```sql
+SELECT symbol, price, volume,
+       CASE
+           WHEN price > 100 THEN 'EXPENSIVE'
+           WHEN price > 50 THEN 'MODERATE'
+           ELSE 'CHEAP'
+       END AS price_tier,
+       CASE
+           WHEN volume > 1000 THEN 'HIGH_VOLUME'
+           WHEN volume > 500 THEN 'MEDIUM_VOLUME'
+           ELSE 'LOW_VOLUME'
+       END AS volume_tier
+FROM MarketData
+INSERT INTO Tiered;
+```
+
+#### CASE with Complex Expressions
+
+Use arithmetic and logical expressions in CASE conditions:
+
+```sql
+SELECT symbol, price, volume,
+       CASE
+           WHEN price * volume > 100000 THEN 'MEGA_TRADE'
+           WHEN price * volume > 10000 THEN 'LARGE_TRADE'
+           ELSE 'SMALL_TRADE'
+       END AS trade_size
+FROM Trades
+INSERT INTO SizedTrades;
+```
+
+:::tip CASE Expression Tips
+- CASE evaluates conditions in order and returns the first match (short-circuit evaluation)
+- Always include ELSE to handle unmatched cases (defaults to NULL if omitted)
+- All result expressions must return compatible types
+- Simple CASE uses equality comparison; use Searched CASE for complex conditions
+:::
 
 ### COALESCE
 
