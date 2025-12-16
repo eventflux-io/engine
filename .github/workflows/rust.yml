@@ -8,6 +8,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Disable incremental compilation to save disk space
+  CARGO_INCREMENTAL: 0
+  # Reduce debuginfo to save disk space
+  RUSTFLAGS: "-C debuginfo=0"
 
 jobs:
   build:
@@ -29,7 +33,27 @@ jobs:
     - uses: actions/checkout@v4
       with:
         submodules: recursive
-    - name: Build
-      run: cargo build --verbose
+
+    - name: Free disk space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        df -h
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-action@stable
+
+    - name: Cache cargo registry and target
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
     - name: Run tests
       run: cargo test --verbose
