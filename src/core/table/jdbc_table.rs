@@ -57,6 +57,7 @@ impl JdbcTable {
             AttributeValue::Float(f) => Value::Real(*f as f64),
             AttributeValue::Double(d) => Value::Real(*d),
             AttributeValue::Bool(b) => Value::Integer(if *b { 1 } else { 0 }),
+            AttributeValue::Bytes(b) => Value::Blob(b.clone()),
             AttributeValue::Null => Value::Null,
             AttributeValue::Object(_) => Value::Null,
         }
@@ -69,7 +70,7 @@ impl JdbcTable {
                 ValueRef::Integer(v) => AttributeValue::Long(v),
                 ValueRef::Real(v) => AttributeValue::Double(v),
                 ValueRef::Text(v) => AttributeValue::String(String::from_utf8_lossy(v).to_string()),
-                ValueRef::Blob(_) => AttributeValue::Null,
+                ValueRef::Blob(v) => AttributeValue::Bytes(v.to_vec()),
             })
             .collect()
     }

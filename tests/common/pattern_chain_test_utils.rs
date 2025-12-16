@@ -259,7 +259,7 @@ impl PostStateProcessor for CollectorPostProcessor {
 
     fn get_next_every_state_pre_processor(
         &self,
-    ) -> Option<Arc<Mutex<dyn eventflux_rust::core::query::input::stream::state::pre_state_processor::PreStateProcessor>>> {
+    ) -> Option<Arc<Mutex<dyn eventflux_rust::core::query::input::stream::state::pre_state_processor::PreStateProcessor>>>{
         self.original
             .lock()
             .unwrap()

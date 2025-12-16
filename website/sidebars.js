@@ -28,6 +28,16 @@ const sidebars = {
     },
     {
       type: 'category',
+      label: 'Connectors',
+      collapsed: false,
+      items: [
+        'connectors/overview',
+        'connectors/rabbitmq',
+        'connectors/mappers',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Architecture',
       collapsed: true,
       items: [

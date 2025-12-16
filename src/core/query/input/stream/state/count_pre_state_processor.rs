@@ -150,8 +150,8 @@ impl PreStateProcessor for CountPreStateProcessor {
         let state_id = self.stream_processor.state_id();
 
         // Check if this is EVERY pattern start state
-        let is_every_start = self.stream_processor.is_start_state()
-            && self.stream_processor.is_every_pattern();
+        let is_every_start =
+            self.stream_processor.is_start_state() && self.stream_processor.is_every_pattern();
 
         // Access pending states - clone the list to avoid borrow conflicts
         let mut pending_states: Vec<StateEvent> = {

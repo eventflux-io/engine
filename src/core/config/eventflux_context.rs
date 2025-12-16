@@ -105,8 +105,9 @@ pub struct EventFluxContext {
     /// Table factories for creating table implementations
     table_factories: Arc<RwLock<HashMap<String, Box<dyn crate::core::extension::TableFactory>>>>,
     /// Collection aggregation functions (for pattern queries)
-    collection_aggregation_functions:
-        Arc<RwLock<HashMap<String, Box<dyn crate::core::extension::CollectionAggregationFunction>>>>,
+    collection_aggregation_functions: Arc<
+        RwLock<HashMap<String, Box<dyn crate::core::extension::CollectionAggregationFunction>>>,
+    >,
     /// Configurations for data sources keyed by name
     data_source_configs: Arc<RwLock<HashMap<String, DataSourceConfig>>>,
     /// Stores registered data sources. Key: data source name.
@@ -391,8 +392,8 @@ impl EventFluxContext {
         use crate::core::executor::function::builtin_wrapper::register_builtin_scalar_functions;
         use crate::core::extension::{
             CollectionAvgFunction, CollectionCountFunction, CollectionMaxFunction,
-            CollectionMinFunction, CollectionStdDevFunction, CollectionSumFunction,
-            LogSinkFactory, TimerSourceFactory,
+            CollectionMinFunction, CollectionStdDevFunction, CollectionSumFunction, LogSinkFactory,
+            TimerSourceFactory,
         };
         use crate::core::query::processor::stream::window::{
             CronWindowFactory, ExternalTimeBatchWindowFactory, ExternalTimeWindowFactory,
@@ -405,6 +406,8 @@ impl EventFluxContext {
             MaxForeverAttributeAggregatorFactory, MinAttributeAggregatorFactory,
             MinForeverAttributeAggregatorFactory, SumAttributeAggregatorFactory,
         };
+        use crate::core::stream::input::source::rabbitmq_source::RabbitMQSourceFactory;
+        use crate::core::stream::output::sink::rabbitmq_sink::RabbitMQSinkFactory;
         use crate::core::table::{CacheTableFactory, InMemoryTableFactory, JdbcTableFactory};
 
         self.add_window_factory("length".to_string(), Box::new(LengthWindowFactory));
@@ -467,15 +470,47 @@ impl EventFluxContext {
         self.add_table_factory("jdbc".to_string(), Box::new(JdbcTableFactory));
         self.add_table_factory("cache".to_string(), Box::new(CacheTableFactory));
         self.add_source_factory("timer".to_string(), Box::new(TimerSourceFactory));
+        self.add_source_factory("rabbitmq".to_string(), Box::new(RabbitMQSourceFactory));
         self.add_sink_factory("log".to_string(), Box::new(LogSinkFactory));
+        self.add_sink_factory("rabbitmq".to_string(), Box::new(RabbitMQSinkFactory));
+
+        // Mapper factories for format = 'json' / 'csv' / 'bytes'
+        use crate::core::extension::{
+            BytesSinkMapperFactory, BytesSourceMapperFactory, CsvSinkMapperFactory,
+            CsvSourceMapperFactory, JsonSinkMapperFactory, JsonSourceMapperFactory,
+        };
+        self.add_source_mapper_factory("json".to_string(), Box::new(JsonSourceMapperFactory));
+        self.add_sink_mapper_factory("json".to_string(), Box::new(JsonSinkMapperFactory));
+        self.add_source_mapper_factory("csv".to_string(), Box::new(CsvSourceMapperFactory));
+        self.add_sink_mapper_factory("csv".to_string(), Box::new(CsvSinkMapperFactory));
+        self.add_source_mapper_factory("bytes".to_string(), Box::new(BytesSourceMapperFactory));
+        self.add_sink_mapper_factory("bytes".to_string(), Box::new(BytesSinkMapperFactory));
 
         // Collection aggregation functions (for pattern queries)
-        self.add_collection_aggregation_function("count".to_string(), Box::new(CollectionCountFunction));
-        self.add_collection_aggregation_function("sum".to_string(), Box::new(CollectionSumFunction));
-        self.add_collection_aggregation_function("avg".to_string(), Box::new(CollectionAvgFunction));
-        self.add_collection_aggregation_function("min".to_string(), Box::new(CollectionMinFunction));
-        self.add_collection_aggregation_function("max".to_string(), Box::new(CollectionMaxFunction));
-        self.add_collection_aggregation_function("stdDev".to_string(), Box::new(CollectionStdDevFunction));
+        self.add_collection_aggregation_function(
+            "count".to_string(),
+            Box::new(CollectionCountFunction),
+        );
+        self.add_collection_aggregation_function(
+            "sum".to_string(),
+            Box::new(CollectionSumFunction),
+        );
+        self.add_collection_aggregation_function(
+            "avg".to_string(),
+            Box::new(CollectionAvgFunction),
+        );
+        self.add_collection_aggregation_function(
+            "min".to_string(),
+            Box::new(CollectionMinFunction),
+        );
+        self.add_collection_aggregation_function(
+            "max".to_string(),
+            Box::new(CollectionMaxFunction),
+        );
+        self.add_collection_aggregation_function(
+            "stdDev".to_string(),
+            Box::new(CollectionStdDevFunction),
+        );
 
         register_builtin_scalar_functions(self);
     }

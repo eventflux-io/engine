@@ -26,6 +26,7 @@ Eventflux has **1,400+ passing tests** covering all core functionality:
 | **Joins** | Production Ready | INNER, LEFT, RIGHT, FULL |
 | **Aggregations** | Production Ready | COUNT, SUM, AVG, MIN, MAX, STDDEV |
 | **State Management** | Production Ready | Checkpointing, Recovery |
+| **RabbitMQ Connector** | Production Ready | Source & Sink with JSON/CSV |
 
 ### SQL-First Design
 

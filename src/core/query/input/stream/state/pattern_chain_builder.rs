@@ -33,7 +33,11 @@ pub struct LogicalGroupConfig {
 }
 
 impl LogicalGroupConfig {
-    pub fn new(logical_type: LogicalType, left: PatternStepConfig, right: PatternStepConfig) -> Self {
+    pub fn new(
+        logical_type: LogicalType,
+        left: PatternStepConfig,
+        right: PatternStepConfig,
+    ) -> Self {
         Self {
             logical_type,
             left,
@@ -350,7 +354,7 @@ impl PatternChainBuilder {
                         .unwrap()
                         .stream_processor
                         .set_this_state_post_processor(
-                            post.clone() as Arc<Mutex<dyn PostStateProcessor>>,
+                            post.clone() as Arc<Mutex<dyn PostStateProcessor>>
                         );
 
                     // Store processors
@@ -433,18 +437,12 @@ impl PatternChainBuilder {
                         .set_partner_pre_processor(left_pre.clone());
 
                     // Wire this_state_pre_processor for each post
-                    left_post
-                        .lock()
-                        .unwrap()
-                        .set_this_state_pre_processor(
-                            left_pre.clone() as Arc<Mutex<dyn PreStateProcessor>>,
-                        );
-                    right_post
-                        .lock()
-                        .unwrap()
-                        .set_this_state_pre_processor(
-                            right_pre.clone() as Arc<Mutex<dyn PreStateProcessor>>,
-                        );
+                    left_post.lock().unwrap().set_this_state_pre_processor(
+                        left_pre.clone() as Arc<Mutex<dyn PreStateProcessor>>
+                    );
+                    right_post.lock().unwrap().set_this_state_pre_processor(
+                        right_pre.clone() as Arc<Mutex<dyn PreStateProcessor>>
+                    );
 
                     // Store processors - left side is the "main" entry point
                     pre_processors.push(left_pre.clone() as Arc<Mutex<dyn PreStateProcessor>>);

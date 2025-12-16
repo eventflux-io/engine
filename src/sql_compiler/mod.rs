@@ -50,9 +50,9 @@ pub use error::{
 };
 pub use expansion::SelectExpander;
 pub use normalization::{is_create_stream, normalize_stream_syntax};
+pub use pattern_validation::{PatternValidationError, PatternValidator};
 pub use type_inference::{TypeContext, TypeInferenceEngine};
 pub use type_mapping::{attribute_type_to_sql_type, sql_type_to_attribute_type};
-pub use pattern_validation::{PatternValidationError, PatternValidator};
 pub use with_clause::{extract_with_options, validate_with_clause};
 
 /// Parse a complete SQL application with multiple statements

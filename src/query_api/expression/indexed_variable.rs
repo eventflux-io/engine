@@ -42,7 +42,7 @@ impl EventIndex {
                 if *idx < collection_size {
                     Some(*idx)
                 } else {
-                    None  // Out of bounds
+                    None // Out of bounds
                 }
             }
             EventIndex::Last => Some(collection_size - 1),

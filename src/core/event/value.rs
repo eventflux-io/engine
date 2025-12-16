@@ -18,6 +18,9 @@ pub enum AttributeValue {
     Float(f32),
     Double(f64),
     Bool(bool),
+    /// Raw binary data for passthrough scenarios (protobuf, msgpack, etc.)
+    /// Unlike Object, this variant can be cloned and serialized.
+    Bytes(Vec<u8>),
     Object(Option<Box<dyn Any + Send + Sync>>), // For OBJECT type, ensure thread safety
     #[default]
     Null,                         // To represent null values explicitly
@@ -33,6 +36,7 @@ impl fmt::Debug for AttributeValue {
             AttributeValue::Float(fl) => write!(f, "Float({fl:?})"),
             AttributeValue::Double(d) => write!(f, "Double({d:?})"),
             AttributeValue::Bool(b) => write!(f, "Bool({b:?})"),
+            AttributeValue::Bytes(bytes) => write!(f, "Bytes({} bytes)", bytes.len()),
             AttributeValue::Object(_) => write!(f, "Object(<opaque>)"), // Cannot inspect Box<dyn Any> easily
             AttributeValue::Null => write!(f, "Null"),
         }
@@ -49,6 +53,7 @@ impl PartialEq for AttributeValue {
             (AttributeValue::Float(a), AttributeValue::Float(b)) => a == b, // Note: float comparison issues
             (AttributeValue::Double(a), AttributeValue::Double(b)) => a == b, // Note: float comparison issues
             (AttributeValue::Bool(a), AttributeValue::Bool(b)) => a == b,
+            (AttributeValue::Bytes(a), AttributeValue::Bytes(b)) => a == b,
             (AttributeValue::Null, AttributeValue::Null) => true,
             // Comparing Box<dyn Any> is problematic.
             // Typically, objects are compared by reference or specific methods, not direct equality.
@@ -69,6 +74,7 @@ impl Clone for AttributeValue {
             AttributeValue::Float(f) => AttributeValue::Float(*f),
             AttributeValue::Double(d) => AttributeValue::Double(*d),
             AttributeValue::Bool(b) => AttributeValue::Bool(*b),
+            AttributeValue::Bytes(bytes) => AttributeValue::Bytes(bytes.clone()),
             AttributeValue::Object(_) => AttributeValue::Object(None),
             AttributeValue::Null => AttributeValue::Null,
         }
@@ -84,6 +90,7 @@ pub(crate) enum AttrSer {
     Float(f32),
     Double(f64),
     Bool(bool),
+    Bytes(Vec<u8>),
     Null,
 }
 
@@ -99,6 +106,7 @@ impl Serialize for AttributeValue {
             AttributeValue::Float(f) => AttrSer::Float(*f),
             AttributeValue::Double(d) => AttrSer::Double(*d),
             AttributeValue::Bool(b) => AttrSer::Bool(*b),
+            AttributeValue::Bytes(bytes) => AttrSer::Bytes(bytes.clone()),
             _ => AttrSer::Null,
         };
         repr.serialize(serializer)
@@ -118,6 +126,7 @@ impl<'de> Deserialize<'de> for AttributeValue {
             AttrSer::Float(f) => AttributeValue::Float(f),
             AttrSer::Double(d) => AttributeValue::Double(d),
             AttrSer::Bool(b) => AttributeValue::Bool(b),
+            AttrSer::Bytes(bytes) => AttributeValue::Bytes(bytes),
             AttrSer::Null => AttributeValue::Null,
         })
     }
@@ -182,6 +191,7 @@ impl AttributeValue {
             AttributeValue::Float(_) => Type::FLOAT,
             AttributeValue::Double(_) => Type::DOUBLE,
             AttributeValue::Bool(_) => Type::BOOL,
+            AttributeValue::Bytes(_) => Type::OBJECT, // Bytes stored as OBJECT type
             AttributeValue::Object(_) => Type::OBJECT,
             AttributeValue::Null => Type::OBJECT, // Null can be any type
         }
@@ -231,6 +241,7 @@ impl AttributeValue {
             AttributeValue::Float(f) => f.to_string(),
             AttributeValue::Double(d) => d.to_string(),
             AttributeValue::Bool(b) => b.to_string(),
+            AttributeValue::Bytes(bytes) => format!("<bytes:{}>", bytes.len()),
             AttributeValue::Object(_) => "<object>".to_string(),
             AttributeValue::Null => "null".to_string(),
         }
@@ -284,6 +295,7 @@ impl fmt::Display for AttributeValue {
             AttributeValue::Float(v) => write!(f, "{v}"),
             AttributeValue::Double(v) => write!(f, "{v}"),
             AttributeValue::Bool(b) => write!(f, "{b}"),
+            AttributeValue::Bytes(bytes) => write!(f, "<bytes:{}>", bytes.len()),
             AttributeValue::Object(_) => write!(f, "<object>"),
             AttributeValue::Null => write!(f, "null"),
         }

@@ -139,6 +139,63 @@ INSERT INTO FraudAlerts;`,
       language: 'sql',
       reversed: false,
     },
+    {
+      title: 'Dynamic Risk Classification',
+      icon: '⚖️',
+      scenario:
+        'Classify incoming events dynamically using SQL CASE expressions. Categorize transactions by risk level based on multiple conditions and route them to appropriate handlers.',
+      code: `-- Classify transactions by risk level
+SELECT tx_id, amount, country,
+       CASE
+           WHEN amount > 10000 AND country NOT IN ('US', 'UK')
+               THEN 'HIGH_RISK'
+           WHEN amount > 5000 THEN 'MEDIUM_RISK'
+           WHEN amount > 1000 THEN 'LOW_RISK'
+           ELSE 'MINIMAL_RISK'
+       END AS risk_level,
+       CASE type
+           WHEN 'WIRE' THEN 'Requires Review'
+           WHEN 'ACH' THEN 'Auto-process'
+           ELSE 'Manual Check'
+       END AS action
+FROM Transactions
+INSERT INTO RiskClassified;`,
+      language: 'sql',
+      reversed: true,
+    },
+    {
+      title: 'RabbitMQ Event Pipeline',
+      icon: '🐰',
+      scenario:
+        'Build end-to-end streaming pipelines with RabbitMQ. Consume JSON events from queues, process with SQL queries, and publish results to exchanges. Perfect for microservices architectures.',
+      code: `-- RabbitMQ Source: Consume from queue
+CREATE STREAM TradeInput (
+    symbol STRING, price DOUBLE, volume INT
+) WITH (
+    type = 'source', extension = 'rabbitmq',
+    format = 'json',
+    "rabbitmq.host" = 'localhost',
+    "rabbitmq.queue" = 'trades'
+);
+
+-- RabbitMQ Sink: Publish to exchange
+CREATE STREAM TradeOutput (
+    symbol STRING, price DOUBLE, category STRING
+) WITH (
+    type = 'sink', extension = 'rabbitmq',
+    format = 'json',
+    "rabbitmq.host" = 'localhost',
+    "rabbitmq.exchange" = 'processed-trades'
+);
+
+-- Process: Filter and classify
+INSERT INTO TradeOutput
+SELECT symbol, price,
+       CASE WHEN price > 100 THEN 'high' ELSE 'low' END
+FROM TradeInput WHERE volume > 1000;`,
+      language: 'sql',
+      reversed: false,
+    },
   ];
 
   return (

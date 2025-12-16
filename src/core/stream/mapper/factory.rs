@@ -37,6 +37,7 @@
 //! let mapper = factory.create_initialized(&config)?;
 //! ```
 
+use super::bytes_mapper::{BytesSinkMapper, BytesSourceMapper};
 use super::csv_mapper::{CsvSinkMapper, CsvSourceMapper};
 use super::json_mapper::{JsonSinkMapper, JsonSourceMapper};
 use super::{SinkMapper, SourceMapper};
@@ -47,8 +48,28 @@ use std::collections::HashMap;
 // Factory Traits
 // ============================================================================
 
+use std::fmt::Debug;
+
 /// Factory trait for creating source mappers
-pub trait SourceMapperFactory: Send + Sync {
+///
+/// This is the canonical factory trait for source mappers. Implementations
+/// should provide full configuration metadata and create fully initialized mappers.
+pub trait SourceMapperFactory: Debug + Send + Sync {
+    /// Get the format name this factory supports (e.g., "json", "csv")
+    fn name(&self) -> &'static str;
+
+    /// List required configuration properties
+    /// Example: &[] for JSON (no required config), &["avro.schema"] for Avro
+    fn required_parameters(&self) -> &[&str] {
+        &[]
+    }
+
+    /// List optional configuration properties
+    /// Example: &["json.ignore-parse-errors", "json.date-format"]
+    fn optional_parameters(&self) -> &[&str] {
+        &[]
+    }
+
     /// Create a fully initialized source mapper from configuration
     ///
     /// # Arguments
@@ -62,12 +83,36 @@ pub trait SourceMapperFactory: Send + Sync {
         config: &HashMap<String, String>,
     ) -> Result<Box<dyn SourceMapper>, EventFluxError>;
 
-    /// Get the format name this factory supports (e.g., "json", "csv")
-    fn format_name(&self) -> &str;
+    /// Clone this factory into a boxed trait object
+    fn clone_box(&self) -> Box<dyn SourceMapperFactory>;
+}
+
+impl Clone for Box<dyn SourceMapperFactory> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
 }
 
 /// Factory trait for creating sink mappers
-pub trait SinkMapperFactory: Send + Sync {
+///
+/// This is the canonical factory trait for sink mappers. Implementations
+/// should provide full configuration metadata and create fully initialized mappers.
+pub trait SinkMapperFactory: Debug + Send + Sync {
+    /// Get the format name this factory supports (e.g., "json", "csv")
+    fn name(&self) -> &'static str;
+
+    /// List required configuration properties
+    /// Example: &[] for JSON, &["csv.delimiter"] for CSV requiring delimiter
+    fn required_parameters(&self) -> &[&str] {
+        &[]
+    }
+
+    /// List optional configuration properties
+    /// Example: &["json.pretty-print", "json.template"]
+    fn optional_parameters(&self) -> &[&str] {
+        &[]
+    }
+
     /// Create a fully initialized sink mapper from configuration
     ///
     /// # Arguments
@@ -81,8 +126,14 @@ pub trait SinkMapperFactory: Send + Sync {
         config: &HashMap<String, String>,
     ) -> Result<Box<dyn SinkMapper>, EventFluxError>;
 
-    /// Get the format name this factory supports (e.g., "json", "csv")
-    fn format_name(&self) -> &str;
+    /// Clone this factory into a boxed trait object
+    fn clone_box(&self) -> Box<dyn SinkMapperFactory>;
+}
+
+impl Clone for Box<dyn SinkMapperFactory> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
 }
 
 // ============================================================================
@@ -129,6 +180,18 @@ impl JsonSourceMapperConfig {
 }
 
 impl SourceMapperFactory for JsonSourceMapperFactory {
+    fn name(&self) -> &'static str {
+        "json"
+    }
+
+    fn optional_parameters(&self) -> &[&str] {
+        &[
+            "json.mapping.*",
+            "json.ignore-parse-errors",
+            "json.date-format",
+        ]
+    }
+
     fn create_initialized(
         &self,
         config: &HashMap<String, String>,
@@ -149,8 +212,8 @@ impl SourceMapperFactory for JsonSourceMapperFactory {
         Ok(Box::new(mapper))
     }
 
-    fn format_name(&self) -> &str {
-        "json"
+    fn clone_box(&self) -> Box<dyn SourceMapperFactory> {
+        Box::new(self.clone())
     }
 }
 
@@ -182,6 +245,14 @@ impl JsonSinkMapperConfig {
 }
 
 impl SinkMapperFactory for JsonSinkMapperFactory {
+    fn name(&self) -> &'static str {
+        "json"
+    }
+
+    fn optional_parameters(&self) -> &[&str] {
+        &["json.template", "json.pretty-print"]
+    }
+
     fn create_initialized(
         &self,
         config: &HashMap<String, String>,
@@ -201,8 +272,8 @@ impl SinkMapperFactory for JsonSinkMapperFactory {
         Ok(Box::new(mapper))
     }
 
-    fn format_name(&self) -> &str {
-        "json"
+    fn clone_box(&self) -> Box<dyn SinkMapperFactory> {
+        Box::new(self.clone())
     }
 }
 
@@ -272,6 +343,19 @@ impl CsvSourceMapperConfig {
 }
 
 impl SourceMapperFactory for CsvSourceMapperFactory {
+    fn name(&self) -> &'static str {
+        "csv"
+    }
+
+    fn optional_parameters(&self) -> &[&str] {
+        &[
+            "csv.mapping.*",
+            "csv.delimiter",
+            "csv.has-header",
+            "csv.ignore-parse-errors",
+        ]
+    }
+
     fn create_initialized(
         &self,
         config: &HashMap<String, String>,
@@ -293,8 +377,8 @@ impl SourceMapperFactory for CsvSourceMapperFactory {
         Ok(Box::new(mapper))
     }
 
-    fn format_name(&self) -> &str {
-        "csv"
+    fn clone_box(&self) -> Box<dyn SourceMapperFactory> {
+        Box::new(self.clone())
     }
 }
 
@@ -338,6 +422,14 @@ impl CsvSinkMapperConfig {
 }
 
 impl SinkMapperFactory for CsvSinkMapperFactory {
+    fn name(&self) -> &'static str {
+        "csv"
+    }
+
+    fn optional_parameters(&self) -> &[&str] {
+        &["csv.delimiter", "csv.include-header", "csv.header-names"]
+    }
+
     fn create_initialized(
         &self,
         config: &HashMap<String, String>,
@@ -357,8 +449,80 @@ impl SinkMapperFactory for CsvSinkMapperFactory {
         Ok(Box::new(mapper))
     }
 
-    fn format_name(&self) -> &str {
-        "csv"
+    fn clone_box(&self) -> Box<dyn SinkMapperFactory> {
+        Box::new(self.clone())
+    }
+}
+
+// ============================================================================
+// Bytes Mapper Factories
+// ============================================================================
+
+/// Factory for creating bytes (raw binary passthrough) source mappers
+///
+/// Creates mappers that preserve raw binary data exactly without any UTF-8
+/// conversion. Binary payloads are stored in `AttributeValue::Bytes` and
+/// can round-trip through the system unchanged.
+#[derive(Debug, Clone, Default)]
+pub struct BytesSourceMapperFactory;
+
+impl SourceMapperFactory for BytesSourceMapperFactory {
+    fn name(&self) -> &'static str {
+        "bytes"
+    }
+
+    fn create_initialized(
+        &self,
+        _config: &HashMap<String, String>,
+    ) -> Result<Box<dyn SourceMapper>, EventFluxError> {
+        // BytesSourceMapper has no configuration - it always preserves raw bytes exactly
+        Ok(Box::new(BytesSourceMapper::new()))
+    }
+
+    fn clone_box(&self) -> Box<dyn SourceMapperFactory> {
+        Box::new(self.clone())
+    }
+}
+
+/// Factory for creating bytes (raw binary passthrough) sink mappers
+#[derive(Debug, Clone, Default)]
+pub struct BytesSinkMapperFactory;
+
+impl SinkMapperFactory for BytesSinkMapperFactory {
+    fn name(&self) -> &'static str {
+        "bytes"
+    }
+
+    fn optional_parameters(&self) -> &[&str] {
+        &["bytes.field-index"]
+    }
+
+    fn create_initialized(
+        &self,
+        config: &HashMap<String, String>,
+    ) -> Result<Box<dyn SinkMapper>, EventFluxError> {
+        let field_index = match config.get("bytes.field-index") {
+            Some(value) => value.parse::<usize>().map_err(|_| {
+                EventFluxError::invalid_parameter_with_details(
+                    &format!(
+                        "Invalid bytes.field-index value: '{}' is not a valid non-negative integer",
+                        value
+                    ),
+                    "bytes.field-index",
+                    "non-negative integer (e.g., 0, 1, 2)",
+                )
+            })?,
+            None => 0, // Default to first field
+        };
+
+        let mut mapper = BytesSinkMapper::new();
+        mapper.set_field_index(field_index);
+
+        Ok(Box::new(mapper))
+    }
+
+    fn clone_box(&self) -> Box<dyn SinkMapperFactory> {
+        Box::new(self.clone())
     }
 }
 
@@ -383,21 +547,23 @@ impl MapperFactoryRegistry {
         // Register default factories
         registry.register_source_factory(Box::new(JsonSourceMapperFactory));
         registry.register_source_factory(Box::new(CsvSourceMapperFactory));
+        registry.register_source_factory(Box::new(BytesSourceMapperFactory));
         registry.register_sink_factory(Box::new(JsonSinkMapperFactory));
         registry.register_sink_factory(Box::new(CsvSinkMapperFactory));
+        registry.register_sink_factory(Box::new(BytesSinkMapperFactory));
 
         registry
     }
 
     /// Register a source mapper factory
     pub fn register_source_factory(&mut self, factory: Box<dyn SourceMapperFactory>) {
-        let format = factory.format_name().to_string();
+        let format = factory.name().to_string();
         self.source_factories.insert(format, factory);
     }
 
     /// Register a sink mapper factory
     pub fn register_sink_factory(&mut self, factory: Box<dyn SinkMapperFactory>) {
-        let format = factory.format_name().to_string();
+        let format = factory.name().to_string();
         self.sink_factories.insert(format, factory);
     }
 
@@ -561,6 +727,35 @@ mod tests {
         assert!(csv_str.contains("field_0"));
         assert!(csv_str.contains("42"));
         assert!(csv_str.contains("test"));
+    }
+
+    #[test]
+    fn test_bytes_sink_factory_invalid_field_index() {
+        let factory = BytesSinkMapperFactory;
+
+        // Invalid non-numeric value should error
+        let mut config = HashMap::new();
+        config.insert("bytes.field-index".to_string(), "first".to_string());
+        let result = factory.create_initialized(&config);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("bytes.field-index"),
+            "Error should mention the parameter: {}",
+            err
+        );
+
+        // Negative values should error (can't parse as usize)
+        let mut config = HashMap::new();
+        config.insert("bytes.field-index".to_string(), "-1".to_string());
+        let result = factory.create_initialized(&config);
+        assert!(result.is_err());
+
+        // Valid numeric value should succeed
+        let mut config = HashMap::new();
+        config.insert("bytes.field-index".to_string(), "2".to_string());
+        let result = factory.create_initialized(&config);
+        assert!(result.is_ok());
     }
 
     #[test]

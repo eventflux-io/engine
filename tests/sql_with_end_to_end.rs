@@ -9,8 +9,7 @@
 
 use eventflux_rust::core::event::value::AttributeValue;
 use eventflux_rust::core::eventflux_manager::EventFluxManager;
-use eventflux_rust::core::extension::example_factories::CsvSinkMapperFactory;
-use eventflux_rust::core::extension::{LogSinkFactory, TimerSourceFactory};
+use eventflux_rust::core::extension::{CsvSinkMapperFactory, LogSinkFactory, TimerSourceFactory};
 use std::time::Duration;
 use tokio::time::sleep;
 

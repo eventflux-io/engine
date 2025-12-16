@@ -317,6 +317,7 @@ impl CsvSinkMapper {
             AttributeValue::Double(d) => d.to_string(),
             AttributeValue::Bool(b) => b.to_string(),
             AttributeValue::Null => String::new(),
+            AttributeValue::Bytes(bytes) => format!("<bytes:{}>", bytes.len()),
             AttributeValue::Object(_) => "<object>".to_string(),
         };
 

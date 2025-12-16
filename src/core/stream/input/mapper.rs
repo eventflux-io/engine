@@ -1,19 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+//! Source mapper trait and implementations
+//!
+//! Re-exports the canonical `SourceMapper` trait from `stream::mapper` module.
+
+// Re-export the canonical SourceMapper trait from mapper module
+pub use crate::core::stream::mapper::SourceMapper;
+
 use crate::core::event::event::Event;
 use crate::core::exception::EventFluxError;
-use std::fmt::Debug;
-
-pub trait SourceMapper: Debug + Send + Sync {
-    fn map(&self, input: &[u8]) -> Result<Vec<Event>, EventFluxError>;
-    fn clone_box(&self) -> Box<dyn SourceMapper>;
-}
-
-impl Clone for Box<dyn SourceMapper> {
-    fn clone(&self) -> Self {
-        self.clone_box()
-    }
-}
 
 /// Default passthrough mapper for Sources
 ///

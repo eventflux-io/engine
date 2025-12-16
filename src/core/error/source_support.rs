@@ -106,24 +106,42 @@ impl SourceErrorContext {
     /// * `true` - Continue processing (error was handled, drop/retry/dlq)
     /// * `false` - Stop processing (fail strategy or unrecoverable error)
     pub fn handle_error(&mut self, event: Option<&Event>, error: &EventFluxError) -> bool {
+        let action = self.handle_error_with_action(event, error);
+        !matches!(action, ErrorAction::Fail)
+    }
+
+    /// Handle an error and return the action taken
+    ///
+    /// This method is similar to `handle_error` but returns the `ErrorAction`
+    /// so callers can make decisions based on the specific action (e.g., whether
+    /// to requeue a message in a message broker).
+    ///
+    /// # Arguments
+    /// * `event` - The event that failed (if available)
+    /// * `error` - The error that occurred
+    ///
+    /// # Returns
+    /// The `ErrorAction` that was taken:
+    /// - `Retry { delay }` - Internal retry with delay (delay already applied)
+    /// - `Drop` - Event was dropped
+    /// - `SendToDlq` - Event was sent to DLQ
+    /// - `Fail` - Source should stop processing
+    pub fn handle_error_with_action(
+        &mut self,
+        event: Option<&Event>,
+        error: &EventFluxError,
+    ) -> ErrorAction {
         let action = self.handler.handle_error(event, error);
 
-        match action {
+        match &action {
             ErrorAction::Retry { delay } => {
                 // Sleep for retry delay
-                thread::sleep(delay);
-                true // Continue processing (retry)
+                thread::sleep(*delay);
             }
-            ErrorAction::Drop => {
-                true // Continue processing (skip this event)
-            }
-            ErrorAction::SendToDlq => {
-                true // Continue processing (event sent to DLQ)
-            }
-            ErrorAction::Fail => {
-                false // Stop processing
-            }
+            _ => {}
         }
+
+        action
     }
 
     /// Reset error counters (call after successful event processing)
@@ -148,6 +166,19 @@ impl SourceErrorContext {
     #[inline]
     pub fn handler_mut(&mut self) -> &mut ErrorHandler {
         &mut self.handler
+    }
+
+    /// Set the DLQ junction for error routing
+    ///
+    /// This method allows setting the DLQ junction after context creation,
+    /// which is needed when the factory creates a source before the DLQ
+    /// junction is available (stream_initializer wires it later).
+    ///
+    /// # Arguments
+    /// * `junction` - The InputHandler for the DLQ stream
+    #[inline]
+    pub fn set_dlq_junction(&mut self, junction: Arc<Mutex<InputHandler>>) {
+        self.handler.set_dlq_junction(junction);
     }
 }
 

@@ -145,6 +145,18 @@ impl ErrorHandler {
         self.consecutive_errors
     }
 
+    /// Set the DLQ junction for error routing
+    ///
+    /// This method allows setting the DLQ junction after handler creation,
+    /// which is needed when the factory creates a source before the DLQ
+    /// junction is available (stream_initializer wires it later).
+    ///
+    /// # Arguments
+    /// * `junction` - The InputHandler for the DLQ stream
+    pub fn set_dlq_junction(&mut self, junction: Arc<Mutex<InputHandler>>) {
+        self.dlq_junction = Some(junction);
+    }
+
     /// Check if error should be retried based on retry config
     fn should_retry(&self, error: &EventFluxError) -> bool {
         // Only retry if error is retriable

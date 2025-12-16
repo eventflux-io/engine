@@ -212,7 +212,8 @@ impl SqlConverter {
 
         let (input_stream, stream_name_for_selector) = if has_join {
             // Handle JOIN
-            let join_input = Self::convert_join_from_clause(&select.from, &select.selection, catalog)?;
+            let join_input =
+                Self::convert_join_from_clause(&select.from, &select.selection, catalog)?;
             (join_input, String::new())
         } else {
             // Handle single relation in FROM
@@ -247,7 +248,8 @@ impl SqlConverter {
 
                     // Add WINDOW if present from AST
                     if let Some(window_ast) = window.as_ref() {
-                        single_stream = Self::add_window_from_ast(single_stream, window_ast, catalog)?;
+                        single_stream =
+                            Self::add_window_from_ast(single_stream, window_ast, catalog)?;
                     }
 
                     // Add WHERE filter (BEFORE aggregation)
@@ -258,7 +260,12 @@ impl SqlConverter {
 
                     (InputStream::Single(single_stream), stream_name)
                 }
-                TableFactor::Pattern { mode, pattern, within, .. } => {
+                TableFactor::Pattern {
+                    mode,
+                    pattern,
+                    within,
+                    ..
+                } => {
                     // Convert pattern/sequence to StateInputStream
                     let state_input_stream =
                         Self::convert_pattern_input(mode, pattern, within, catalog)?;
@@ -1079,9 +1086,7 @@ impl SqlConverter {
 
         // Extract index from first element (Subscript)
         let event_index = match &access_chain[0] {
-            AccessExpr::Subscript(Subscript::Index { index }) => {
-                Self::extract_event_index(index)?
-            }
+            AccessExpr::Subscript(Subscript::Index { index }) => Self::extract_event_index(index)?,
             _ => {
                 return Err(ConverterError::UnsupportedFeature(
                     "First element must be array index [n] or [last]".to_string(),
@@ -1103,8 +1108,9 @@ impl SqlConverter {
         let indexed_var = match event_index {
             EventIndex::Numeric(idx) => IndexedVariable::new_with_index(attribute_name, idx)
                 .of_stream_with_index(stream_id, -1),
-            EventIndex::Last => IndexedVariable::new_with_last(attribute_name)
-                .of_stream_with_index(stream_id, -1),
+            EventIndex::Last => {
+                IndexedVariable::new_with_last(attribute_name).of_stream_with_index(stream_id, -1)
+            }
         };
 
         Ok(Expression::IndexedVariable(Box::new(indexed_var)))
@@ -1181,9 +1187,9 @@ impl SqlConverter {
                 }
             }
             Some(WithinConstraint::EventCount(count)) => {
-                return Err(ConverterError::UnsupportedFeature(
-                    format!("WITHIN {count} EVENTS is not yet supported; use time-based WITHIN"),
-                ));
+                return Err(ConverterError::UnsupportedFeature(format!(
+                    "WITHIN {count} EVENTS is not yet supported; use time-based WITHIN"
+                )));
             }
             None => None,
         };
@@ -1215,7 +1221,9 @@ impl SqlConverter {
                     .and_then(|part| part.as_ident())
                     .map(|ident| ident.value.clone())
                     .ok_or_else(|| {
-                        ConverterError::ConversionFailed("Invalid stream name in pattern".to_string())
+                        ConverterError::ConversionFailed(
+                            "Invalid stream name in pattern".to_string(),
+                        )
                     })?;
 
                 // Create SingleInputStream with optional alias
@@ -1597,8 +1605,14 @@ mod tests {
         match state_element {
             StateElement::Next(next) => {
                 // Verify first and second are Stream elements
-                assert!(matches!(next.state_element.as_ref(), StateElement::Stream(_)));
-                assert!(matches!(next.next_state_element.as_ref(), StateElement::Stream(_)));
+                assert!(matches!(
+                    next.state_element.as_ref(),
+                    StateElement::Stream(_)
+                ));
+                assert!(matches!(
+                    next.next_state_element.as_ref(),
+                    StateElement::Stream(_)
+                ));
             }
             _ => panic!("Expected Next state element for sequence"),
         }
@@ -1702,7 +1716,10 @@ mod tests {
         match state_element {
             StateElement::Every(every) => {
                 // Inner should be a sequence
-                assert!(matches!(every.state_element.as_ref(), StateElement::Next(_)));
+                assert!(matches!(
+                    every.state_element.as_ref(),
+                    StateElement::Next(_)
+                ));
             }
             _ => panic!("Expected Every state element"),
         }
@@ -1721,12 +1738,8 @@ mod tests {
             filter: None,
         };
 
-        let result = SqlConverter::convert_pattern_input(
-            &PatternMode::Pattern,
-            &stream_a,
-            &None,
-            &catalog,
-        );
+        let result =
+            SqlConverter::convert_pattern_input(&PatternMode::Pattern, &stream_a, &None, &catalog);
 
         assert!(result.is_ok(), "Should convert pattern input");
         let input_stream = result.unwrap();
@@ -1755,12 +1768,8 @@ mod tests {
             second: Box::new(stream_b),
         };
 
-        let result = SqlConverter::convert_pattern_input(
-            &PatternMode::Sequence,
-            &sequence,
-            &None,
-            &catalog,
-        );
+        let result =
+            SqlConverter::convert_pattern_input(&PatternMode::Sequence, &sequence, &None, &catalog);
 
         assert!(result.is_ok(), "Should convert sequence input");
         let input_stream = result.unwrap();
@@ -1782,7 +1791,9 @@ mod tests {
 
         // Create Interval expression using Value::Number which doesn't need span
         let within = WithinConstraint::Time(Box::new(SqlExpr::Interval(Interval {
-            value: Box::new(SqlExpr::Value(Value::SingleQuotedString("10".to_string()).into())),
+            value: Box::new(SqlExpr::Value(
+                Value::SingleQuotedString("10".to_string()).into(),
+            )),
             leading_field: Some(DateTimeField::Second),
             leading_precision: None,
             last_field: None,
@@ -1856,12 +1867,8 @@ mod tests {
             pattern: Box::new(stream_a),
         };
 
-        let result = SqlConverter::convert_pattern_input(
-            &PatternMode::Sequence,
-            &pattern,
-            &None,
-            &catalog,
-        );
+        let result =
+            SqlConverter::convert_pattern_input(&PatternMode::Sequence, &pattern, &None, &catalog);
 
         assert!(result.is_err(), "EVERY in SEQUENCE should be rejected");
         let err = result.unwrap_err().to_string();
@@ -1890,12 +1897,8 @@ mod tests {
             max_count: 5,
         };
 
-        let result = SqlConverter::convert_pattern_input(
-            &PatternMode::Pattern,
-            &pattern,
-            &None,
-            &catalog,
-        );
+        let result =
+            SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
         assert!(result.is_err(), "Zero min_count should be rejected");
         let err = result.unwrap_err().to_string();
@@ -1931,12 +1934,8 @@ mod tests {
             second: Box::new(stream_b),
         };
 
-        let result = SqlConverter::convert_pattern_input(
-            &PatternMode::Pattern,
-            &pattern,
-            &None,
-            &catalog,
-        );
+        let result =
+            SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
         assert!(result.is_err(), "Nested EVERY should be rejected");
         let err = result.unwrap_err().to_string();

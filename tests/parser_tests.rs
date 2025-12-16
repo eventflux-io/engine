@@ -96,4 +96,3 @@ async fn test_builtin_function_in_query() {
     let out = runner.shutdown();
     assert_eq!(out, vec![vec![AttributeValue::Int(3)]]);
 }
-

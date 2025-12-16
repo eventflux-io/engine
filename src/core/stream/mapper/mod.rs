@@ -35,6 +35,7 @@
 //! json.template = "{\"eventType\":\"ORDER\",\"id\":\"{{orderId}}\",\"amount\":{{amount}}}"
 //! ```
 
+pub mod bytes_mapper;
 pub mod csv_mapper;
 pub mod factory;
 pub mod json_mapper;
