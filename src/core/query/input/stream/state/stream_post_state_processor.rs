@@ -303,9 +303,7 @@ impl PostStateProcessor for StreamPostStateProcessor {
         self.callback_pre_state_processor = Some(callback_pre_state_processor);
     }
 
-    fn get_next_every_state_pre_processor(
-        &self,
-    ) -> Option<Arc<Mutex<dyn PreStateProcessor>>> {
+    fn get_next_every_state_pre_processor(&self) -> Option<Arc<Mutex<dyn PreStateProcessor>>> {
         self.next_every_state_pre_processor.clone()
     }
 

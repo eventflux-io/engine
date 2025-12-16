@@ -1,19 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+//! Sink mapper trait and implementations
+//!
+//! Re-exports the canonical `SinkMapper` trait from `stream::mapper` module.
+
+// Re-export the canonical SinkMapper trait from mapper module
+pub use crate::core::stream::mapper::SinkMapper;
+
 use crate::core::event::event::Event;
 use crate::core::exception::EventFluxError;
-use std::fmt::Debug;
-
-pub trait SinkMapper: Debug + Send + Sync {
-    fn map(&self, events: &[Event]) -> Result<Vec<u8>, EventFluxError>;
-    fn clone_box(&self) -> Box<dyn SinkMapper>;
-}
-
-impl Clone for Box<dyn SinkMapper> {
-    fn clone(&self) -> Self {
-        self.clone_box()
-    }
-}
 
 /// Default passthrough mapper for Events
 ///

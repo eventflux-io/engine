@@ -654,6 +654,7 @@ pub fn attribute_to_json_value(attr: &AttributeValue) -> Result<JsonValue, Event
             }),
         AttributeValue::Bool(b) => Ok(JsonValue::Bool(*b)),
         AttributeValue::Null => Ok(JsonValue::Null),
+        AttributeValue::Bytes(bytes) => Ok(JsonValue::String(format!("<bytes:{}>", bytes.len()))),
         AttributeValue::Object(_) => Ok(JsonValue::String("<object>".to_string())),
     }
 }
@@ -694,6 +695,7 @@ pub fn attribute_value_to_string(value: &AttributeValue) -> String {
         AttributeValue::Float(f) => f.to_string(),
         AttributeValue::Bool(b) => b.to_string(),
         AttributeValue::Null => "null".to_string(),
+        AttributeValue::Bytes(bytes) => format!("<bytes:{}>", bytes.len()),
         AttributeValue::Object(_) => "<object>".to_string(),
     }
 }

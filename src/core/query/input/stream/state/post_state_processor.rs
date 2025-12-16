@@ -198,7 +198,8 @@ mod tests {
 
         fn get_next_every_state_pre_processor(
             &self,
-        ) -> Option<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>> {
+        ) -> Option<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>>
+        {
             self.next_every_state_pre_processor.clone()
         }
 

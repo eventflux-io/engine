@@ -56,6 +56,7 @@ impl CastFunctionExecutor {
                 AttributeValue::Float(v) => v.to_string(),
                 AttributeValue::Double(v) => v.to_string(),
                 AttributeValue::Bool(v) => v.to_string(),
+                AttributeValue::Bytes(bytes) => format!("<bytes:{}>", bytes.len()),
                 AttributeValue::Object(_) => "<object>".to_string(),
                 AttributeValue::Null => String::new(),
             })),

@@ -616,7 +616,10 @@ pub fn parse_expression<'a>(
         }
         ApiExpression::IndexedVariable(indexed_var) => {
             let attribute_name = &indexed_var.attribute_name;
-            let stream_id_opt = indexed_var.stream_id.as_deref().or(Some(&context.default_source));
+            let stream_id_opt = indexed_var
+                .stream_id
+                .as_deref()
+                .or(Some(&context.default_source));
 
             // Resolve stream position
             let stream_id = stream_id_opt.ok_or_else(|| {
@@ -690,13 +693,15 @@ pub fn parse_expression<'a>(
             }
 
             if let Some((attr_position, attr_type)) = found {
-                return Ok(Box::new(crate::core::executor::IndexedVariableExecutor::new(
-                    state_pos_usize,
-                    indexed_var.index.clone(),
-                    attr_position,
-                    attr_type,
-                    attribute_name.to_string(),
-                )));
+                return Ok(Box::new(
+                    crate::core::executor::IndexedVariableExecutor::new(
+                        state_pos_usize,
+                        indexed_var.index.clone(),
+                        attr_position,
+                        attr_type,
+                        attribute_name.to_string(),
+                    ),
+                ));
             }
 
             Err(ExpressionParseError::new(

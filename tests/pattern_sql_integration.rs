@@ -87,12 +87,8 @@ fn test_e2e_basic_sequence_a_then_b() {
     // Pattern: e1=AStream -> e2=BStream
     let pattern = sequence(stream("e1", "AStream"), stream("e2", "BStream"));
 
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Sequence,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Sequence, &pattern, &None, &catalog);
 
     assert!(result.is_ok(), "Should convert basic sequence");
     let input_stream = result.unwrap();
@@ -132,12 +128,8 @@ fn test_e2e_three_way_sequence() {
         sequence(stream("e2", "BStream"), stream("e3", "CStream")),
     );
 
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Sequence,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Sequence, &pattern, &None, &catalog);
 
     assert!(result.is_ok(), "Should convert three-way sequence");
     let input_stream = result.unwrap();
@@ -149,12 +141,18 @@ fn test_e2e_three_way_sequence() {
         match state.state_element.as_ref() {
             StateElement::Next(outer) => {
                 // First is A
-                assert!(matches!(outer.state_element.as_ref(), StateElement::Stream(_)));
+                assert!(matches!(
+                    outer.state_element.as_ref(),
+                    StateElement::Stream(_)
+                ));
 
                 // Second is Next(B, C)
                 match outer.next_state_element.as_ref() {
                     StateElement::Next(inner) => {
-                        assert!(matches!(inner.state_element.as_ref(), StateElement::Stream(_)));
+                        assert!(matches!(
+                            inner.state_element.as_ref(),
+                            StateElement::Stream(_)
+                        ));
                         assert!(matches!(
                             inner.next_state_element.as_ref(),
                             StateElement::Stream(_)
@@ -179,14 +177,13 @@ fn test_e2e_count_exact() {
     let catalog = setup_catalog();
 
     // Pattern: e1=AStream{3} -> e2=BStream
-    let pattern = sequence(count(stream("e1", "AStream"), 3, 3), stream("e2", "BStream"));
-
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Pattern,
-        &pattern,
-        &None,
-        &catalog,
+    let pattern = sequence(
+        count(stream("e1", "AStream"), 3, 3),
+        stream("e2", "BStream"),
     );
+
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
     assert!(result.is_ok(), "Should convert count quantifier");
     let input_stream = result.unwrap();
@@ -217,29 +214,26 @@ fn test_e2e_count_range() {
     let catalog = setup_catalog();
 
     // Pattern: e1=AStream{2,5} -> e2=BStream
-    let pattern = sequence(count(stream("e1", "AStream"), 2, 5), stream("e2", "BStream"));
-
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Pattern,
-        &pattern,
-        &None,
-        &catalog,
+    let pattern = sequence(
+        count(stream("e1", "AStream"), 2, 5),
+        stream("e2", "BStream"),
     );
+
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
     assert!(result.is_ok(), "Should convert count range");
     let input_stream = result.unwrap();
 
     if let InputStream::State(state) = input_stream {
         match state.state_element.as_ref() {
-            StateElement::Next(next) => {
-                match next.state_element.as_ref() {
-                    StateElement::Count(c) => {
-                        assert_eq!(c.min_count, 2);
-                        assert_eq!(c.max_count, 5);
-                    }
-                    _ => panic!("Expected Count"),
+            StateElement::Next(next) => match next.state_element.as_ref() {
+                StateElement::Count(c) => {
+                    assert_eq!(c.min_count, 2);
+                    assert_eq!(c.max_count, 5);
                 }
-            }
+                _ => panic!("Expected Count"),
+            },
             _ => panic!("Expected Next"),
         }
     } else {
@@ -258,12 +252,8 @@ fn test_e2e_every_sequence() {
     // Pattern: EVERY(e1=AStream -> e2=BStream)
     let pattern = every(sequence(stream("e1", "AStream"), stream("e2", "BStream")));
 
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Pattern,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
     assert!(result.is_ok(), "Should convert EVERY pattern");
     let input_stream = result.unwrap();
@@ -274,7 +264,10 @@ fn test_e2e_every_sequence() {
         match state.state_element.as_ref() {
             StateElement::Every(every) => {
                 // Inner should be a sequence
-                assert!(matches!(every.state_element.as_ref(), StateElement::Next(_)));
+                assert!(matches!(
+                    every.state_element.as_ref(),
+                    StateElement::Next(_)
+                ));
             }
             _ => panic!("Expected Every state element"),
         }
@@ -293,26 +286,23 @@ fn test_e2e_every_with_count() {
         stream("e2", "BStream"),
     ));
 
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Pattern,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
     assert!(result.is_ok(), "Should convert EVERY with count");
     let input_stream = result.unwrap();
 
     if let InputStream::State(state) = input_stream {
         match state.state_element.as_ref() {
-            StateElement::Every(every) => {
-                match every.state_element.as_ref() {
-                    StateElement::Next(next) => {
-                        assert!(matches!(next.state_element.as_ref(), StateElement::Count(_)));
-                    }
-                    _ => panic!("Expected Next inside Every"),
+            StateElement::Every(every) => match every.state_element.as_ref() {
+                StateElement::Next(next) => {
+                    assert!(matches!(
+                        next.state_element.as_ref(),
+                        StateElement::Count(_)
+                    ));
                 }
-            }
+                _ => panic!("Expected Next inside Every"),
+            },
             _ => panic!("Expected Every"),
         }
     } else {
@@ -338,12 +328,8 @@ fn test_e2e_logical_and() {
     };
     let pattern = sequence(and_pattern, stream("e3", "CStream"));
 
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Pattern,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
     assert!(result.is_ok(), "Should convert logical AND pattern");
     let input_stream = result.unwrap();
@@ -352,7 +338,10 @@ fn test_e2e_logical_and() {
         match state.state_element.as_ref() {
             StateElement::Next(next) => {
                 // First should be Logical
-                assert!(matches!(next.state_element.as_ref(), StateElement::Logical(_)));
+                assert!(matches!(
+                    next.state_element.as_ref(),
+                    StateElement::Logical(_)
+                ));
                 // Second should be Stream
                 assert!(matches!(
                     next.next_state_element.as_ref(),
@@ -380,12 +369,8 @@ fn test_e2e_logical_or() {
     };
     let pattern = sequence(or_pattern, stream("e3", "CStream"));
 
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Pattern,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
     assert!(result.is_ok(), "Should convert logical OR pattern");
     let input_stream = result.unwrap();
@@ -393,7 +378,10 @@ fn test_e2e_logical_or() {
     if let InputStream::State(state) = input_stream {
         match state.state_element.as_ref() {
             StateElement::Next(next) => {
-                assert!(matches!(next.state_element.as_ref(), StateElement::Logical(_)));
+                assert!(matches!(
+                    next.state_element.as_ref(),
+                    StateElement::Logical(_)
+                ));
             }
             _ => panic!("Expected Next"),
         }
@@ -445,12 +433,8 @@ fn test_e2e_rejects_every_in_sequence_mode() {
     // EVERY in SEQUENCE mode should fail validation
     let pattern = every(sequence(stream("e1", "AStream"), stream("e2", "BStream")));
 
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Sequence,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Sequence, &pattern, &None, &catalog);
 
     assert!(result.is_err(), "EVERY in SEQUENCE mode should be rejected");
     let err = result.unwrap_err().to_string();
@@ -464,12 +448,8 @@ fn test_e2e_rejects_zero_count() {
     // A{0,5} should fail validation
     let pattern = count(stream("e1", "AStream"), 0, 5);
 
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Pattern,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
     assert!(result.is_err(), "Zero count should be rejected");
     let err = result.unwrap_err().to_string();
@@ -483,12 +463,8 @@ fn test_e2e_rejects_nested_every() {
     // (EVERY A) -> B should fail validation
     let pattern = sequence(every(stream("e1", "AStream")), stream("e2", "BStream"));
 
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Pattern,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
     assert!(result.is_err(), "Nested EVERY should be rejected");
     let err = result.unwrap_err().to_string();
@@ -512,17 +488,10 @@ fn test_e2e_complex_pattern() {
         op: PatternLogicalOp::And,
         right: Box::new(stream("e2", "BStream")),
     };
-    let pattern = every(sequence(
-        and_pattern,
-        count(stream("e3", "CStream"), 2, 3),
-    ));
+    let pattern = every(sequence(and_pattern, count(stream("e3", "CStream"), 2, 3)));
 
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Pattern,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
     assert!(result.is_ok(), "Should convert complex pattern");
     let input_stream = result.unwrap();
@@ -563,24 +532,16 @@ fn test_e2e_pattern_vs_sequence_mode() {
     let pattern = sequence(stream("e1", "AStream"), stream("e2", "BStream"));
 
     // Test PATTERN mode
-    let pattern_result = SqlConverter::convert_pattern_input(
-        &PatternMode::Pattern,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let pattern_result =
+        SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
     assert!(pattern_result.is_ok());
     if let InputStream::State(state) = pattern_result.unwrap() {
         assert_eq!(state.state_type, StateType::Pattern);
     }
 
     // Test SEQUENCE mode
-    let sequence_result = SqlConverter::convert_pattern_input(
-        &PatternMode::Sequence,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let sequence_result =
+        SqlConverter::convert_pattern_input(&PatternMode::Sequence, &pattern, &None, &catalog);
     assert!(sequence_result.is_ok());
     if let InputStream::State(state) = sequence_result.unwrap() {
         assert_eq!(state.state_type, StateType::Sequence);
@@ -614,7 +575,11 @@ fn test_e2e_array_access_numeric_index() {
     };
 
     let result = SqlConverter::convert_expression(&expr, &catalog);
-    assert!(result.is_ok(), "Should convert array access e1[0].price: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should convert array access e1[0].price: {:?}",
+        result
+    );
 
     let converted = result.unwrap();
     match converted {
@@ -650,7 +615,11 @@ fn test_e2e_array_access_last_index() {
     };
 
     let result = SqlConverter::convert_expression(&expr, &catalog);
-    assert!(result.is_ok(), "Should convert array access e2[last].symbol: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Should convert array access e2[last].symbol: {:?}",
+        result
+    );
 
     let converted = result.unwrap();
     match converted {
@@ -684,7 +653,10 @@ fn test_e2e_array_access_invalid_format() {
     };
 
     let result = SqlConverter::convert_expression(&expr, &catalog);
-    assert!(result.is_err(), "Should reject array access without attribute");
+    assert!(
+        result.is_err(),
+        "Should reject array access without attribute"
+    );
     let err = result.unwrap_err().to_string();
     assert!(err.contains("[index].attribute format"));
 }
@@ -775,12 +747,8 @@ fn test_e2e_brute_force_login_detection_pattern() {
     let success_login = stream("e2", "SuccessLoginStream");
     let pattern = sequence(failed_logins, success_login);
 
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Pattern,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
     assert!(
         result.is_ok(),
@@ -820,7 +788,7 @@ fn test_e2e_brute_force_login_detection_pattern() {
 
 #[test]
 fn test_e2e_brute_force_with_within_time() {
-    use sqlparser::ast::{DateTimeField, Interval, Value, Expr as SqlExpr, WithinConstraint};
+    use sqlparser::ast::{DateTimeField, Expr as SqlExpr, Interval, Value, WithinConstraint};
 
     let catalog = setup_security_catalog();
 
@@ -831,7 +799,9 @@ fn test_e2e_brute_force_with_within_time() {
 
     // Create WITHIN 5 MINUTE constraint
     let within = WithinConstraint::Time(Box::new(SqlExpr::Interval(Interval {
-        value: Box::new(SqlExpr::Value(Value::SingleQuotedString("5".to_string()).into())),
+        value: Box::new(SqlExpr::Value(
+            Value::SingleQuotedString("5".to_string()).into(),
+        )),
         leading_field: Some(DateTimeField::Minute),
         leading_precision: None,
         last_field: None,
@@ -879,12 +849,8 @@ fn test_e2e_trading_signal_pattern() {
     let alert_event = stream("e2", "AlertStream");
     let pattern = sequence(stock_events, alert_event);
 
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Pattern,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
     assert!(
         result.is_ok(),
@@ -935,12 +901,8 @@ fn test_e2e_trading_signal_with_every() {
     let inner_pattern = sequence(stock_events, alert_event);
     let pattern = every(inner_pattern);
 
-    let result = SqlConverter::convert_pattern_input(
-        &PatternMode::Pattern,
-        &pattern,
-        &None,
-        &catalog,
-    );
+    let result =
+        SqlConverter::convert_pattern_input(&PatternMode::Pattern, &pattern, &None, &catalog);
 
     assert!(
         result.is_ok(),
@@ -954,21 +916,19 @@ fn test_e2e_trading_signal_with_every() {
 
         // Verify structure: Every(Next(Count, Stream))
         match state.state_element.as_ref() {
-            StateElement::Every(every_elem) => {
-                match every_elem.state_element.as_ref() {
-                    StateElement::Next(next) => {
-                        assert!(matches!(
-                            next.state_element.as_ref(),
-                            StateElement::Count(_)
-                        ));
-                        assert!(matches!(
-                            next.next_state_element.as_ref(),
-                            StateElement::Stream(_)
-                        ));
-                    }
-                    other => panic!("Expected Next inside Every, got {:?}", other),
+            StateElement::Every(every_elem) => match every_elem.state_element.as_ref() {
+                StateElement::Next(next) => {
+                    assert!(matches!(
+                        next.state_element.as_ref(),
+                        StateElement::Count(_)
+                    ));
+                    assert!(matches!(
+                        next.next_state_element.as_ref(),
+                        StateElement::Stream(_)
+                    ));
                 }
-            }
+                other => panic!("Expected Next inside Every, got {:?}", other),
+            },
             other => panic!("Expected Every state element, got {:?}", other),
         }
     } else {

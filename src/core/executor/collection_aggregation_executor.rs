@@ -294,22 +294,26 @@ impl ExpressionExecutor for CollectionSumExecutor {
             return None;
         }
 
-        let final_double = if use_float {
-            float_sum
-        } else {
-            int_sum as f64
-        };
+        let final_double = if use_float { float_sum } else { int_sum as f64 };
 
         match self.return_type {
             ApiAttributeType::INT => {
-                if !use_float && !int_overflowed && int_sum >= i32::MIN as i128 && int_sum <= i32::MAX as i128 {
+                if !use_float
+                    && !int_overflowed
+                    && int_sum >= i32::MIN as i128
+                    && int_sum <= i32::MAX as i128
+                {
                     Some(AttributeValue::Int(int_sum as i32))
                 } else {
                     Some(AttributeValue::Double(final_double))
                 }
             }
             ApiAttributeType::LONG => {
-                if !use_float && !int_overflowed && int_sum >= i64::MIN as i128 && int_sum <= i64::MAX as i128 {
+                if !use_float
+                    && !int_overflowed
+                    && int_sum >= i64::MIN as i128
+                    && int_sum <= i64::MAX as i128
+                {
                     Some(AttributeValue::Long(int_sum as i64))
                 } else {
                     Some(AttributeValue::Double(final_double))
@@ -319,9 +323,7 @@ impl ExpressionExecutor for CollectionSumExecutor {
                 let value = final_double as f32;
                 Some(AttributeValue::Float(value))
             }
-            _ => {
-                Some(AttributeValue::Double(final_double))
-            }
+            _ => Some(AttributeValue::Double(final_double)),
         }
     }
 
@@ -1015,10 +1017,7 @@ mod tests {
             0,
             create_stream_event_with_data(vec![AttributeValue::Double(10.0)]),
         );
-        state_event.add_event(
-            0,
-            create_stream_event_with_data(vec![AttributeValue::Null]),
-        );
+        state_event.add_event(0, create_stream_event_with_data(vec![AttributeValue::Null]));
         state_event.add_event(
             0,
             create_stream_event_with_data(vec![AttributeValue::Double(30.0)]),
@@ -1037,14 +1036,8 @@ mod tests {
         );
 
         let mut state_event = StateEvent::new(1, 0);
-        state_event.add_event(
-            0,
-            create_stream_event_with_data(vec![AttributeValue::Null]),
-        );
-        state_event.add_event(
-            0,
-            create_stream_event_with_data(vec![AttributeValue::Null]),
-        );
+        state_event.add_event(0, create_stream_event_with_data(vec![AttributeValue::Null]));
+        state_event.add_event(0, create_stream_event_with_data(vec![AttributeValue::Null]));
 
         let result = executor.execute(Some(&state_event as &dyn ComplexEvent));
         assert_eq!(result, None);
@@ -1156,10 +1149,7 @@ mod tests {
             0,
             create_stream_event_with_data(vec![AttributeValue::Double(10.0)]),
         );
-        state_event.add_event(
-            0,
-            create_stream_event_with_data(vec![AttributeValue::Null]),
-        );
+        state_event.add_event(0, create_stream_event_with_data(vec![AttributeValue::Null]));
         state_event.add_event(
             0,
             create_stream_event_with_data(vec![AttributeValue::Double(20.0)]),
@@ -1175,10 +1165,7 @@ mod tests {
         let executor = CollectionAvgExecutor::new(0, [BEFORE_WINDOW_DATA_INDEX as i32, 0]);
 
         let mut state_event = StateEvent::new(1, 0);
-        state_event.add_event(
-            0,
-            create_stream_event_with_data(vec![AttributeValue::Null]),
-        );
+        state_event.add_event(0, create_stream_event_with_data(vec![AttributeValue::Null]));
 
         let result = executor.execute(Some(&state_event as &dyn ComplexEvent));
         assert_eq!(result, None);
@@ -1331,10 +1318,7 @@ mod tests {
             0,
             create_stream_event_with_data(vec![AttributeValue::Double(30.0)]),
         );
-        state_event.add_event(
-            0,
-            create_stream_event_with_data(vec![AttributeValue::Null]),
-        );
+        state_event.add_event(0, create_stream_event_with_data(vec![AttributeValue::Null]));
         state_event.add_event(
             0,
             create_stream_event_with_data(vec![AttributeValue::Double(10.0)]),
@@ -1357,10 +1341,7 @@ mod tests {
             0,
             create_stream_event_with_data(vec![AttributeValue::Double(30.0)]),
         );
-        state_event.add_event(
-            0,
-            create_stream_event_with_data(vec![AttributeValue::Null]),
-        );
+        state_event.add_event(0, create_stream_event_with_data(vec![AttributeValue::Null]));
         state_event.add_event(
             0,
             create_stream_event_with_data(vec![AttributeValue::Double(10.0)]),
@@ -1379,14 +1360,8 @@ mod tests {
         );
 
         let mut state_event = StateEvent::new(1, 0);
-        state_event.add_event(
-            0,
-            create_stream_event_with_data(vec![AttributeValue::Null]),
-        );
-        state_event.add_event(
-            0,
-            create_stream_event_with_data(vec![AttributeValue::Null]),
-        );
+        state_event.add_event(0, create_stream_event_with_data(vec![AttributeValue::Null]));
+        state_event.add_event(0, create_stream_event_with_data(vec![AttributeValue::Null]));
 
         let result = executor.execute(Some(&state_event as &dyn ComplexEvent));
         assert_eq!(result, None);
@@ -1564,10 +1539,7 @@ mod tests {
             0,
             create_stream_event_with_data(vec![AttributeValue::Double(10.0)]),
         );
-        state_event.add_event(
-            0,
-            create_stream_event_with_data(vec![AttributeValue::Null]),
-        );
+        state_event.add_event(0, create_stream_event_with_data(vec![AttributeValue::Null]));
         state_event.add_event(
             0,
             create_stream_event_with_data(vec![AttributeValue::Double(20.0)]),
@@ -1637,10 +1609,12 @@ mod tests {
 
         // Events with two attributes each
         let mut event1 = StreamEvent::new(0, 2, 0, 0);
-        event1.before_window_data = vec![AttributeValue::Double(1.0), AttributeValue::Double(100.0)];
+        event1.before_window_data =
+            vec![AttributeValue::Double(1.0), AttributeValue::Double(100.0)];
 
         let mut event2 = StreamEvent::new(0, 2, 0, 0);
-        event2.before_window_data = vec![AttributeValue::Double(2.0), AttributeValue::Double(200.0)];
+        event2.before_window_data =
+            vec![AttributeValue::Double(2.0), AttributeValue::Double(200.0)];
 
         state_event.add_event(0, event1);
         state_event.add_event(0, event2);

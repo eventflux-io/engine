@@ -130,9 +130,7 @@ impl PostStateProcessor for CountPostStateProcessor {
             .set_next_every_state_pre_processor(processor);
     }
 
-    fn get_next_every_state_pre_processor(
-        &self,
-    ) -> Option<Arc<Mutex<dyn PreStateProcessor>>> {
+    fn get_next_every_state_pre_processor(&self) -> Option<Arc<Mutex<dyn PreStateProcessor>>> {
         self.stream_processor.get_next_every_state_pre_processor()
     }
 

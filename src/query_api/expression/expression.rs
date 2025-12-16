@@ -262,9 +262,7 @@ impl Expression {
         match self {
             Expression::Constant(c) => c.eventflux_element.query_context_end_index = index,
             Expression::Variable(v) => v.eventflux_element.query_context_end_index = index,
-            Expression::IndexedVariable(iv) => {
-                iv.eventflux_element.query_context_end_index = index
-            }
+            Expression::IndexedVariable(iv) => iv.eventflux_element.query_context_end_index = index,
             Expression::AttributeFunction(af) => {
                 af.eventflux_element.query_context_end_index = index
             }

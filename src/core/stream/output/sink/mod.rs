@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 pub mod log_sink;
+pub mod rabbitmq_sink;
 pub mod sink_factory;
 pub mod sink_trait;
 

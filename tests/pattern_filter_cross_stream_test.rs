@@ -10,8 +10,8 @@ use eventflux_rust::core::event::state::state_event::StateEvent;
 use eventflux_rust::core::event::stream::stream_event::StreamEvent;
 use eventflux_rust::core::event::value::AttributeValue;
 use eventflux_rust::core::query::input::stream::state::pre_state_processor::PreStateProcessor;
-use eventflux_rust::core::query::input::stream::state::stream_pre_state_processor::StreamPreStateProcessor;
 use eventflux_rust::core::query::input::stream::state::stream_pre_state_processor::StateType;
+use eventflux_rust::core::query::input::stream::state::stream_pre_state_processor::StreamPreStateProcessor;
 use eventflux_rust::query_api::eventflux_app::EventFluxApp;
 use std::sync::Arc;
 
@@ -88,7 +88,10 @@ fn test_filter_with_cross_stream_reference_simple() {
 
     // Get the StateEvent from e1 result
     let state_event_e1 = e1_result.unwrap();
-    let state_event_e1 = state_event_e1.as_any().downcast_ref::<StateEvent>().unwrap();
+    let state_event_e1 = state_event_e1
+        .as_any()
+        .downcast_ref::<StateEvent>()
+        .unwrap();
 
     // Add state to e2 processor
     e2_processor.add_state(state_event_e1.clone());
@@ -99,7 +102,10 @@ fn test_filter_with_cross_stream_reference_simple() {
     e2_event_match.before_window_data = vec![AttributeValue::Float(110.0)];
 
     let e2_result_match = e2_processor.process_and_return(Some(Box::new(e2_event_match)));
-    assert!(e2_result_match.is_some(), "Filter should match when e2.price (110.0) > e1.price (100.0)");
+    assert!(
+        e2_result_match.is_some(),
+        "Filter should match when e2.price (110.0) > e1.price (100.0)"
+    );
 
     // Add state again for next test
     e2_processor.add_state(state_event_e1.clone());
@@ -110,7 +116,10 @@ fn test_filter_with_cross_stream_reference_simple() {
     e2_event_no_match.before_window_data = vec![AttributeValue::Float(90.0)];
 
     let e2_result_no_match = e2_processor.process_and_return(Some(Box::new(e2_event_no_match)));
-    assert!(e2_result_no_match.is_none(), "Filter should not match when e2.price (90.0) <= e1.price (100.0)");
+    assert!(
+        e2_result_no_match.is_none(),
+        "Filter should not match when e2.price (90.0) <= e1.price (100.0)"
+    );
 }
 
 /// Test cross-stream reference with percentage calculation
@@ -161,7 +170,12 @@ fn test_filter_cross_stream_percentage() {
     e1_event.before_window_data = vec![AttributeValue::Float(100.0)];
 
     let e1_result = e1_processor.process_and_return(Some(Box::new(e1_event)));
-    let state_event_e1 = e1_result.unwrap().as_any().downcast_ref::<StateEvent>().unwrap().clone();
+    let state_event_e1 = e1_result
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StateEvent>()
+        .unwrap()
+        .clone();
 
     // Test 1: e2.price = 111.0 (> 110.0) -> should match
     e2_processor.add_state(state_event_e1.clone());
@@ -171,7 +185,10 @@ fn test_filter_cross_stream_percentage() {
     e2_event_match.before_window_data = vec![AttributeValue::Float(111.0)];
 
     let e2_result_match = e2_processor.process_and_return(Some(Box::new(e2_event_match)));
-    assert!(e2_result_match.is_some(), "Should match when e2.price (111.0) > e1.price * 1.1 (110.0)");
+    assert!(
+        e2_result_match.is_some(),
+        "Should match when e2.price (111.0) > e1.price * 1.1 (110.0)"
+    );
 
     // Test 2: e2.price = 109.0 (<= 110.0) -> should not match
     e2_processor.add_state(state_event_e1.clone());
@@ -181,7 +198,10 @@ fn test_filter_cross_stream_percentage() {
     e2_event_no_match.before_window_data = vec![AttributeValue::Float(109.0)];
 
     let e2_result_no_match = e2_processor.process_and_return(Some(Box::new(e2_event_no_match)));
-    assert!(e2_result_no_match.is_none(), "Should not match when e2.price (109.0) <= e1.price * 1.1 (110.0)");
+    assert!(
+        e2_result_no_match.is_none(),
+        "Should not match when e2.price (109.0) <= e1.price * 1.1 (110.0)"
+    );
 }
 
 /// Test cross-stream reference with String equality
@@ -231,7 +251,12 @@ fn test_filter_cross_stream_string_equality() {
     e1_event.before_window_data = vec![AttributeValue::String("user1".to_string())];
 
     let e1_result = e1_processor.process_and_return(Some(Box::new(e1_event)));
-    let state_event_e1 = e1_result.unwrap().as_any().downcast_ref::<StateEvent>().unwrap().clone();
+    let state_event_e1 = e1_result
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StateEvent>()
+        .unwrap()
+        .clone();
 
     // Test 1: e2.userId = "user1" (same) -> should match
     e2_processor.add_state(state_event_e1.clone());
@@ -241,7 +266,10 @@ fn test_filter_cross_stream_string_equality() {
     e2_event_match.before_window_data = vec![AttributeValue::String("user1".to_string())];
 
     let e2_result_match = e2_processor.process_and_return(Some(Box::new(e2_event_match)));
-    assert!(e2_result_match.is_some(), "Should match when e2.userId == e1.userId");
+    assert!(
+        e2_result_match.is_some(),
+        "Should match when e2.userId == e1.userId"
+    );
 
     // Test 2: e2.userId = "user2" (different) -> should not match
     e2_processor.add_state(state_event_e1.clone());
@@ -251,7 +279,10 @@ fn test_filter_cross_stream_string_equality() {
     e2_event_no_match.before_window_data = vec![AttributeValue::String("user2".to_string())];
 
     let e2_result_no_match = e2_processor.process_and_return(Some(Box::new(e2_event_no_match)));
-    assert!(e2_result_no_match.is_none(), "Should not match when e2.userId != e1.userId");
+    assert!(
+        e2_result_no_match.is_none(),
+        "Should not match when e2.userId != e1.userId"
+    );
 }
 
 /// Test three-stream pattern with cross-stream references
@@ -323,7 +354,12 @@ fn test_filter_cross_stream_three_events() {
     e1_event.before_window_data = vec![AttributeValue::Int(10)];
 
     let e1_result = e1_processor.process_and_return(Some(Box::new(e1_event)));
-    let state_e1 = e1_result.unwrap().as_any().downcast_ref::<StateEvent>().unwrap().clone();
+    let state_e1 = e1_result
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StateEvent>()
+        .unwrap()
+        .clone();
 
     // Process e2
     e2_processor.add_state(state_e1);
@@ -333,7 +369,12 @@ fn test_filter_cross_stream_three_events() {
     e2_event.before_window_data = vec![AttributeValue::Int(15)];
 
     let e2_result = e2_processor.process_and_return(Some(Box::new(e2_event)));
-    let state_e1_e2 = e2_result.unwrap().as_any().downcast_ref::<StateEvent>().unwrap().clone();
+    let state_e1_e2 = e2_result
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StateEvent>()
+        .unwrap()
+        .clone();
 
     // Test 1: e3.value = 20 (> both 10 and 15) -> should match
     e3_processor.add_state(state_e1_e2.clone());
@@ -343,7 +384,10 @@ fn test_filter_cross_stream_three_events() {
     e3_event_match.before_window_data = vec![AttributeValue::Int(20)];
 
     let e3_result_match = e3_processor.process_and_return(Some(Box::new(e3_event_match)));
-    assert!(e3_result_match.is_some(), "Should match when e3.value (20) > e1.value (10) AND e3.value (20) > e2.value (15)");
+    assert!(
+        e3_result_match.is_some(),
+        "Should match when e3.value (20) > e1.value (10) AND e3.value (20) > e2.value (15)"
+    );
 
     // Test 2: e3.value = 12 (> 10 but < 15) -> should not match
     e3_processor.add_state(state_e1_e2.clone());
@@ -353,7 +397,10 @@ fn test_filter_cross_stream_three_events() {
     e3_event_no_match.before_window_data = vec![AttributeValue::Int(12)];
 
     let e3_result_no_match = e3_processor.process_and_return(Some(Box::new(e3_event_no_match)));
-    assert!(e3_result_no_match.is_none(), "Should not match when e3.value (12) > e1.value (10) but e3.value (12) <= e2.value (15)");
+    assert!(
+        e3_result_no_match.is_none(),
+        "Should not match when e3.value (12) > e1.value (10) but e3.value (12) <= e2.value (15)"
+    );
 }
 
 /// Test cross-stream reference with NULL handling
@@ -382,11 +429,11 @@ fn test_filter_cross_stream_null_handling() {
                 }
             }
         }
-        false  // e1 doesn't exist -> filter fails
+        false // e1 doesn't exist -> filter fails
     });
 
     // Create StateEvent without e1 (only has position 1)
-    let state_event_no_e1 = StateEvent::new(2, 0);  // 2 positions but e1 (position 0) is None
+    let state_event_no_e1 = StateEvent::new(2, 0); // 2 positions but e1 (position 0) is None
 
     e2_processor.add_state(state_event_no_e1);
     e2_processor.update_state();
@@ -395,7 +442,10 @@ fn test_filter_cross_stream_null_handling() {
     e2_event.before_window_data = vec![AttributeValue::Float(110.0)];
 
     let result = e2_processor.process_and_return(Some(Box::new(e2_event)));
-    assert!(result.is_none(), "Should not match when e1 doesn't exist in StateEvent");
+    assert!(
+        result.is_none(),
+        "Should not match when e1 doesn't exist in StateEvent"
+    );
 }
 
 /// Test that simple filters without cross-stream references still work
@@ -432,7 +482,10 @@ fn test_filter_without_cross_stream_reference() {
     event_match.before_window_data = vec![AttributeValue::Int(150)];
 
     let result_match = e1_processor.process_and_return(Some(Box::new(event_match)));
-    assert!(result_match.is_some(), "Should match when value (150) > 100");
+    assert!(
+        result_match.is_some(),
+        "Should match when value (150) > 100"
+    );
 
     e1_processor.update_state();
 
@@ -441,5 +494,8 @@ fn test_filter_without_cross_stream_reference() {
     event_no_match.before_window_data = vec![AttributeValue::Int(50)];
 
     let result_no_match = e1_processor.process_and_return(Some(Box::new(event_no_match)));
-    assert!(result_no_match.is_none(), "Should not match when value (50) <= 100");
+    assert!(
+        result_no_match.is_none(),
+        "Should not match when value (50) <= 100"
+    );
 }

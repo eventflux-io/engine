@@ -300,6 +300,7 @@ impl InMemoryTable {
                 AttributeValue::Float(f) => format!("F:{}", f),
                 AttributeValue::Double(d) => format!("D:{}", d),
                 AttributeValue::Bool(b) => format!("B:{}", b),
+                AttributeValue::Bytes(bytes) => format!("Y:{:02x?}", bytes), // Hex encode for key
                 AttributeValue::Null => "N".to_string(),
                 AttributeValue::Object(_) => "O".to_string(), // Object not fully supported for indexing
             })

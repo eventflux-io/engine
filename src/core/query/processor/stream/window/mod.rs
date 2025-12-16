@@ -534,9 +534,7 @@ pub fn create_window_processor(
         factory.create(handler, app_ctx, query_ctx, parse_ctx)
     } else {
         // Provide helpful error message with available window types
-        let available = app_ctx
-            .get_eventflux_context()
-            .list_window_factory_names();
+        let available = app_ctx.get_eventflux_context().list_window_factory_names();
         Err(format!(
             "Unknown window type '{}'. Available: {:?}",
             handler.name, available

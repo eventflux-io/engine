@@ -68,7 +68,10 @@ impl fmt::Display for PatternValidationError {
                      Unbounded patterns (A+, A{{1,}}, A{{n,}}) are not supported."
                 )
             }
-            PatternValidationError::InvalidCountRange { min_count, max_count } => {
+            PatternValidationError::InvalidCountRange {
+                min_count,
+                max_count,
+            } => {
                 write!(
                     f,
                     "Count quantifier max_count ({}) must be >= min_count ({})",
@@ -353,10 +356,12 @@ mod tests {
     }
 
     fn absent(name: &str) -> PatternExpression {
-        use sqlparser::ast::{Value, Expr};
+        use sqlparser::ast::{Expr, Value};
         PatternExpression::Absent {
             stream_name: ObjectName(vec![ObjectNamePart::Identifier(Ident::new(name))]),
-            duration: Box::new(Expr::Value(Value::Number("10000".to_string(), false).into())),
+            duration: Box::new(Expr::Value(
+                Value::Number("10000".to_string(), false).into(),
+            )),
         }
     }
 
@@ -482,10 +487,9 @@ mod tests {
 
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| matches!(
-            e,
-            PatternValidationError::ZeroCountPattern { min_count: 0 }
-        )));
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, PatternValidationError::ZeroCountPattern { min_count: 0 })));
     }
 
     #[test]

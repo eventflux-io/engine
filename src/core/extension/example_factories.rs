@@ -1,21 +1,32 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Example Factory Implementations with Typed Configurations
+//! Placeholder Extension Factory Implementations
 //!
-//! This module demonstrates the single-phase construction pattern for factories
-//! as described in M3: Factory System & Registry
+//! This module contains placeholder factories for demonstration purposes:
+//!
+//! ## Placeholder Factories (NOT production-ready)
+//! - `KafkaSourceFactory` - Placeholder for future Kafka integration
+//! - `HttpSinkFactory` - Placeholder for future HTTP sink
+//!
+//! ## Production-Ready Factories (in proper modules)
+//! - `RabbitMQSourceFactory` in `src/core/stream/input/source/rabbitmq_source.rs`
+//! - `RabbitMQSinkFactory` in `src/core/stream/output/sink/rabbitmq_sink.rs`
+//! - `TimerSourceFactory` in `src/core/extension/mod.rs`
+//! - `LogSinkFactory` in `src/core/extension/mod.rs`
+//!
+//! ## Mapper Factories
+//! All mapper factories are now in `src/core/stream/mapper/factory.rs`:
+//! - `JsonSourceMapperFactory`, `JsonSinkMapperFactory`
+//! - `CsvSourceMapperFactory`, `CsvSinkMapperFactory`
 
-use crate::core::event::event::Event;
 use crate::core::exception::EventFluxError;
-use crate::core::extension::{SinkFactory, SinkMapperFactory, SourceFactory, SourceMapperFactory};
-use crate::core::stream::input::mapper::SourceMapper;
+use crate::core::extension::{SinkFactory, SourceFactory};
 use crate::core::stream::input::source::Source;
-use crate::core::stream::output::mapper::SinkMapper;
 use crate::core::stream::output::sink::Sink;
 use std::collections::HashMap;
 
 // ============================================================================
-// Kafka Source Factory with Typed Config
+// Kafka Source Factory (Placeholder)
 // ============================================================================
 
 /// Kafka-specific validated configuration (INTERNAL to KafkaSourceFactory)
@@ -113,6 +124,10 @@ impl Source for KafkaSource {
     }
 }
 
+/// Placeholder Kafka source factory.
+///
+/// This is NOT production-ready. For a production implementation example,
+/// see `RabbitMQSourceFactory` in `rabbitmq_source.rs`.
 #[derive(Debug, Clone)]
 pub struct KafkaSourceFactory;
 
@@ -159,7 +174,7 @@ impl SourceFactory for KafkaSourceFactory {
 }
 
 // ============================================================================
-// HTTP Sink Factory with Typed Config
+// HTTP Sink Factory (Placeholder)
 // ============================================================================
 
 /// HTTP-specific validated configuration
@@ -243,6 +258,10 @@ impl Sink for HttpSink {
     }
 }
 
+/// Placeholder HTTP sink factory.
+///
+/// This is NOT production-ready. For a production implementation example,
+/// see `RabbitMQSinkFactory` in `rabbitmq_sink.rs`.
 #[derive(Debug, Clone)]
 pub struct HttpSinkFactory;
 
@@ -280,149 +299,8 @@ impl SinkFactory for HttpSinkFactory {
     }
 }
 
-// ============================================================================
-// JSON Source Mapper Factory
-// ============================================================================
-
-/// Placeholder JSON Source Mapper
-#[derive(Debug, Clone)]
-struct JsonSourceMapper;
-
-impl SourceMapper for JsonSourceMapper {
-    fn map(&self, _input: &[u8]) -> Result<Vec<Event>, EventFluxError> {
-        // Placeholder: actual implementation would parse JSON
-        Ok(vec![])
-    }
-
-    fn clone_box(&self) -> Box<dyn SourceMapper> {
-        Box::new(self.clone())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct JsonSourceMapperFactory;
-
-impl SourceMapperFactory for JsonSourceMapperFactory {
-    fn name(&self) -> &'static str {
-        "json"
-    }
-
-    fn required_parameters(&self) -> &[&str] {
-        &[] // JSON has no required parameters
-    }
-
-    fn optional_parameters(&self) -> &[&str] {
-        &["json.fail-on-missing-attribute", "json.enclosing-element"]
-    }
-
-    fn create_initialized(
-        &self,
-        _config: &HashMap<String, String>,
-    ) -> Result<Box<dyn SourceMapper>, EventFluxError> {
-        Ok(Box::new(JsonSourceMapper))
-    }
-
-    fn clone_box(&self) -> Box<dyn SourceMapperFactory> {
-        Box::new(self.clone())
-    }
-}
-
-// ============================================================================
-// CSV Sink Mapper Factory
-// ============================================================================
-
-/// CSV-specific configuration
-#[derive(Debug, Clone)]
-struct CsvSinkMapperConfig {
-    delimiter: String,
-    header: bool,
-}
-
-impl CsvSinkMapperConfig {
-    fn parse(raw_config: &HashMap<String, String>) -> Result<Self, EventFluxError> {
-        let delimiter = raw_config
-            .get("csv.delimiter")
-            .cloned()
-            .unwrap_or_else(|| ",".to_string());
-
-        if delimiter.len() != 1 {
-            return Err(EventFluxError::invalid_parameter_with_details(
-                "CSV delimiter must be a single character",
-                "csv.delimiter",
-                "single character",
-            ));
-        }
-
-        let header = raw_config
-            .get("csv.header")
-            .map(|s| s.parse::<bool>())
-            .transpose()
-            .map_err(|_| {
-                EventFluxError::invalid_parameter_with_details(
-                    "csv.header must be 'true' or 'false'",
-                    "csv.header",
-                    "boolean",
-                )
-            })?
-            .unwrap_or(true);
-
-        Ok(CsvSinkMapperConfig { delimiter, header })
-    }
-}
-
-/// Placeholder CSV Sink Mapper
-#[derive(Debug)]
-struct CsvSinkMapper {
-    _delimiter: String,
-    _header: bool,
-}
-
-impl SinkMapper for CsvSinkMapper {
-    fn map(&self, _events: &[Event]) -> Result<Vec<u8>, crate::core::exception::EventFluxError> {
-        // Placeholder: actual implementation would generate CSV
-        Ok(vec![])
-    }
-
-    fn clone_box(&self) -> Box<dyn SinkMapper> {
-        Box::new(CsvSinkMapper {
-            _delimiter: self._delimiter.clone(),
-            _header: self._header,
-        })
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct CsvSinkMapperFactory;
-
-impl SinkMapperFactory for CsvSinkMapperFactory {
-    fn name(&self) -> &'static str {
-        "csv"
-    }
-
-    fn required_parameters(&self) -> &[&str] {
-        &[] // CSV has no required parameters
-    }
-
-    fn optional_parameters(&self) -> &[&str] {
-        &["csv.delimiter", "csv.header"]
-    }
-
-    fn create_initialized(
-        &self,
-        config: &HashMap<String, String>,
-    ) -> Result<Box<dyn SinkMapper>, EventFluxError> {
-        let parsed = CsvSinkMapperConfig::parse(config)?;
-
-        Ok(Box::new(CsvSinkMapper {
-            _delimiter: parsed.delimiter,
-            _header: parsed.header,
-        }))
-    }
-
-    fn clone_box(&self) -> Box<dyn SinkMapperFactory> {
-        Box::new(self.clone())
-    }
-}
+// Note: JSON and CSV mapper factories are now in src/core/stream/mapper/factory.rs
+// and re-exported via crate::core::extension::{JsonSourceMapperFactory, JsonSinkMapperFactory, etc.}
 
 #[cfg(test)]
 mod tests {
@@ -495,26 +373,6 @@ mod tests {
         config.insert("http.method".to_string(), "INVALID".to_string());
 
         let result = HttpSinkConfig::parse(&config);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_csv_sink_mapper_config_parse() {
-        let mut config = HashMap::new();
-        config.insert("csv.delimiter".to_string(), ";".to_string());
-        config.insert("csv.header".to_string(), "false".to_string());
-
-        let parsed = CsvSinkMapperConfig::parse(&config).unwrap();
-        assert_eq!(parsed.delimiter, ";");
-        assert_eq!(parsed.header, false);
-    }
-
-    #[test]
-    fn test_csv_sink_mapper_invalid_delimiter() {
-        let mut config = HashMap::new();
-        config.insert("csv.delimiter".to_string(), ";;".to_string());
-
-        let result = CsvSinkMapperConfig::parse(&config);
         assert!(result.is_err());
     }
 

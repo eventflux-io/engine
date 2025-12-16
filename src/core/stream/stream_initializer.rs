@@ -565,7 +565,8 @@ fn dfs_topo_sort(
 /// 1. Source instance from factory
 /// 2. Mapper instance from factory
 /// 3. Input handler for event processing (from InputManager)
-/// 4. SourceStreamHandler for lifecycle management
+/// 4. DLQ junction wiring (if error.dlq.stream is configured)
+/// 5. SourceStreamHandler for lifecycle management
 fn initialize_source_stream_with_handler(
     stream_def: &StreamDefinition,
     stream_config: &StreamTypeConfig,
@@ -577,7 +578,7 @@ fn initialize_source_stream_with_handler(
     let initialized = initialize_source_stream(context, stream_config)?;
 
     match initialized {
-        InitializedStream::Source(source) => {
+        InitializedStream::Source(mut source) => {
             // Get or create InputHandler for this stream using InputManager
             // This properly integrates with the junction system
             let input_handler =
@@ -589,6 +590,23 @@ fn initialize_source_stream_with_handler(
                             stream_name, e
                         ))
                     })?;
+
+            // Wire DLQ junction if error.dlq.stream is configured
+            // The DLQ stream is already initialized (topological sort ensures dependencies first)
+            if let Some(dlq_stream_name) = stream_config.properties.get("error.dlq.stream") {
+                // Get the DLQ stream's InputHandler from InputManager
+                let dlq_junction = input_manager
+                    .construct_input_handler(dlq_stream_name)
+                    .map_err(|e| {
+                        EventFluxError::app_creation(format!(
+                            "Failed to get DLQ stream '{}' input handler for stream '{}': {}",
+                            dlq_stream_name, stream_name, e
+                        ))
+                    })?;
+
+                // Wire the DLQ junction to the source for error handling
+                source.source.set_error_dlq_junction(dlq_junction);
+            }
 
             // Create SourceStreamHandler
             let handler = Arc::new(SourceStreamHandler::new(
@@ -928,7 +946,10 @@ impl QuerySourceExtractor for Query {
 mod tests {
     use super::*;
     use crate::core::config::stream_config::{FlatConfig, PropertySource};
-    use crate::core::extension::example_factories::*;
+    use crate::core::extension::example_factories::{HttpSinkFactory, KafkaSourceFactory};
+    use crate::core::extension::{
+        CsvSinkMapperFactory, JsonSinkMapperFactory, JsonSourceMapperFactory,
+    };
 
     #[test]
     fn test_initialize_source_stream_success() {
@@ -1022,7 +1043,7 @@ mod tests {
     fn test_initialize_source_stream_mapper_not_found() {
         let context = EventFluxContext::new();
         context.add_source_factory("kafka".to_string(), Box::new(KafkaSourceFactory));
-        // Don't register json mapper
+        // Note: json/csv mappers are registered by default, use a non-existent format
 
         let mut config = HashMap::new();
         config.insert(
@@ -1034,7 +1055,7 @@ mod tests {
         let stream_config = StreamTypeConfig::new(
             StreamType::Source,
             Some("kafka".to_string()),
-            Some("json".to_string()),
+            Some("avro".to_string()), // avro mapper not registered
             config,
         )
         .unwrap();
@@ -1048,7 +1069,7 @@ mod tests {
                 name,
             } => {
                 assert_eq!(extension_type, "source mapper");
-                assert_eq!(name, "json");
+                assert_eq!(name, "avro");
             }
             e => panic!("Expected ExtensionNotFound for mapper, got {:?}", e),
         }

@@ -163,6 +163,39 @@ INSERT INTO RiskClassified;`,
       language: 'sql',
       reversed: true,
     },
+    {
+      title: 'RabbitMQ Event Pipeline',
+      icon: '🐰',
+      scenario:
+        'Build end-to-end streaming pipelines with RabbitMQ. Consume JSON events from queues, process with SQL queries, and publish results to exchanges. Perfect for microservices architectures.',
+      code: `-- RabbitMQ Source: Consume from queue
+CREATE STREAM TradeInput (
+    symbol STRING, price DOUBLE, volume INT
+) WITH (
+    type = 'source', extension = 'rabbitmq',
+    format = 'json',
+    "rabbitmq.host" = 'localhost',
+    "rabbitmq.queue" = 'trades'
+);
+
+-- RabbitMQ Sink: Publish to exchange
+CREATE STREAM TradeOutput (
+    symbol STRING, price DOUBLE, category STRING
+) WITH (
+    type = 'sink', extension = 'rabbitmq',
+    format = 'json',
+    "rabbitmq.host" = 'localhost',
+    "rabbitmq.exchange" = 'processed-trades'
+);
+
+-- Process: Filter and classify
+INSERT INTO TradeOutput
+SELECT symbol, price,
+       CASE WHEN price > 100 THEN 'high' ELSE 'low' END
+FROM TradeInput WHERE volume > 1000;`,
+      language: 'sql',
+      reversed: false,
+    },
   ];
 
   return (

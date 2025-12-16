@@ -1,0 +1,211 @@
+-- ============================================================================
+-- EventFlux RabbitMQ Source/Sink Example
+-- ============================================================================
+--
+-- This example demonstrates end-to-end stream processing with RabbitMQ:
+--   1. RabbitMQ Source: Consumes JSON events from a queue
+--   2. EventFlux Query: Filters by volume and adds price_category via CASE
+--   3. RabbitMQ Sink: Publishes processed events to an exchange
+--
+-- ============================================================================
+-- PREREQUISITES
+-- ============================================================================
+--
+-- 1. Start RabbitMQ with Docker:
+--
+--    docker run -d --name rabbitmq \
+--      -p 5672:5672 \
+--      -p 15672:15672 \
+--      rabbitmq:management
+--
+-- 2. Open RabbitMQ Management UI: http://localhost:15672
+--    Username: guest
+--    Password: guest
+--
+-- 3. Create the required queues and exchanges:
+--
+--    OPTION A: Via Management UI
+--    ---------------------------
+--    a) Go to "Exchanges" tab -> "Add a new exchange"
+--       - Name: trade-input-exchange
+--       - Type: direct
+--       - Click "Add exchange"
+--
+--    b) Go to "Queues" tab -> "Add a new queue"
+--       - Name: trade-input-queue
+--       - Click "Add queue"
+--
+--    c) Go to "Exchanges" -> Click "trade-input-exchange" -> "Bindings"
+--       - To queue: trade-input-queue
+--       - Routing key: trades
+--       - Click "Bind"
+--
+--    d) Repeat for output:
+--       - Exchange: trade-output-exchange (direct)
+--       - Queue: trade-output-queue
+--       - Binding routing key: processed
+--
+--    OPTION B: Via rabbitmqadmin CLI
+--    --------------------------------
+--    rabbitmqadmin declare exchange name=trade-input-exchange type=direct
+--    rabbitmqadmin declare queue name=trade-input-queue
+--    rabbitmqadmin declare binding source=trade-input-exchange \
+--      destination=trade-input-queue routing_key=trades
+--
+--    rabbitmqadmin declare exchange name=trade-output-exchange type=direct
+--    rabbitmqadmin declare queue name=trade-output-queue
+--    rabbitmqadmin declare binding source=trade-output-exchange \
+--      destination=trade-output-queue routing_key=processed
+--
+-- ============================================================================
+-- RUNNING THE EXAMPLE
+-- ============================================================================
+--
+-- 1. Start EventFlux with this query file:
+--
+--    cargo run --bin run_eventflux examples/rabbitmq.eventflux
+--
+-- 2. Publish test events to the input queue. Via Management UI:
+--    - Go to "Exchanges" -> "trade-input-exchange" -> "Publish message"
+--    - Routing key: trades
+--    - Properties: content_type = application/json
+--    - Payload (events that PASS filter - volume > 1000):
+--
+--      {"symbol":"AAPL","price":185.50,"volume":5000}
+--      {"symbol":"GOOGL","price":142.30,"volume":2500}
+--      {"symbol":"MSFT","price":378.25,"volume":1500}
+--
+--    - Payload (events that FAIL filter - volume <= 1000):
+--
+--      {"symbol":"META","price":325.00,"volume":800}
+--      {"symbol":"NVDA","price":495.50,"volume":500}
+--
+-- 3. Check the output queue for processed results:
+--    - Go to "Queues" -> "trade-output-queue" -> "Get messages"
+--    - Only 3 events should appear (volume > 1000 filter applied)
+--    - Each event will have a new `price_category` field:
+--      - price < 150: "low" (GOOGL)
+--      - price < 300: "medium" (AAPL)
+--      - price >= 300: "high" (MSFT)
+--
+-- ============================================================================
+-- EXPECTED OUTPUT
+-- ============================================================================
+--
+-- Input: {"symbol":"AAPL","price":185.50,"volume":5000}
+-- Output: {"symbol":"AAPL","price":185.50,"volume":5000,"price_category":"medium"}
+--
+-- Input: {"symbol":"GOOGL","price":142.30,"volume":2500}
+-- Output: {"symbol":"GOOGL","price":142.30,"volume":2500,"price_category":"low"}
+--
+-- Input: {"symbol":"MSFT","price":378.25,"volume":1500}
+-- Output: {"symbol":"MSFT","price":378.25,"volume":1500,"price_category":"high"}
+--
+-- Events with volume <= 1000 are filtered out (META, NVDA won't appear)
+--
+-- ============================================================================
+-- QUERY DEFINITION
+-- ============================================================================
+
+-- Input stream: Consumes JSON events from RabbitMQ queue
+CREATE STREAM TradeInput (
+    symbol STRING,
+    price DOUBLE,
+    volume INT
+) WITH (
+    type = 'source',
+    extension = 'rabbitmq',
+    format = 'json',
+    "rabbitmq.host" = 'localhost',
+    "rabbitmq.port" = '5672',
+    "rabbitmq.queue" = 'trade-input-queue',
+    "rabbitmq.username" = 'guest',
+    "rabbitmq.password" = 'guest'
+);
+
+-- Output stream: Publishes JSON events to RabbitMQ exchange
+CREATE STREAM TradeOutput (
+    symbol STRING,
+    price DOUBLE,
+    volume INT,
+    price_category STRING
+) WITH (
+    type = 'sink',
+    extension = 'rabbitmq',
+    format = 'json',
+    "rabbitmq.host" = 'localhost',
+    "rabbitmq.port" = '5672',
+    "rabbitmq.exchange" = 'trade-output-exchange',
+    "rabbitmq.routing.key" = 'processed',
+    "rabbitmq.username" = 'guest',
+    "rabbitmq.password" = 'guest'
+);
+
+-- Processing query with filter and CASE expression
+INSERT INTO TradeOutput
+SELECT
+    symbol,
+    price,
+    volume,
+    CASE
+        WHEN price < 150.0 THEN 'low'
+        WHEN price < 300.0 THEN 'medium'
+        ELSE 'high'
+    END as price_category
+FROM TradeInput
+WHERE volume > 1000;
+
+-- ============================================================================
+-- CONFIGURATION OPTIONS REFERENCE
+-- ============================================================================
+--
+-- RabbitMQ Source Options:
+-- ------------------------
+--   "rabbitmq.host"       - Broker hostname (required)
+--   "rabbitmq.port"       - Broker port (default: 5672)
+--   "rabbitmq.queue"      - Queue to consume from (required)
+--   "rabbitmq.username"   - Authentication username (default: guest)
+--   "rabbitmq.password"   - Authentication password (default: guest)
+--   "rabbitmq.vhost"      - Virtual host (default: /)
+--   "rabbitmq.auto.ack"   - Auto-acknowledge messages (default: true)
+--   "rabbitmq.prefetch"   - Prefetch count (default: 10)
+--
+-- RabbitMQ Sink Options:
+-- ----------------------
+--   "rabbitmq.host"         - Broker hostname (required)
+--   "rabbitmq.port"         - Broker port (default: 5672)
+--   "rabbitmq.exchange"     - Exchange to publish to (required)
+--   "rabbitmq.routing.key"  - Routing key for messages (default: "")
+--   "rabbitmq.username"     - Authentication username (default: guest)
+--   "rabbitmq.password"     - Authentication password (default: guest)
+--   "rabbitmq.vhost"        - Virtual host (default: /)
+--   "rabbitmq.content.type" - Message content type (default: application/octet-stream)
+--   "rabbitmq.mandatory"    - Mandatory flag (default: false)
+--
+-- Mapper Options:
+-- ---------------
+--   format = 'json'  - Parse/serialize as JSON
+--   format = 'csv'   - Parse/serialize as CSV (requires delimiter config)
+--
+-- ============================================================================
+-- TROUBLESHOOTING
+-- ============================================================================
+--
+-- 1. Connection refused:
+--    - Verify RabbitMQ is running: docker ps | grep rabbitmq
+--    - Check port 5672 is accessible: nc -zv localhost 5672
+--
+-- 2. Queue not found:
+--    - Ensure queue exists before starting EventFlux
+--    - Check queue name spelling in Management UI
+--
+-- 3. No messages appearing in output:
+--    - Verify exchange exists and queue is bound with correct routing key
+--    - Check filter condition (volume > 1000)
+--    - Ensure input messages are valid JSON with correct field names
+--
+-- 4. Authentication failed:
+--    - Verify username/password (default: guest/guest)
+--    - guest user only works for localhost connections by default
+--
+-- ============================================================================

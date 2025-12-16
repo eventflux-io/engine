@@ -51,8 +51,19 @@ use std::sync::{Arc, Mutex};
 
 use crate::core::function::script::Script;
 use crate::core::store::Store;
-use crate::core::stream::input::mapper::SourceMapper;
-use crate::core::stream::output::mapper::SinkMapper;
+
+// Re-export mapper factory traits from their canonical location
+pub use crate::core::stream::mapper::factory::{
+    // Also export the concrete factories for convenience
+    BytesSinkMapperFactory,
+    BytesSourceMapperFactory,
+    CsvSinkMapperFactory,
+    CsvSourceMapperFactory,
+    JsonSinkMapperFactory,
+    JsonSourceMapperFactory,
+    SinkMapperFactory,
+    SourceMapperFactory,
+};
 
 use crate::core::config::{
     eventflux_app_context::EventFluxAppContext, eventflux_query_context::EventFluxQueryContext,
@@ -479,79 +490,8 @@ impl Clone for Box<dyn StoreFactory> {
     }
 }
 
-pub trait SourceMapperFactory: Debug + Send + Sync {
-    fn name(&self) -> &'static str;
-
-    /// List required configuration properties
-    /// Example: &[] for JSON (no required config), &["avro.schema"] for Avro
-    /// NO DEFAULT - Must be explicitly implemented
-    fn required_parameters(&self) -> &[&str];
-
-    /// List optional configuration properties
-    /// Example: &["json.ignore-parse-errors", "json.date-format"]
-    /// NO DEFAULT - Must be explicitly implemented
-    fn optional_parameters(&self) -> &[&str];
-
-    /// Create a fully initialized, ready-to-use SourceMapper instance
-    /// Validates configuration and returns error if invalid
-    /// NO DEFAULT - Must be explicitly implemented
-    fn create_initialized(
-        &self,
-        config: &std::collections::HashMap<String, String>,
-    ) -> Result<Box<dyn SourceMapper>, crate::core::exception::EventFluxError>;
-
-    /// Legacy create method for backward compatibility
-    /// Deprecated: Use create_initialized instead
-    /// Returns None if factory requires configuration parameters
-    fn create(&self) -> Option<Box<dyn SourceMapper>> {
-        self.create_initialized(&std::collections::HashMap::new())
-            .ok()
-    }
-
-    fn clone_box(&self) -> Box<dyn SourceMapperFactory>;
-}
-impl Clone for Box<dyn SourceMapperFactory> {
-    fn clone(&self) -> Self {
-        self.clone_box()
-    }
-}
-
-pub trait SinkMapperFactory: Debug + Send + Sync {
-    fn name(&self) -> &'static str;
-
-    /// List required configuration properties
-    /// Example: &[] for JSON, &["csv.delimiter"] for CSV
-    /// NO DEFAULT - Must be explicitly implemented
-    fn required_parameters(&self) -> &[&str];
-
-    /// List optional configuration properties
-    /// Example: &["json.pretty-print", "json.template"]
-    /// NO DEFAULT - Must be explicitly implemented
-    fn optional_parameters(&self) -> &[&str];
-
-    /// Create a fully initialized, ready-to-use SinkMapper instance
-    /// Validates configuration and returns error if invalid
-    /// NO DEFAULT - Must be explicitly implemented
-    fn create_initialized(
-        &self,
-        config: &std::collections::HashMap<String, String>,
-    ) -> Result<Box<dyn SinkMapper>, crate::core::exception::EventFluxError>;
-
-    /// Legacy create method for backward compatibility
-    /// Deprecated: Use create_initialized instead
-    /// Returns None if factory requires configuration parameters
-    fn create(&self) -> Option<Box<dyn SinkMapper>> {
-        self.create_initialized(&std::collections::HashMap::new())
-            .ok()
-    }
-
-    fn clone_box(&self) -> Box<dyn SinkMapperFactory>;
-}
-impl Clone for Box<dyn SinkMapperFactory> {
-    fn clone(&self) -> Self {
-        self.clone_box()
-    }
-}
+// SourceMapperFactory and SinkMapperFactory are re-exported from
+// crate::core::stream::mapper::factory at the top of this module
 
 pub trait TableFactory: Debug + Send + Sync {
     fn name(&self) -> &'static str;
@@ -686,7 +626,7 @@ pub const REGISTER_SINK_MAPPERS_FN: &[u8] = b"register_sink_mappers";
 mod tests {
     use super::*;
     use crate::core::config::eventflux_context::EventFluxContext;
-    use crate::core::extension::example_factories::*;
+    use crate::core::extension::example_factories::{HttpSinkFactory, KafkaSourceFactory};
 
     #[test]
     fn test_factory_registration() {
@@ -818,44 +758,9 @@ mod tests {
     }
 
     #[test]
-    fn test_json_source_mapper_factory() {
-        let factory = JsonSourceMapperFactory;
-        assert_eq!(factory.name(), "json");
-        assert_eq!(factory.required_parameters(), &[] as &[&str]);
-
-        let config = std::collections::HashMap::new();
-        let result = factory.create_initialized(&config);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_csv_sink_mapper_factory() {
-        let factory = CsvSinkMapperFactory;
-        assert_eq!(factory.name(), "csv");
-
-        let mut config = std::collections::HashMap::new();
-        config.insert("csv.delimiter".to_string(), ";".to_string());
-        config.insert("csv.header".to_string(), "false".to_string());
-
-        let result = factory.create_initialized(&config);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_csv_sink_mapper_invalid_delimiter() {
-        let factory = CsvSinkMapperFactory;
-        let mut config = std::collections::HashMap::new();
-        config.insert("csv.delimiter".to_string(), ";;".to_string());
-
-        let result = factory.create_initialized(&config);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_factory_lookup_and_validation() {
         let context = EventFluxContext::new();
         context.add_source_factory("kafka".to_string(), Box::new(KafkaSourceFactory));
-        context.add_source_mapper_factory("json".to_string(), Box::new(JsonSourceMapperFactory));
 
         // 1. Look up source factory by extension
         let source_factory = context.get_source_factory("kafka");
@@ -866,11 +771,7 @@ mod tests {
         let format = "json";
         assert!(source_factory.supported_formats().contains(&format));
 
-        // 3. Look up mapper factory by format
-        let mapper_factory = context.get_source_mapper_factory(format);
-        assert!(mapper_factory.is_some());
-
-        // 4. Create fully initialized instances
+        // 3. Create fully initialized instances
         let mut source_config = std::collections::HashMap::new();
         source_config.insert(
             "kafka.bootstrap.servers".to_string(),
@@ -880,10 +781,6 @@ mod tests {
 
         let source = source_factory.create_initialized(&source_config);
         assert!(source.is_ok());
-
-        let mapper_config = std::collections::HashMap::new();
-        let mapper = mapper_factory.unwrap().create_initialized(&mapper_config);
-        assert!(mapper.is_ok());
     }
 
     #[test]
@@ -978,7 +875,9 @@ mod tests {
         assert_eq!(avg_fn.aggregate(&[]), None);
 
         // Count on empty returns 0
-        let count_fn = context.get_collection_aggregation_function("count").unwrap();
+        let count_fn = context
+            .get_collection_aggregation_function("count")
+            .unwrap();
         assert_eq!(count_fn.aggregate(&[]), Some(0.0));
 
         // Test min/max

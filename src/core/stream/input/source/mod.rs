@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+pub mod rabbitmq_source;
 pub mod timer_source;
 
 use crate::core::exception::EventFluxError;
@@ -75,6 +76,21 @@ pub trait Source: Debug + Send + Sync {
     /// ```
     fn validate_connectivity(&self) -> Result<(), crate::core::exception::EventFluxError> {
         Ok(()) // Default: no validation needed
+    }
+
+    /// Set the DLQ junction for error routing
+    ///
+    /// This method allows setting the DLQ junction after source creation,
+    /// enabling DLQ strategy when the factory creates a source before the DLQ
+    /// junction is available. The stream_initializer wires it after creation.
+    ///
+    /// Sources that support DLQ error handling should override this method.
+    /// The default implementation is a no-op for sources that don't support DLQ.
+    ///
+    /// # Arguments
+    /// * `_junction` - The InputHandler for the DLQ stream
+    fn set_error_dlq_junction(&mut self, _junction: Arc<Mutex<InputHandler>>) {
+        // Default: no-op for sources that don't support DLQ
     }
 }
 

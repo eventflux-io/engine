@@ -159,9 +159,10 @@ impl ExpressionExecutor for IndexedVariableExecutor {
         let attr_idx = self.attribute_position[1] as usize;
         let attr = match self.attribute_position[0] as usize {
             BEFORE_WINDOW_DATA_INDEX => stream_event.before_window_data.get(attr_idx),
-            OUTPUT_DATA_INDEX | STATE_OUTPUT_DATA_INDEX => {
-                stream_event.output_data.as_ref().and_then(|v| v.get(attr_idx))
-            }
+            OUTPUT_DATA_INDEX | STATE_OUTPUT_DATA_INDEX => stream_event
+                .output_data
+                .as_ref()
+                .and_then(|v| v.get(attr_idx)),
             ON_AFTER_WINDOW_DATA_INDEX => stream_event.on_after_window_data.get(attr_idx),
             _ => None,
         }
@@ -184,7 +185,10 @@ impl ExpressionExecutor for IndexedVariableExecutor {
         self.return_type
     }
 
-    fn clone_executor(&self, _eventflux_app_context: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+    fn clone_executor(
+        &self,
+        _eventflux_app_context: &Arc<EventFluxAppContext>,
+    ) -> Box<dyn ExpressionExecutor> {
         Box::new(self.clone())
     }
 }
@@ -205,11 +209,8 @@ mod tests {
     }
 
     /// Helper to create a StateEvent with events at a specific position
-    fn create_state_event_with_events(
-        position: usize,
-        events: Vec<StreamEvent>,
-    ) -> StateEvent {
-        let mut state_event = StateEvent::new(position + 1, 0);  // stream_events_size, output_size
+    fn create_state_event_with_events(position: usize, events: Vec<StreamEvent>) -> StateEvent {
+        let mut state_event = StateEvent::new(position + 1, 0); // stream_events_size, output_size
         for event in events {
             state_event.add_event(position, event);
         }
@@ -219,8 +220,8 @@ mod tests {
     #[test]
     fn test_indexed_access_first_event() {
         let executor = IndexedVariableExecutor::new(
-            0,                          // e1 at position 0
-            EventIndex::Numeric(0),     // e[0]
+            0,                      // e1 at position 0
+            EventIndex::Numeric(0), // e[0]
             [BEFORE_WINDOW_DATA_INDEX as i32, 0],
             ApiAttributeType::STRING,
             "userId".to_string(),
@@ -310,9 +311,9 @@ mod tests {
             "userId".to_string(),
         );
 
-        let events = vec![
-            create_stream_event_with_data(vec![AttributeValue::String("user1".to_string())]),
-        ];
+        let events = vec![create_stream_event_with_data(vec![AttributeValue::String(
+            "user1".to_string(),
+        )])];
 
         let state_event = create_state_event_with_events(0, events);
 
@@ -361,7 +362,9 @@ mod tests {
             "timestamp".to_string(),
         );
 
-        let events_long = vec![create_stream_event_with_data(vec![AttributeValue::Long(1000)])];
+        let events_long = vec![create_stream_event_with_data(vec![AttributeValue::Long(
+            1000,
+        )])];
         let state_event_long = create_state_event_with_events(0, events_long);
         let result_long = executor_long.execute(Some(&state_event_long as &dyn ComplexEvent));
         assert_eq!(result_long, Some(AttributeValue::Long(1000)));
@@ -375,8 +378,9 @@ mod tests {
             "price".to_string(),
         );
 
-        let events_double =
-            vec![create_stream_event_with_data(vec![AttributeValue::Double(99.99)])];
+        let events_double = vec![create_stream_event_with_data(vec![AttributeValue::Double(
+            99.99,
+        )])];
         let state_event_double = create_state_event_with_events(0, events_double);
         let result_double = executor_double.execute(Some(&state_event_double as &dyn ComplexEvent));
         assert_eq!(result_double, Some(AttributeValue::Double(99.99)));
@@ -423,7 +427,10 @@ mod tests {
         assert_eq!(result_e1, Some(AttributeValue::String("user1".to_string())));
 
         let result_e2 = executor_e2.execute(Some(&state_event as &dyn ComplexEvent));
-        assert_eq!(result_e2, Some(AttributeValue::String("access".to_string()))); // e2[1]
+        assert_eq!(
+            result_e2,
+            Some(AttributeValue::String("access".to_string()))
+        ); // e2[1]
     }
 
     #[test]
@@ -459,9 +466,8 @@ mod tests {
         );
 
         // Pass a StreamEvent instead of StateEvent
-        let stream_event = create_stream_event_with_data(vec![AttributeValue::String(
-            "user1".to_string(),
-        )]);
+        let stream_event =
+            create_stream_event_with_data(vec![AttributeValue::String("user1".to_string())]);
 
         let result = executor.execute(Some(&stream_event as &dyn ComplexEvent));
         assert_eq!(result, None); // Should return None because it's not a StateEvent

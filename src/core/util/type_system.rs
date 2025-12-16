@@ -166,6 +166,7 @@ impl TypeConverter {
             AttributeValue::Float(f) => f.to_string(),
             AttributeValue::Double(d) => d.to_string(),
             AttributeValue::Bool(b) => b.to_string(),
+            AttributeValue::Bytes(bytes) => format!("<bytes:{}>", bytes.len()),
             AttributeValue::Null => "null".to_string(),
             AttributeValue::Object(_) => "<object>".to_string(), // TODO: Implement special handling for Throwable and arrays
         };

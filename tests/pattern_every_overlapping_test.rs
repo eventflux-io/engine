@@ -105,7 +105,10 @@ fn test_every_pattern_overlapping_instances() {
         .unwrap()
         .process(Some(Box::new(b2)));
     chain.update_state();
-    println!("After B(2): outputs = {} (first match A1-B2)", collector.get_outputs().len());
+    println!(
+        "After B(2): outputs = {} (first match A1-B2)",
+        collector.get_outputs().len()
+    );
 
     // Send A(3) - with EVERY loopback, pattern should restart
     chain.pre_processors[0]
@@ -121,7 +124,10 @@ fn test_every_pattern_overlapping_instances() {
         .unwrap()
         .process(Some(Box::new(b4)));
     chain.update_state();
-    println!("After B(4): outputs = {} (second match A3-B4)", collector.get_outputs().len());
+    println!(
+        "After B(4): outputs = {} (second match A3-B4)",
+        collector.get_outputs().len()
+    );
 
     // Verify we got 2 matches with EVERY pattern restart
     let collected = collector.get_outputs();
@@ -290,7 +296,10 @@ fn test_every_validation_sequence_mode_rejected() {
     let result = builder.build(app_ctx, query_ctx);
 
     // Should fail validation
-    assert!(result.is_err(), "Expected validation error for EVERY in SEQUENCE mode");
+    assert!(
+        result.is_err(),
+        "Expected validation error for EVERY in SEQUENCE mode"
+    );
     if let Err(err_msg) = result {
         assert!(
             err_msg.contains("EVERY") && err_msg.contains("PATTERN"),
@@ -370,7 +379,10 @@ fn test_every_with_count_quantifiers() {
         .process(Some(Box::new(b4)));
     chain.update_state();
 
-    println!("After first sequence A1,A2,A3->B4: outputs = {}", collector.get_outputs().len());
+    println!(
+        "After first sequence A1,A2,A3->B4: outputs = {}",
+        collector.get_outputs().len()
+    );
 
     // Send second sequence: A5, A6, A7, B8
     for i in 5..=7 {
@@ -391,7 +403,10 @@ fn test_every_with_count_quantifiers() {
         .process(Some(Box::new(b8)));
     chain.update_state();
 
-    println!("After second sequence A5,A6,A7->B8: outputs = {}", collector.get_outputs().len());
+    println!(
+        "After second sequence A5,A6,A7->B8: outputs = {}",
+        collector.get_outputs().len()
+    );
 
     // Verify we got 2 matches with EVERY pattern restart
     let collected = collector.get_outputs();
@@ -477,7 +492,10 @@ fn test_every_with_within() {
         .process(Some(Box::new(b2)));
     chain.update_state();
 
-    println!("After A(1)->B(2) within 1s: outputs = {}", collector.get_outputs().len());
+    println!(
+        "After A(1)->B(2) within 1s: outputs = {}",
+        collector.get_outputs().len()
+    );
 
     // Second sequence: A(3)@t2000, B(4)@t10000 (exceeds 5 seconds from A3)
     let mut a3 = StreamEvent::new(2000, 1, 0, 0);
@@ -496,7 +514,10 @@ fn test_every_with_within() {
         .process(Some(Box::new(b4)));
     chain.update_state();
 
-    println!("After A(3)->B(4) after 8s: outputs = {}", collector.get_outputs().len());
+    println!(
+        "After A(3)->B(4) after 8s: outputs = {}",
+        collector.get_outputs().len()
+    );
 
     // Current behavior: both sequences match (WITHIN expiration not fully integrated)
     // TODO: Investigate timing expiration with EVERY restart - should be 1 match
@@ -594,7 +615,10 @@ fn test_every_with_longer_chain() {
         .process(Some(Box::new(c3)));
     chain.update_state();
 
-    println!("After first sequence A(1)->B(2)->C(3): outputs = {}", collector.get_outputs().len());
+    println!(
+        "After first sequence A(1)->B(2)->C(3): outputs = {}",
+        collector.get_outputs().len()
+    );
 
     // Second sequence: A(4), B(5), C(6)
     let mut a4 = StreamEvent::new(4000, 1, 0, 0);
@@ -621,7 +645,10 @@ fn test_every_with_longer_chain() {
         .process(Some(Box::new(c6)));
     chain.update_state();
 
-    println!("After second sequence A(4)->B(5)->C(6): outputs = {}", collector.get_outputs().len());
+    println!(
+        "After second sequence A(4)->B(5)->C(6): outputs = {}",
+        collector.get_outputs().len()
+    );
 
     // Verify we got 2 matches with EVERY pattern restart on longer chain
     let collected = collector.get_outputs();
@@ -704,7 +731,11 @@ fn test_every_memory_leak_stress() {
         chain.update_state();
     }
 
-    println!("After {} sequences: outputs = {}", num_sequences, collector.get_outputs().len());
+    println!(
+        "After {} sequences: outputs = {}",
+        num_sequences,
+        collector.get_outputs().len()
+    );
 
     // Verify we got all matches
     let collected = collector.get_outputs();
@@ -716,7 +747,10 @@ fn test_every_memory_leak_stress() {
         collected.len()
     );
 
-    println!("Test passed: EVERY stress test with {} restarts completed", num_sequences);
+    println!(
+        "Test passed: EVERY stress test with {} restarts completed",
+        num_sequences
+    );
     println!("Memory leak test: If test completes without hanging/OOM, no leaks detected");
 }
 
@@ -827,7 +861,10 @@ fn test_true_every_overlapping_multiple_a_before_b() {
         .unwrap()
         .stream_processor
         .pending_count();
-    println!("Pre[1] has {} pending states before B arrives", pre1_pending);
+    println!(
+        "Pre[1] has {} pending states before B arrives",
+        pre1_pending
+    );
 
     // Send B(3) - should complete BOTH A1-B3 AND A2-B3
     chain.pre_processors[1]
@@ -844,17 +881,29 @@ fn test_true_every_overlapping_multiple_a_before_b() {
     let collected = collector.get_outputs();
     println!("\nFinal collected matches:");
     for (i, state) in collected.iter().enumerate() {
-        println!("  Match {}: stream_event_count={}", i + 1, state.stream_event_count());
+        println!(
+            "  Match {}: stream_event_count={}",
+            i + 1,
+            state.stream_event_count()
+        );
         println!("    Position 0: {:?}", state.get_stream_event(0).is_some());
         println!("    Position 1: {:?}", state.get_stream_event(1).is_some());
         if let Some(e1) = state.get_stream_event(0) {
-            println!("    e1.timestamp = {}, data_len = {}", e1.timestamp, e1.before_window_data.len());
+            println!(
+                "    e1.timestamp = {}, data_len = {}",
+                e1.timestamp,
+                e1.before_window_data.len()
+            );
             if let Some(AttributeValue::Long(val)) = e1.before_window_data.get(0) {
                 println!("    e1.value = {}", val);
             }
         }
         if let Some(e2) = state.get_stream_event(1) {
-            println!("    e2.timestamp = {}, data_len = {}", e2.timestamp, e2.before_window_data.len());
+            println!(
+                "    e2.timestamp = {}, data_len = {}",
+                e2.timestamp,
+                e2.before_window_data.len()
+            );
             if let Some(AttributeValue::Long(val)) = e2.before_window_data.get(0) {
                 println!("    e2.value = {}", val);
             }
@@ -895,8 +944,14 @@ fn test_true_every_overlapping_multiple_a_before_b() {
         }
     }
 
-    assert!(found_a1_b3, "Should have A1-B3 match (timestamps 1000-3000)");
-    assert!(found_a2_b3, "Should have A2-B3 match (timestamps 2000-3000)");
+    assert!(
+        found_a1_b3,
+        "Should have A1-B3 match (timestamps 1000-3000)"
+    );
+    assert!(
+        found_a2_b3,
+        "Should have A2-B3 match (timestamps 2000-3000)"
+    );
 
     println!("\n*** TRUE EVERY OVERLAPPING WORKS! ***");
     println!("Pattern: EVERY (A -> B)");
@@ -914,11 +969,23 @@ fn test_ultra_explicit_overlapping_proof() {
 
     // Build pattern chain: EVERY (A -> B)
     let mut builder = PatternChainBuilder::new(StateType::Pattern);
-    builder.add_step(PatternStepConfig::new("e1".to_string(), "StreamA".to_string(), 1, 1));
-    builder.add_step(PatternStepConfig::new("e2".to_string(), "StreamB".to_string(), 1, 1));
+    builder.add_step(PatternStepConfig::new(
+        "e1".to_string(),
+        "StreamA".to_string(),
+        1,
+        1,
+    ));
+    builder.add_step(PatternStepConfig::new(
+        "e2".to_string(),
+        "StreamB".to_string(),
+        1,
+        1,
+    ));
     builder.set_every(true);
 
-    let mut chain = builder.build(app_ctx, query_ctx).expect("Failed to build chain");
+    let mut chain = builder
+        .build(app_ctx, query_ctx)
+        .expect("Failed to build chain");
     chain.init();
 
     let stream_a_def = create_stream_definition("StreamA");
@@ -932,60 +999,120 @@ fn test_ultra_explicit_overlapping_proof() {
     let original_last = chain.post_processors[last_idx].clone();
     let wrapped = Arc::new(Mutex::new(collector.create_wrapper(original_last)));
     chain.post_processors[last_idx] = wrapped.clone() as Arc<Mutex<dyn PostStateProcessor>>;
-    chain.pre_processors_concrete[last_idx].lock().unwrap()
-        .stream_processor.set_this_state_post_processor(wrapped as Arc<Mutex<dyn PostStateProcessor>>);
+    chain.pre_processors_concrete[last_idx]
+        .lock()
+        .unwrap()
+        .stream_processor
+        .set_this_state_post_processor(wrapped as Arc<Mutex<dyn PostStateProcessor>>);
 
     // === STEP 1: Check initial state ===
-    let pre1_pending_initial = chain.pre_processors_concrete[1].lock().unwrap()
-        .stream_processor.pending_count();
+    let pre1_pending_initial = chain.pre_processors_concrete[1]
+        .lock()
+        .unwrap()
+        .stream_processor
+        .pending_count();
     println!("\n=== STEP 0: Initial State ===");
     println!("Pre[1] pending count: {}", pre1_pending_initial);
-    assert_eq!(pre1_pending_initial, 0, "Pre[1] should start with 0 pending");
+    assert_eq!(
+        pre1_pending_initial, 0,
+        "Pre[1] should start with 0 pending"
+    );
 
     // === STEP 2: Send A1 ===
     println!("\n=== STEP 1: Send A1@1000 ===");
     let a1 = StreamEvent::new(1000, 1, 0, 0);
-    chain.pre_processors[0].lock().unwrap().process(Some(Box::new(a1)));
+    chain.pre_processors[0]
+        .lock()
+        .unwrap()
+        .process(Some(Box::new(a1)));
 
     // Check Pre[1] new_list BEFORE update_state
-    let pre1_new_before = chain.pre_processors_concrete[1].lock().unwrap()
-        .stream_processor.new_count();
-    println!("Pre[1] new_list count BEFORE update_state: {}", pre1_new_before);
-    assert_eq!(pre1_new_before, 1, "Pre[1] should have StateEvent with A1 in new_list");
+    let pre1_new_before = chain.pre_processors_concrete[1]
+        .lock()
+        .unwrap()
+        .stream_processor
+        .new_count();
+    println!(
+        "Pre[1] new_list count BEFORE update_state: {}",
+        pre1_new_before
+    );
+    assert_eq!(
+        pre1_new_before, 1,
+        "Pre[1] should have StateEvent with A1 in new_list"
+    );
 
     chain.update_state();
 
     // Check Pre[1] pending AFTER update_state
-    let pre1_pending_after_a1 = chain.pre_processors_concrete[1].lock().unwrap()
-        .stream_processor.pending_count();
-    println!("Pre[1] pending count AFTER update_state: {}", pre1_pending_after_a1);
-    assert_eq!(pre1_pending_after_a1, 1, "Pre[1] should have 1 pending (StateEvent with A1)");
+    let pre1_pending_after_a1 = chain.pre_processors_concrete[1]
+        .lock()
+        .unwrap()
+        .stream_processor
+        .pending_count();
+    println!(
+        "Pre[1] pending count AFTER update_state: {}",
+        pre1_pending_after_a1
+    );
+    assert_eq!(
+        pre1_pending_after_a1, 1,
+        "Pre[1] should have 1 pending (StateEvent with A1)"
+    );
 
     // === STEP 3: Send A2 ===
     println!("\n=== STEP 2: Send A2@2000 (ANOTHER A before B!) ===");
     let a2 = StreamEvent::new(2000, 1, 0, 0);
-    chain.pre_processors[0].lock().unwrap().process(Some(Box::new(a2)));
+    chain.pre_processors[0]
+        .lock()
+        .unwrap()
+        .process(Some(Box::new(a2)));
 
     // Check Pre[1] new_list BEFORE update_state
-    let pre1_new_before_a2 = chain.pre_processors_concrete[1].lock().unwrap()
-        .stream_processor.new_count();
-    println!("Pre[1] new_list count BEFORE update_state: {}", pre1_new_before_a2);
-    assert_eq!(pre1_new_before_a2, 1, "Pre[1] should have StateEvent with A2 in new_list");
+    let pre1_new_before_a2 = chain.pre_processors_concrete[1]
+        .lock()
+        .unwrap()
+        .stream_processor
+        .new_count();
+    println!(
+        "Pre[1] new_list count BEFORE update_state: {}",
+        pre1_new_before_a2
+    );
+    assert_eq!(
+        pre1_new_before_a2, 1,
+        "Pre[1] should have StateEvent with A2 in new_list"
+    );
 
     // Check pending is STILL 1 (StateEvent{A1} from before)
-    let pre1_pending_during_a2 = chain.pre_processors_concrete[1].lock().unwrap()
-        .stream_processor.pending_count();
-    println!("Pre[1] pending count (should still be 1 from A1): {}", pre1_pending_during_a2);
-    assert_eq!(pre1_pending_during_a2, 1, "Pre[1] pending should still have StateEvent with A1");
+    let pre1_pending_during_a2 = chain.pre_processors_concrete[1]
+        .lock()
+        .unwrap()
+        .stream_processor
+        .pending_count();
+    println!(
+        "Pre[1] pending count (should still be 1 from A1): {}",
+        pre1_pending_during_a2
+    );
+    assert_eq!(
+        pre1_pending_during_a2, 1,
+        "Pre[1] pending should still have StateEvent with A1"
+    );
 
     chain.update_state();
 
     // *** THE KEY ASSERTION ***
     // After update_state, Pre[1] should have BOTH StateEvent{A1} AND StateEvent{A2}
-    let pre1_pending_after_a2 = chain.pre_processors_concrete[1].lock().unwrap()
-        .stream_processor.pending_count();
-    println!("Pre[1] pending count AFTER update_state: {}", pre1_pending_after_a2);
-    println!("*** THIS IS THE KEY: Pre[1] now has {} concurrent pending states ***", pre1_pending_after_a2);
+    let pre1_pending_after_a2 = chain.pre_processors_concrete[1]
+        .lock()
+        .unwrap()
+        .stream_processor
+        .pending_count();
+    println!(
+        "Pre[1] pending count AFTER update_state: {}",
+        pre1_pending_after_a2
+    );
+    println!(
+        "*** THIS IS THE KEY: Pre[1] now has {} concurrent pending states ***",
+        pre1_pending_after_a2
+    );
     assert_eq!(
         pre1_pending_after_a2, 2,
         "\n\n*** CRITICAL ASSERTION ***\n\
@@ -996,7 +1123,10 @@ fn test_ultra_explicit_overlapping_proof() {
     // === STEP 4: Send B3 ===
     println!("\n=== STEP 3: Send B3@3000 (should match BOTH A1 and A2) ===");
     let b3 = StreamEvent::new(3000, 1, 0, 0);
-    chain.pre_processors[1].lock().unwrap().process(Some(Box::new(b3)));
+    chain.pre_processors[1]
+        .lock()
+        .unwrap()
+        .process(Some(Box::new(b3)));
     chain.update_state();
 
     // === VERIFY RESULTS ===
@@ -1006,13 +1136,19 @@ fn test_ultra_explicit_overlapping_proof() {
 
     for (i, state) in collected.iter().enumerate() {
         if let (Some(e1), Some(e2)) = (state.get_stream_event(0), state.get_stream_event(1)) {
-            println!("  Match {}: A@{} -> B@{}", i + 1, e1.timestamp, e2.timestamp);
+            println!(
+                "  Match {}: A@{} -> B@{}",
+                i + 1,
+                e1.timestamp,
+                e2.timestamp
+            );
         }
     }
 
     // Final assertion - must have 2 matches
     assert_eq!(
-        collected.len(), 2,
+        collected.len(),
+        2,
         "\n\n*** MUST PRODUCE 2 MATCHES ***\n\
          Pattern: EVERY (A -> B)\n\
          Events: A1@1000 -> A2@2000 -> B3@3000\n\
@@ -1020,17 +1156,22 @@ fn test_ultra_explicit_overlapping_proof() {
     );
 
     // Verify the exact matches
-    let timestamps: Vec<(i64, i64)> = collected.iter()
-        .filter_map(|s| {
-            match (s.get_stream_event(0), s.get_stream_event(1)) {
-                (Some(e1), Some(e2)) => Some((e1.timestamp, e2.timestamp)),
-                _ => None
-            }
+    let timestamps: Vec<(i64, i64)> = collected
+        .iter()
+        .filter_map(|s| match (s.get_stream_event(0), s.get_stream_event(1)) {
+            (Some(e1), Some(e2)) => Some((e1.timestamp, e2.timestamp)),
+            _ => None,
         })
         .collect();
 
-    assert!(timestamps.contains(&(1000, 3000)), "Must have A1@1000 -> B3@3000 match");
-    assert!(timestamps.contains(&(2000, 3000)), "Must have A2@2000 -> B3@3000 match");
+    assert!(
+        timestamps.contains(&(1000, 3000)),
+        "Must have A1@1000 -> B3@3000 match"
+    );
+    assert!(
+        timestamps.contains(&(2000, 3000)),
+        "Must have A2@2000 -> B3@3000 match"
+    );
 
     println!("\n*** PROOF COMPLETE: TRUE OVERLAPPING INSTANCES WORK ***");
     println!("The implementation correctly maintains multiple concurrent pattern states.");
@@ -1105,7 +1246,11 @@ fn test_true_every_overlapping_count_quantifier_sliding_window() {
             .unwrap()
             .process(Some(Box::new(a)));
         chain.update_state();
-        println!("After A({}): outputs = {}", i, collector.get_outputs().len());
+        println!(
+            "After A({}): outputs = {}",
+            i,
+            collector.get_outputs().len()
+        );
     }
 
     // Check pending states at Pre[1]
@@ -1133,7 +1278,10 @@ fn test_true_every_overlapping_count_quantifier_sliding_window() {
     chain.update_state();
 
     let collected = collector.get_outputs();
-    println!("\nFinal: {} matches (expected 3 for true overlapping)", collected.len());
+    println!(
+        "\nFinal: {} matches (expected 3 for true overlapping)",
+        collected.len()
+    );
 
     // TRUE EVERY with count quantifier should produce sliding window matches
     // Per PATTERN_GRAMMAR_V1.2_TEST_SPEC.md Test 2.9

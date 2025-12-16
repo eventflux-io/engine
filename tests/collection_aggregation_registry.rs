@@ -36,11 +36,17 @@ fn collection_aggregation_functions_registered_and_work() {
     // Validate basic behavior and return types from registry instances
     let sum_fn = ctx.get_collection_aggregation_function("sum").unwrap();
     assert_eq!(sum_fn.aggregate(&[1.0, 2.0, 3.0]), Some(6.0));
-    assert_eq!(sum_fn.return_type(ApiAttributeType::INT), ApiAttributeType::LONG);
+    assert_eq!(
+        sum_fn.return_type(ApiAttributeType::INT),
+        ApiAttributeType::LONG
+    );
 
     let avg_fn = ctx.get_collection_aggregation_function("avg").unwrap();
     assert_eq!(avg_fn.aggregate(&[10.0, 20.0, 30.0]), Some(20.0));
-    assert_eq!(avg_fn.return_type(ApiAttributeType::DOUBLE), ApiAttributeType::DOUBLE);
+    assert_eq!(
+        avg_fn.return_type(ApiAttributeType::DOUBLE),
+        ApiAttributeType::DOUBLE
+    );
 
     let count_fn = ctx.get_collection_aggregation_function("count").unwrap();
     assert_eq!(count_fn.aggregate(&[]), Some(0.0));

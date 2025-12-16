@@ -36,6 +36,8 @@ pub enum SerializableAttributeValue {
     Float(f32),
     Double(f64),
     Bool(bool),
+    /// Raw binary data for passthrough scenarios
+    Bytes(Vec<u8>),
     /// Object variant with type information and serialized data
     Object {
         type_name: String,
@@ -56,6 +58,7 @@ impl From<&AttributeValue> for SerializableAttributeValue {
             AttributeValue::Float(f) => SerializableAttributeValue::Float(*f),
             AttributeValue::Double(d) => SerializableAttributeValue::Double(*d),
             AttributeValue::Bool(b) => SerializableAttributeValue::Bool(*b),
+            AttributeValue::Bytes(bytes) => SerializableAttributeValue::Bytes(bytes.clone()),
             AttributeValue::Object(obj_opt) => {
                 // Handle the Box<dyn Any> case
                 SerializableAttributeValue::Object {
@@ -80,6 +83,7 @@ impl From<SerializableAttributeValue> for AttributeValue {
             SerializableAttributeValue::Float(f) => AttributeValue::Float(f),
             SerializableAttributeValue::Double(d) => AttributeValue::Double(d),
             SerializableAttributeValue::Bool(b) => AttributeValue::Bool(b),
+            SerializableAttributeValue::Bytes(bytes) => AttributeValue::Bytes(bytes),
             SerializableAttributeValue::Object { is_some, .. } => {
                 // Reconstruct as None for now - in production we'd have a registry
                 // of known object types that can be deserialized properly

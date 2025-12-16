@@ -71,10 +71,7 @@ mod state_event_chaining {
 
         let chain = state.get_event_chain(0);
         assert_eq!(chain.len(), 1, "Chain should have exactly 1 event");
-        assert_eq!(
-            chain[0].before_window_data[0],
-            AttributeValue::Double(10.0)
-        );
+        assert_eq!(chain[0].before_window_data[0], AttributeValue::Double(10.0));
     }
 
     #[test]
@@ -134,16 +131,32 @@ mod state_event_chaining {
     fn test_count_events_at_matches_chain_length() {
         let mut state = StateEvent::new(1, 0);
 
-        assert_eq!(state.count_events_at(0), 0, "Empty chain should have 0 events");
+        assert_eq!(
+            state.count_events_at(0),
+            0,
+            "Empty chain should have 0 events"
+        );
 
         state.add_event(0, create_event_with_value(10.0));
-        assert_eq!(state.count_events_at(0), 1, "After 1 add, count should be 1");
+        assert_eq!(
+            state.count_events_at(0),
+            1,
+            "After 1 add, count should be 1"
+        );
 
         state.add_event(0, create_event_with_value(20.0));
-        assert_eq!(state.count_events_at(0), 2, "After 2 adds, count should be 2");
+        assert_eq!(
+            state.count_events_at(0),
+            2,
+            "After 2 adds, count should be 2"
+        );
 
         state.add_event(0, create_event_with_value(30.0));
-        assert_eq!(state.count_events_at(0), 3, "After 3 adds, count should be 3");
+        assert_eq!(
+            state.count_events_at(0),
+            3,
+            "After 3 adds, count should be 3"
+        );
 
         // Verify chain length matches count
         let chain = state.get_event_chain(0);
@@ -171,9 +184,21 @@ mod state_event_chaining {
         state.add_event(2, create_event_with_value(100.0));
 
         // Verify each position has correct chain
-        assert_eq!(state.count_events_at(0), 2, "Position 0 should have 2 events");
-        assert_eq!(state.count_events_at(1), 3, "Position 1 should have 3 events");
-        assert_eq!(state.count_events_at(2), 1, "Position 2 should have 1 event");
+        assert_eq!(
+            state.count_events_at(0),
+            2,
+            "Position 0 should have 2 events"
+        );
+        assert_eq!(
+            state.count_events_at(1),
+            3,
+            "Position 1 should have 3 events"
+        );
+        assert_eq!(
+            state.count_events_at(2),
+            1,
+            "Position 2 should have 1 event"
+        );
 
         // Verify chain values are correct for each position
         let chain0 = state.get_event_chain(0);
@@ -181,12 +206,24 @@ mod state_event_chaining {
         assert_eq!(chain0[1].before_window_data[0], AttributeValue::Double(2.0));
 
         let chain1 = state.get_event_chain(1);
-        assert_eq!(chain1[0].before_window_data[0], AttributeValue::Double(10.0));
-        assert_eq!(chain1[1].before_window_data[0], AttributeValue::Double(20.0));
-        assert_eq!(chain1[2].before_window_data[0], AttributeValue::Double(30.0));
+        assert_eq!(
+            chain1[0].before_window_data[0],
+            AttributeValue::Double(10.0)
+        );
+        assert_eq!(
+            chain1[1].before_window_data[0],
+            AttributeValue::Double(20.0)
+        );
+        assert_eq!(
+            chain1[2].before_window_data[0],
+            AttributeValue::Double(30.0)
+        );
 
         let chain2 = state.get_event_chain(2);
-        assert_eq!(chain2[0].before_window_data[0], AttributeValue::Double(100.0));
+        assert_eq!(
+            chain2[0].before_window_data[0],
+            AttributeValue::Double(100.0)
+        );
     }
 
     #[test]
@@ -196,8 +233,14 @@ mod state_event_chaining {
         let chain0 = state.get_event_chain(0);
         let chain1 = state.get_event_chain(1);
 
-        assert!(chain0.is_empty(), "Empty position 0 should return empty chain");
-        assert!(chain1.is_empty(), "Empty position 1 should return empty chain");
+        assert!(
+            chain0.is_empty(),
+            "Empty position 0 should return empty chain"
+        );
+        assert!(
+            chain1.is_empty(),
+            "Empty position 1 should return empty chain"
+        );
     }
 
     #[test]
@@ -205,7 +248,10 @@ mod state_event_chaining {
         let state = StateEvent::new(1, 0);
 
         let chain = state.get_event_chain(99); // Position 99 doesn't exist
-        assert!(chain.is_empty(), "Out of bounds position should return empty chain");
+        assert!(
+            chain.is_empty(),
+            "Out of bounds position should return empty chain"
+        );
     }
 }
 
@@ -488,23 +534,17 @@ mod collection_aggregation_on_chains {
         state.add_event(
             0,
             create_event_with_values(vec![
-                AttributeValue::Int(1),      // id
+                AttributeValue::Int(1),       // id
                 AttributeValue::Double(10.0), // value
             ]),
         );
         state.add_event(
             0,
-            create_event_with_values(vec![
-                AttributeValue::Int(2),
-                AttributeValue::Double(20.0),
-            ]),
+            create_event_with_values(vec![AttributeValue::Int(2), AttributeValue::Double(20.0)]),
         );
         state.add_event(
             0,
-            create_event_with_values(vec![
-                AttributeValue::Int(3),
-                AttributeValue::Double(30.0),
-            ]),
+            create_event_with_values(vec![AttributeValue::Int(3), AttributeValue::Double(30.0)]),
         );
 
         // sum(e1.value) - value is at attribute index 1
@@ -550,10 +590,7 @@ mod collection_aggregation_on_chains {
         let mut state = StateEvent::new(1, 0);
 
         state.add_event(0, create_event_with_value(10.0));
-        state.add_event(
-            0,
-            create_event_with_values(vec![AttributeValue::Null]),
-        );
+        state.add_event(0, create_event_with_values(vec![AttributeValue::Null]));
         state.add_event(0, create_event_with_value(30.0));
 
         // sum should skip nulls: 10 + 30 = 40
@@ -836,7 +873,9 @@ mod edge_cases {
             [BEFORE_WINDOW_DATA_INDEX as i32, 0],
             ApiAttributeType::DOUBLE,
         );
-        if let Some(AttributeValue::Double(sum)) = sum_exec.execute(Some(&state as &dyn ComplexEvent)) {
+        if let Some(AttributeValue::Double(sum)) =
+            sum_exec.execute(Some(&state as &dyn ComplexEvent))
+        {
             assert!(
                 (sum - 0.6).abs() < 0.0001,
                 "Sum should be approximately 0.6, got {}",
@@ -848,7 +887,9 @@ mod edge_cases {
 
         // avg should be approximately 0.2
         let avg_exec = CollectionAvgExecutor::new(0, [BEFORE_WINDOW_DATA_INDEX as i32, 0]);
-        if let Some(AttributeValue::Double(avg)) = avg_exec.execute(Some(&state as &dyn ComplexEvent)) {
+        if let Some(AttributeValue::Double(avg)) =
+            avg_exec.execute(Some(&state as &dyn ComplexEvent))
+        {
             assert!(
                 (avg - 0.2).abs() < 0.0001,
                 "Avg should be approximately 0.2, got {}",
@@ -1014,9 +1055,7 @@ mod end_to_end_processor_tests {
             )
         }
 
-        fn this_state_post_processor(
-            &self,
-        ) -> Option<Arc<Mutex<dyn PostStateProcessor>>> {
+        fn this_state_post_processor(&self) -> Option<Arc<Mutex<dyn PostStateProcessor>>> {
             None
         }
     }
@@ -1049,7 +1088,7 @@ mod end_to_end_processor_tests {
         let mut pre_processor = CountPreStateProcessor::new(
             min,
             max,
-            0, // state_id
+            0,    // state_id
             true, // is_start_state
             StateType::Pattern,
             app_ctx.clone(),
