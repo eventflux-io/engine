@@ -10,8 +10,11 @@ Eventflux can be installed from source or added as a dependency to your Rust pro
 
 ## Prerequisites
 
-- **Rust 1.70+** (stable)
+- **Rust 1.85+** (stable)
 - **Cargo** (comes with Rust)
+
+MSRV is enforced via `Cargo.toml` (`package.rust-version`) and CI. If you don’t want to install Rust locally, use the
+official Docker image (`ghcr.io/eventflux-io/engine:latest`).
 
 :::tip Verify Rust Installation
 ```bash

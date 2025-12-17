@@ -18,8 +18,11 @@ This guide covers building, testing, running, and contributing to EventFlux.
 
 ### Prerequisites
 
-- Rust 1.70 or later
+- Rust 1.85 or later
 - Protocol Buffer Compiler (for gRPC features)
+
+MSRV is enforced via `Cargo.toml` (`package.rust-version`) and CI. If you don’t want to install Rust locally, use the
+official Docker image (`ghcr.io/eventflux-io/engine:latest`) for running `.eventflux` queries.
 
 ```bash
 # Install protoc (required for gRPC transport)
@@ -142,7 +145,7 @@ Redis tests skip automatically if Redis is not available:
 
 ```bash
 # Start Redis (Docker)
-docker-compose up -d
+docker compose up -d redis
 
 # Run Redis tests
 cargo test redis
@@ -443,13 +446,13 @@ See [docs/writing_extensions.md](docs/writing_extensions.md) for complete guide.
 
 ```bash
 # Start Redis
-docker-compose up -d
+docker compose up -d redis
 
 # Verify
 redis-cli ping
 
 # Stop
-docker-compose down
+docker compose down
 ```
 
 ### Redis Configuration

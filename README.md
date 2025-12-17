@@ -168,8 +168,11 @@ DataStream<Event> result = events
 
 ### Prerequisites
 
-- Rust 1.70+ (or use Docker)
+- Rust 1.85+ (or use Docker)
 - Protocol Buffer Compiler (for gRPC features)
+
+MSRV is enforced via `Cargo.toml` (`package.rust-version`) and CI; if you need to avoid installing Rust locally, use the
+official Docker image instead.
 
 ### Docker (Recommended)
 
