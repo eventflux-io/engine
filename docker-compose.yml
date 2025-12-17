@@ -1,11 +1,56 @@
-version: '3.8'
+# ==============================================================================
+# EventFlux Engine - Docker Compose (Compose v2+)
+# ==============================================================================
+#
+# Usage:
+#   docker compose up -d rabbitmq redis    # Start backing services
+#   docker compose logs -f                # Follow logs
+#   docker compose down                   # Stop all services
+#
+#   # Run the engine (CLI-style container) on-demand:
+#   docker compose --profile engine run --rm --no-deps eventflux /app/queries/<file>.eventflux
+#
+# Services:
+#   - eventflux: The EventFlux engine (run-on-demand via `--profile engine`)
+#   - rabbitmq:  Message broker for source/sink connectors
+#   - redis:     State persistence backend
+#
+# Requires: Docker Compose v2.0+ (bundled with Docker Desktop)
+#
+# ==============================================================================
 
 services:
+  # ----------------------------------------------------------------------------
+  # RabbitMQ Message Broker
+  # ----------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: eventflux-rabbitmq
+    ports:
+      - "${RABBITMQ_AMQP_PORT:-5672}:5672"     # AMQP
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"   # Management UI (guest/guest)
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    restart: unless-stopped
+    networks:
+      - eventflux-network
+
+  # ----------------------------------------------------------------------------
+  # Redis State Backend
+  # ----------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
     container_name: eventflux-redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     command: >
@@ -24,13 +69,17 @@ services:
     networks:
       - eventflux-network
 
+  # ----------------------------------------------------------------------------
+  # Redis Commander (Web UI for Redis)
+  # ----------------------------------------------------------------------------
   redis-commander:
-    image: rediscommander/redis-commander:latest
+    profiles: ["tools"]
+    image: rediscommander/redis-commander@sha256:19cd0c49f418779fa2822a0496c5e6516d0c792effc39ed20089e6268477e40a
     container_name: eventflux-redis-commander
     environment:
       - REDIS_HOSTS=local:redis:6379
     ports:
-      - "8081:8081"
+      - "${REDIS_COMMANDER_PORT:-8081}:8081"
     depends_on:
       redis:
         condition: service_healthy
@@ -38,10 +87,83 @@ services:
     networks:
       - eventflux-network
 
+  # ----------------------------------------------------------------------------
+  # EventFlux Engine
+  # ----------------------------------------------------------------------------
+  eventflux:
+    # This is a CLI-style workload (it runs a query file). It's disabled by
+    # default so `docker compose up -d` starts only the backing services.
+    # Run it explicitly with:
+    #   docker compose --profile engine run --rm --no-deps eventflux /app/queries/<file>.eventflux
+    profiles: ["engine"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: eventflux-engine
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./examples:/app/queries:ro
+      - eventflux-data:/app/data
+      # Optional: mount config if you have custom configuration
+      # - ./config:/app/config:ro
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Default: run the rabbitmq_to_log_docker example (uses Docker network hostnames)
+    # Override with: docker compose run eventflux /app/queries/other.eventflux
+    command: /app/queries/rabbitmq_to_log_docker.eventflux
+    environment:
+      RUST_LOG: info
+      RUST_BACKTRACE: 1
+    networks:
+      - eventflux-network
+
 volumes:
   redis-data:
+    driver: local
+  rabbitmq-data:
+    driver: local
+  eventflux-data:
     driver: local
 
 networks:
   eventflux-network:
     driver: bridge
+
+# ==============================================================================
+# Notes:
+# ==============================================================================
+#
+# 1. When using Docker network (not host network), update your .eventflux files
+#    to use service names as hostnames:
+#      "rabbitmq.host" = 'rabbitmq'
+#      "redis.host" = 'redis'
+#
+# 2. Access web UIs:
+#    - RabbitMQ Management: http://localhost:15672 (guest/guest)
+#    - Redis Commander:     http://localhost:8081 (enable with `--profile tools`)
+#
+# 3. To run a different query file:
+#    docker compose run --rm eventflux /app/queries/rabbitmq.eventflux
+#
+# 4. To run with persistence:
+#    docker compose run --rm eventflux /app/queries/rabbitmq.eventflux \
+#      --persistence-dir /app/data/snapshots
+#
+# 5. Data directory:
+#    This compose file uses a named volume (`eventflux-data`) for /app/data to
+#    avoid host permission issues with the non-root container user.
+#
+# 6. Port conflicts:
+#    If you already have services using these ports, override the published ports:
+#      RABBITMQ_AMQP_PORT=5673 RABBITMQ_MANAGEMENT_PORT=15673 REDIS_PORT=6380 \
+#        docker compose up -d
+#
+# ==============================================================================

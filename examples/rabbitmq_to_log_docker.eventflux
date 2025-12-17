@@ -1,0 +1,66 @@
+-- ============================================================================
+-- EventFlux Example: RabbitMQ Source → Log Sink (Docker Compose)
+-- ============================================================================
+--
+-- This example is configured for running inside Docker Compose.
+-- Uses 'rabbitmq' as hostname (Docker service name) instead of 'localhost'.
+--
+-- ============================================================================
+-- RUNNING WITH DOCKER COMPOSE
+-- ============================================================================
+--
+-- 1. Start the stack:
+--    docker compose up -d
+--
+-- 2. Wait for services to be healthy:
+--    docker compose ps
+--
+-- 3. Create the queue via RabbitMQ Management UI (http://localhost:15672):
+--    - Go to "Queues" → "Add a new queue"
+--    - Name: event-queue
+--    - Click "Add queue"
+--
+-- 4. Run EventFlux (if not already started by docker compose):
+--    docker compose run --rm --no-deps eventflux /app/queries/rabbitmq_to_log_docker.eventflux
+--
+-- 5. Publish test messages via RabbitMQ Management UI:
+--    - Go to "Queues" → "event-queue" → "Publish message"
+--    - Payload: {"id":"evt-001","name":"temperature","value":23.5}
+--
+-- 6. View logs:
+--    docker compose logs -f eventflux
+--
+-- ============================================================================
+
+-- Input stream: Consume JSON events from RabbitMQ queue
+-- Note: 'rabbitmq' is the Docker Compose service name
+CREATE STREAM EventInput (
+    id STRING,
+    name STRING,
+    value DOUBLE
+) WITH (
+    type = 'source',
+    extension = 'rabbitmq',
+    format = 'json',
+    "rabbitmq.host" = 'rabbitmq',
+    "rabbitmq.port" = '5672',
+    "rabbitmq.queue" = 'event-queue',
+    "rabbitmq.username" = 'guest',
+    "rabbitmq.password" = 'guest'
+);
+
+-- Output stream: Log events to console
+CREATE STREAM EventOutput (
+    id STRING,
+    name STRING,
+    value DOUBLE
+) WITH (
+    type = 'sink',
+    extension = 'log',
+    format = 'json'
+);
+
+-- Processing: Pass through all events to log sink
+INSERT INTO EventOutput
+SELECT id, name, value
+FROM EventInput;
