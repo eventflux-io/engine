@@ -1,0 +1,57 @@
+# ==============================================================================
+# Docker Build Context Exclusions
+# ==============================================================================
+# These files are excluded from the Docker build context to:
+# 1. Reduce context size for faster builds
+# 2. Exclude files not needed in the final image
+#
+# Note: this file only controls what is sent as build context; it does not
+# affect what ends up inside the final image unless something is `COPY`'d.
+# ==============================================================================
+
+# Build artifacts
+target/
+*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Docker (compose files aren't needed for image builds)
+docker-compose*.yml
+
+# Documentation
+*.md
+!README.md
+docs/
+website/
+
+# Test artifacts (exclude most, but keep custom_dyn_ext for dev-dependency)
+tests/*
+!tests/custom_dyn_ext/
+# benches/ - needed for Cargo.toml
+*.log
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Local development
+.env
+.env.*
+*.local
+data/
+snapshots/
+
+# Miscellaneous
+*.bak
+*.tmp
+references/

@@ -257,7 +257,7 @@ env:
 
 ```bash
 # Start Redis cluster for testing
-docker-compose up -d
+docker compose up -d
 
 # Run example
 cargo run --example redis_state_example
@@ -328,9 +328,9 @@ networks:
 
 ```bash
 # Docker management
-docker-compose up -d          # Start services
-docker-compose down           # Stop services
-docker-compose down -v        # Remove everything including data
+docker compose up -d          # Start services
+docker compose down           # Stop services
+docker compose down -v        # Remove everything including data
 docker logs eventflux-redis      # View Redis logs
 
 # Redis operations
@@ -622,13 +622,13 @@ cargo test test_redis_persistence_basic -- --nocapture
 
 ```bash
 # Start dependencies
-docker-compose up -d
+docker compose up -d
 
 # Run integration tests
 cargo test --test distributed_integration
 
 # Cleanup
-docker-compose down -v
+docker compose down -v
 ```
 
 ### Load Testing

@@ -9,7 +9,7 @@
 //!
 //! Start RabbitMQ with Docker:
 //! ```bash
-//! docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:management
+//! docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management
 //! ```
 
 #[path = "common/mod.rs"]
@@ -830,7 +830,7 @@ fn test_rabbitmq_roundtrip_source_to_sink() {
 ///
 /// 1. Start RabbitMQ with management UI:
 ///    ```bash
-///    docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:management
+///    docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management
 ///    ```
 ///
 /// 2. Open http://localhost:15672 (guest/guest)

@@ -527,12 +527,47 @@ impl TransportFactory {
 mod tests {
     use super::*;
 
+    fn should_panic_on_socket_skip() -> bool {
+        // In CI we generally expect loopback socket binds to work. If they don't, treat it as a
+        // real failure to avoid silently masking regressions or misconfiguration.
+        std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok()
+    }
+
+    fn is_socket_permission_denied_message(message: &str) -> bool {
+        let message = message.to_ascii_lowercase();
+        message.contains("operation not permitted")
+            || message.contains("permission denied")
+            || message.contains("eacces")
+            || message.contains("eperm")
+            || message.contains("os error 1")
+            || message.contains("os error 13")
+    }
+
     #[tokio::test]
     async fn test_tcp_transport_connect_and_send() {
         let transport = TcpTransport::new();
 
         // Start a listener on a random port
-        let listener = transport.listen("127.0.0.1:0").await.unwrap();
+        let listener = match transport.listen("127.0.0.1:0").await {
+            Ok(listener) => listener,
+            Err(DistributedError::TransportError { message })
+                if is_socket_permission_denied_message(&message) =>
+            {
+                // Some sandboxed environments disallow binding sockets entirely.
+                // Skip this integration-style test in that case.
+                if should_panic_on_socket_skip() {
+                    panic!(
+                        "CI environment cannot bind sockets; failing test_tcp_transport_connect_and_send ({message})"
+                    );
+                } else {
+                    eprintln!(
+                        "skipping test_tcp_transport_connect_and_send: cannot bind sockets ({message})"
+                    );
+                    return;
+                }
+            }
+            Err(err) => panic!("Failed to start listener: {err:?}"),
+        };
 
         // Get the actual address the listener bound to
         let actual_addr = {

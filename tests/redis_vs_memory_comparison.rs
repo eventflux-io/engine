@@ -160,13 +160,22 @@ async fn test_redis_store_with_count() {
         ttl_seconds: Some(300),
     };
 
-    let store: Arc<dyn PersistenceStore> = match RedisPersistenceStore::new_with_config(config) {
-        Ok(store) => Arc::new(store),
+    let store = match RedisPersistenceStore::new_with_config(config) {
+        Ok(store) => store,
         Err(_) => {
             println!("Redis not available, skipping test");
             return;
         }
     };
+
+    // `new_with_config` is intentionally lazy in async contexts; validate connectivity
+    // up-front so this test cleanly skips when Redis isn't reachable.
+    if store.test_connection().is_err() {
+        println!("Redis not reachable, skipping test");
+        return;
+    }
+
+    let store: Arc<dyn PersistenceStore> = Arc::new(store);
 
     let app = "\
         CREATE STREAM In (v INT);\n\

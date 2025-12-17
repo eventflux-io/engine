@@ -1,0 +1,77 @@
+-- ============================================================================
+-- EventFlux Example: RabbitMQ Source → Log Sink
+-- ============================================================================
+--
+-- A simple example demonstrating stream processing from RabbitMQ to console output.
+-- This is ideal for development and debugging workflows.
+--
+-- ============================================================================
+-- PREREQUISITES
+-- ============================================================================
+--
+-- 1. Start RabbitMQ with Docker:
+--
+--    docker run -d --name rabbitmq \
+--      -p 5672:5672 \
+--      -p 15672:15672 \
+--      rabbitmq:3-management
+--
+-- 2. Create the input queue via Management UI (http://localhost:15672):
+--    - Username: guest, Password: guest
+--    - Go to "Queues" → "Add a new queue"
+--    - Name: event-queue
+--    - Click "Add queue"
+--
+-- ============================================================================
+-- RUNNING
+-- ============================================================================
+--
+--    cargo run --bin run_eventflux examples/rabbitmq_to_log.eventflux
+--
+-- ============================================================================
+-- TESTING
+-- ============================================================================
+--
+-- Publish test messages via RabbitMQ Management UI:
+-- 1. Go to "Queues" → "event-queue" → "Publish message"
+-- 2. Payload:
+--
+--    {"id":"evt-001","name":"temperature","value":23.5}
+--
+-- You should see output in the console:
+--
+--    [LOG] Event { data: ["evt-001", "temperature", 23.5] }
+--
+-- ============================================================================
+
+-- Input stream: Consume JSON events from RabbitMQ queue
+CREATE STREAM EventInput (
+    id STRING,
+    name STRING,
+    value DOUBLE
+) WITH (
+    type = 'source',
+    extension = 'rabbitmq',
+    format = 'json',
+    "rabbitmq.host" = 'localhost',
+    "rabbitmq.port" = '5672',
+    "rabbitmq.queue" = 'event-queue',
+    "rabbitmq.username" = 'guest',
+    "rabbitmq.password" = 'guest'
+);
+
+-- Output stream: Log events to console (built-in log sink)
+CREATE STREAM EventOutput (
+    id STRING,
+    name STRING,
+    value DOUBLE
+) WITH (
+    type = 'sink',
+    extension = 'log',
+    format = 'json'
+);
+
+-- Processing: Pass through all events to log sink
+INSERT INTO EventOutput
+SELECT id, name, value
+FROM EventInput;

@@ -16,7 +16,7 @@ EventFlux provides enterprise-grade Redis-based state persistence that integrate
 ```bash
 # Docker Compose
 cd eventflux_rust
-docker-compose up -d
+docker compose up -d
 
 # Or locally
 brew install redis  # macOS
@@ -90,7 +90,7 @@ cargo test redis_backend
 cargo test test_redis_eventflux_persistence
 
 # With Docker
-docker-compose up -d
+docker compose up -d
 cargo test redis
 ```
 
