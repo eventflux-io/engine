@@ -18,7 +18,7 @@ The easiest way to run RabbitMQ is with Docker:
 docker run -d --name rabbitmq \
   -p 5672:5672 \
   -p 15672:15672 \
-  rabbitmq:management
+  rabbitmq:3-management
 ```
 
 Access the management UI at [http://localhost:15672](http://localhost:15672) with credentials `guest/guest`.
@@ -264,7 +264,7 @@ WHERE volume > 1000;
 
 1. **Start RabbitMQ:**
    ```bash
-   docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:management
+   docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management
    ```
 
 2. **Create infrastructure via Management UI** ([http://localhost:15672](http://localhost:15672)):
