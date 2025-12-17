@@ -33,6 +33,125 @@ impl Clone for Box<dyn AttributeAggregatorExecutor> {
     }
 }
 
+/// Adapter that allows returning attribute aggregators as `Box<dyn ExpressionExecutor>`
+/// on stable Rust, without relying on unstable trait upcasting coercions.
+pub struct AttributeAggregatorExpressionExecutor {
+    inner: Box<dyn AttributeAggregatorExecutor>,
+}
+
+impl std::fmt::Debug for AttributeAggregatorExpressionExecutor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttributeAggregatorExpressionExecutor")
+            .finish_non_exhaustive()
+    }
+}
+
+impl AttributeAggregatorExpressionExecutor {
+    pub fn new(inner: Box<dyn AttributeAggregatorExecutor>) -> Self {
+        Self { inner }
+    }
+}
+
+impl ExpressionExecutor for AttributeAggregatorExpressionExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        self.inner.execute(event)
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        self.inner.get_return_type()
+    }
+
+    fn clone_executor(
+        &self,
+        _eventflux_app_context: &Arc<EventFluxAppContext>,
+    ) -> Box<dyn ExpressionExecutor> {
+        Box::new(Self::new(self.inner.clone_box()))
+    }
+
+    fn is_attribute_aggregator(&self) -> bool {
+        true
+    }
+}
+
+#[cfg(test)]
+mod adapter_tests {
+    use super::*;
+    use crate::core::config::eventflux_context::EventFluxContext;
+    use crate::query_api::EventFluxApp;
+
+    #[derive(Debug, Clone)]
+    struct TestAggregator;
+
+    impl ExpressionExecutor for TestAggregator {
+        fn execute(&self, _event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+            None
+        }
+
+        fn get_return_type(&self) -> ApiAttributeType {
+            ApiAttributeType::INT
+        }
+
+        fn clone_executor(
+            &self,
+            _eventflux_app_context: &Arc<EventFluxAppContext>,
+        ) -> Box<dyn ExpressionExecutor> {
+            Box::new(self.clone())
+        }
+
+        fn is_attribute_aggregator(&self) -> bool {
+            true
+        }
+    }
+
+    impl AttributeAggregatorExecutor for TestAggregator {
+        fn init(
+            &mut self,
+            _executors: Vec<Box<dyn ExpressionExecutor>>,
+            _processing_mode: ProcessingMode,
+            _expired_output: bool,
+            _ctx: &EventFluxQueryContext,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn process_add(&self, _data: Option<AttributeValue>) -> Option<AttributeValue> {
+            None
+        }
+
+        fn process_remove(&self, _data: Option<AttributeValue>) -> Option<AttributeValue> {
+            None
+        }
+
+        fn reset(&self) -> Option<AttributeValue> {
+            None
+        }
+
+        fn clone_box(&self) -> Box<dyn AttributeAggregatorExecutor> {
+            Box::new(self.clone())
+        }
+    }
+
+    #[test]
+    fn adapter_clones_as_expression_executor_and_preserves_flag() {
+        let ctx = Arc::new(EventFluxAppContext::new(
+            Arc::new(EventFluxContext::default()),
+            "test".to_string(),
+            Arc::new(EventFluxApp::default()),
+            "".to_string(),
+        ));
+
+        let adapter = AttributeAggregatorExpressionExecutor::new(Box::new(TestAggregator));
+        assert!(adapter.is_attribute_aggregator());
+        assert_eq!(adapter.get_return_type(), ApiAttributeType::INT);
+
+        let cloned = adapter.clone_executor(&ctx);
+        assert!(cloned.is_attribute_aggregator());
+        assert_eq!(cloned.get_return_type(), ApiAttributeType::INT);
+
+        let _ = format!("{cloned:?}");
+    }
+}
+
 fn value_as_f64(v: &AttributeValue) -> Option<f64> {
     match v {
         AttributeValue::Int(i) => Some(*i as f64),
@@ -288,7 +407,7 @@ impl ExpressionExecutor for SumAttributeAggregatorExecutor {
     }
 
     fn clone_executor(&self, _ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
-        self.clone_box()
+        Box::new(AttributeAggregatorExpressionExecutor::new(self.clone_box()))
     }
 
     fn is_attribute_aggregator(&self) -> bool {
@@ -569,7 +688,7 @@ impl ExpressionExecutor for AvgAttributeAggregatorExecutor {
     }
 
     fn clone_executor(&self, _ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
-        self.clone_box()
+        Box::new(AttributeAggregatorExpressionExecutor::new(self.clone_box()))
     }
 
     fn is_attribute_aggregator(&self) -> bool {
@@ -856,7 +975,7 @@ impl ExpressionExecutor for CountAttributeAggregatorExecutor {
     }
 
     fn clone_executor(&self, _ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
-        self.clone_box()
+        Box::new(AttributeAggregatorExpressionExecutor::new(self.clone_box()))
     }
 
     fn is_attribute_aggregator(&self) -> bool {
@@ -1120,7 +1239,7 @@ impl ExpressionExecutor for DistinctCountAttributeAggregatorExecutor {
         ApiAttributeType::LONG
     }
     fn clone_executor(&self, _ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
-        self.clone_box()
+        Box::new(AttributeAggregatorExpressionExecutor::new(self.clone_box()))
     }
     fn is_attribute_aggregator(&self) -> bool {
         true
@@ -1327,7 +1446,7 @@ macro_rules! minmax_exec {
                 &self,
                 _ctx: &Arc<EventFluxAppContext>,
             ) -> Box<dyn ExpressionExecutor> {
-                self.clone_box()
+                Box::new(AttributeAggregatorExpressionExecutor::new(self.clone_box()))
             }
             fn is_attribute_aggregator(&self) -> bool {
                 true

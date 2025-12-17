@@ -21,6 +21,7 @@ use crate::core::executor::{
     EventVariableFunctionExecutor, MultiValueVariableFunctionExecutor,
 };
 use crate::core::query::processor::ProcessingMode;
+use crate::core::query::selector::attribute::aggregator::AttributeAggregatorExpressionExecutor;
 use crate::query_api::{
     definition::attribute::Type as ApiAttributeType, // Import Type enum
     expression::{
@@ -553,7 +554,7 @@ pub fn parse_expression<'a>(
                                 context.query_name,
                             )
                         })?;
-                        Ok(exec)
+                        Ok(Box::new(AttributeAggregatorExpressionExecutor::new(exec)))
                     } else if let Some(scalar_fn_factory) = context
                         .eventflux_app_context
                         .get_eventflux_context()
