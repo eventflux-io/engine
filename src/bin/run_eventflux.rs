@@ -2,18 +2,21 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
 use clap::Parser;
 
-use eventflux_rust::core::config::ConfigManager;
+use eventflux_rust::core::config::types::global_config::PersistenceBackendType;
+use eventflux_rust::core::config::{
+    apply_config_overrides, ConfigManager, EventFluxConfig, GlobalPersistenceConfig,
+};
 use eventflux_rust::core::eventflux_manager::EventFluxManager;
 use eventflux_rust::core::persistence::{
     FilePersistenceStore, PersistenceStore, SqlitePersistenceStore,
 };
 use eventflux_rust::core::stream::output::LogStreamCallback;
-use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[command(about = "Run a EventFluxQL file", author, version)]
@@ -21,40 +24,123 @@ struct Cli {
     /// EventFluxQL file to execute
     eventflux_file: PathBuf,
 
-    /// Directory for file based persistence snapshots
-    #[arg(long)]
-    persistence_dir: Option<PathBuf>,
+    /// Configuration file (YAML)
+    #[arg(long, short = 'c')]
+    config: Option<PathBuf>,
 
-    /// Path to a SQLite DB file for persistence
-    #[arg(long)]
-    sqlite: Option<PathBuf>,
+    /// Override config values using dot-notation (can be used multiple times)
+    ///
+    /// Examples:
+    ///   --set eventflux.persistence.type=sqlite
+    ///   --set eventflux.persistence.path=./data.db
+    ///   --set eventflux.runtime.performance.thread_pool_size=8
+    #[arg(long = "set", value_name = "KEY=VALUE")]
+    overrides: Vec<String>,
 
     /// Dynamic extension libraries to load
     #[arg(short = 'e', long)]
     extension: Vec<PathBuf>,
+}
 
-    /// Custom config file or identifier
-    #[arg(long)]
-    config: Option<String>,
+/// Initialize persistence store from configuration
+fn init_persistence_store(
+    persistence_config: &GlobalPersistenceConfig,
+) -> Option<Arc<dyn PersistenceStore>> {
+    if !persistence_config.enabled {
+        return None;
+    }
+
+    match persistence_config.backend_type {
+        PersistenceBackendType::File => {
+            let path = persistence_config
+                .path
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("./snapshots");
+
+            match FilePersistenceStore::new(path) {
+                Ok(s) => {
+                    println!("Initialized file persistence store at: {}", path);
+                    Some(Arc::new(s))
+                }
+                Err(e) => {
+                    eprintln!("Failed to initialize file persistence store: {e}");
+                    None
+                }
+            }
+        }
+        PersistenceBackendType::Sqlite => {
+            let path = persistence_config
+                .path
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("./eventflux.db");
+
+            match SqlitePersistenceStore::new(path) {
+                Ok(s) => {
+                    println!("Initialized SQLite persistence store at: {}", path);
+                    Some(Arc::new(s))
+                }
+                Err(e) => {
+                    eprintln!("Failed to initialize SQLite persistence store: {e}");
+                    None
+                }
+            }
+        }
+        PersistenceBackendType::Redis => {
+            let url = persistence_config
+                .url
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("redis://localhost:6379");
+
+            eprintln!(
+                "Redis persistence is not yet implemented. URL would be: {}",
+                url
+            );
+            None
+        }
+        PersistenceBackendType::Memory => {
+            println!("Using in-memory persistence (no state will be saved across restarts)");
+            None
+        }
+    }
 }
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
 
-    let mut store: Option<Arc<dyn PersistenceStore>> = None;
-    if let Some(dir) = cli.persistence_dir {
-        match FilePersistenceStore::new(dir.to_str().unwrap()) {
-            Ok(s) => store = Some(Arc::new(s)),
-            Err(e) => eprintln!("Failed to initialize file store: {e}"),
+    // Load configuration from file or use defaults
+    let mut config = if let Some(ref config_path) = cli.config {
+        let manager = ConfigManager::from_file(config_path);
+        match manager.load_unified_config().await {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                eprintln!("Failed to load config from {}: {e}", config_path.display());
+                std::process::exit(1);
+            }
         }
-    } else if let Some(db) = cli.sqlite {
-        match SqlitePersistenceStore::new(db.to_str().unwrap()) {
-            Ok(s) => store = Some(Arc::new(s)),
-            Err(e) => eprintln!("Failed to initialize sqlite store: {e}"),
+    } else {
+        EventFluxConfig::default()
+    };
+
+    // Apply command-line overrides
+    if !cli.overrides.is_empty() {
+        if let Err(e) = apply_config_overrides(&mut config, &cli.overrides) {
+            eprintln!("Failed to apply config overrides: {e}");
+            std::process::exit(1);
         }
     }
 
+    // Initialize persistence store from config
+    let store = config
+        .eventflux
+        .persistence
+        .as_ref()
+        .and_then(init_persistence_store);
+
+    // Read EventFluxQL file
     let content = match fs::read_to_string(&cli.eventflux_file) {
         Ok(c) => c,
         Err(e) => {
@@ -63,19 +149,21 @@ async fn main() {
         }
     };
 
-    let mut manager = EventFluxManager::new();
+    // Create EventFlux manager with our (potentially overridden) config
+    // This ensures --set overrides are used by the runtime
+    // Note: We don't call set_config_manager() because it would clear the cached
+    // config and reload from file, losing our --set overrides
+    let manager = EventFluxManager::new_with_config(config);
+
+    // Set persistence store if configured
     if let Some(s) = store {
         if let Err(e) = manager.set_persistence_store(s) {
             eprintln!("Failed to set persistence store: {e}");
             std::process::exit(1);
         }
     }
-    if let Some(cfg) = cli.config {
-        let config_manager = ConfigManager::from_file(cfg);
-        if let Err(e) = manager.set_config_manager(config_manager) {
-            eprintln!("Failed to apply config: {e}");
-        }
-    }
+
+    // Load extensions
     for lib in cli.extension {
         if let Some(p) = lib.to_str() {
             let name = lib.file_stem().and_then(|s| s.to_str()).unwrap_or("ext");
@@ -84,6 +172,8 @@ async fn main() {
             }
         }
     }
+
+    // Create runtime
     let runtime = match manager
         .create_eventflux_app_runtime_from_string(&content)
         .await
@@ -95,6 +185,7 @@ async fn main() {
         }
     };
 
+    // Add log callbacks for all streams
     for stream_id in runtime.stream_junction_map.keys() {
         let _ = runtime.add_callback(
             stream_id,
@@ -102,7 +193,7 @@ async fn main() {
         );
     }
 
-    // Start the runtime after adding callbacks
+    // Start the runtime
     if let Err(e) = runtime.start() {
         eprintln!("Failed to start runtime: {e}");
         std::process::exit(1);
@@ -113,7 +204,7 @@ async fn main() {
         runtime.name
     );
 
-    // Keep the main thread alive until interrupted.
+    // Keep the main thread alive until interrupted
     loop {
         thread::sleep(Duration::from_secs(1));
     }

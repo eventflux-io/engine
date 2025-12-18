@@ -16,6 +16,14 @@ const sidebars = {
     },
     {
       type: 'category',
+      label: 'Configuration',
+      collapsed: false,
+      items: [
+        'configuration/overview',
+      ],
+    },
+    {
+      type: 'category',
       label: 'SQL Reference',
       collapsed: false,
       items: [

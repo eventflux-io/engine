@@ -38,10 +38,9 @@ cargo run --bin run_eventflux -- --help
 | Option | Description |
 |--------|-------------|
 | `<eventflux_file>` | Path to the EventFlux query file (required) |
-| `--persistence-dir <DIR>` | Directory for file-based persistence snapshots |
-| `--sqlite <PATH>` | Path to SQLite database file for persistence |
+| `-c, --config <PATH>` | Path to YAML configuration file |
+| `--set <KEY=VALUE>` | Override any config value using dot-notation (can be used multiple times) |
 | `-e, --extension <PATH>` | Dynamic extension library to load (can be used multiple times) |
-| `--config <PATH>` | Path to YAML configuration file |
 
 ### Examples
 
@@ -49,21 +48,51 @@ cargo run --bin run_eventflux -- --help
 # Basic execution
 cargo run --bin run_eventflux examples/simple_filter.eventflux
 
-# With file-based persistence
+# With file-based persistence (using --set)
 cargo run --bin run_eventflux examples/rabbitmq.eventflux \
-  --persistence-dir ./snapshots
+  --set eventflux.persistence.type=file \
+  --set eventflux.persistence.path=./snapshots
 
-# With SQLite persistence
+# With SQLite persistence (using --set)
 cargo run --bin run_eventflux examples/rabbitmq.eventflux \
-  --sqlite ./eventflux.db
+  --set eventflux.persistence.type=sqlite \
+  --set eventflux.persistence.path=./eventflux.db
 
-# With custom configuration
+# With custom configuration file
 cargo run --bin run_eventflux examples/rabbitmq.eventflux \
   --config ./config/eventflux.yaml
+
+# Combine config file with overrides
+cargo run --bin run_eventflux examples/rabbitmq.eventflux \
+  --config ./config/base.yaml \
+  --set eventflux.runtime.performance.thread_pool_size=16
 
 # With dynamic extension
 cargo run --bin run_eventflux examples/extension.eventflux \
   -e ./target/release/libcustom_ext.so
+```
+
+### Config Override Examples
+
+The `--set` flag supports dot-notation paths to override any configuration value:
+
+```bash
+# Persistence settings
+--set eventflux.persistence.type=sqlite
+--set eventflux.persistence.path=./data.db
+--set eventflux.persistence.enabled=true
+
+# Runtime performance tuning
+--set eventflux.runtime.performance.thread_pool_size=8
+--set eventflux.runtime.performance.event_buffer_size=500000
+--set eventflux.runtime.performance.batch_processing=true
+
+# Runtime mode
+--set eventflux.runtime.mode=distributed
+
+# Metadata
+--set metadata.name=my-production-app
+--set metadata.environment=production
 ```
 
 ### Release Build (Recommended for Production)
@@ -396,13 +425,23 @@ docker run --rm \
   --network host \
   eventflux-engine:local /app/queries/rabbitmq_to_log.eventflux
 
-# With persistence directory
+# With file-based persistence
 docker run --rm \
   -v $(pwd)/examples:/app/queries:ro \
   -v $(pwd)/data:/app/data \
   --network host \
   eventflux-engine:local /app/queries/rabbitmq.eventflux \
-    --persistence-dir /app/data/snapshots
+    --set eventflux.persistence.type=file \
+    --set eventflux.persistence.path=/app/data/snapshots
+
+# With SQLite persistence
+docker run --rm \
+  -v $(pwd)/examples:/app/queries:ro \
+  -v $(pwd)/data:/app/data \
+  --network host \
+  eventflux-engine:local /app/queries/rabbitmq.eventflux \
+    --set eventflux.persistence.type=sqlite \
+    --set eventflux.persistence.path=/app/data/eventflux.db
 ```
 
 ### Docker Compose Example

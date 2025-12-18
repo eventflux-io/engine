@@ -76,6 +76,18 @@ pub struct EventFluxAppRuntime {
 
     // Table handlers (tables are passively queried, no lifecycle needed)
     pub table_handlers: Arc<std::sync::RwLock<HashMap<String, Arc<dyn crate::core::table::Table>>>>,
+
+    /// Pre-resolved element configurations
+    ///
+    /// This map holds fully merged configurations for all elements (sources, sinks, tables, etc.)
+    /// resolved at construction time. Keys are in format "type:name" (e.g., "source:EventInput").
+    ///
+    /// Benefits:
+    /// - Single merge location for all config precedence logic
+    /// - Fail-fast: config errors caught before any element starts
+    /// - Extensible: new element types can easily plug into the resolver
+    /// - Debuggable: each config tracks where properties came from
+    pub resolved_configs: HashMap<String, crate::core::config::ResolvedElementConfig>,
 }
 
 impl EventFluxAppRuntime {
@@ -395,6 +407,28 @@ impl EventFluxAppRuntime {
         self.table_handlers.read().unwrap().get(table_name).cloned()
     }
 
+    /// Get pre-resolved configuration for an element
+    ///
+    /// Returns the fully merged configuration for the specified element type and name.
+    /// Configuration is pre-resolved at construction time by merging YAML base + SQL WITH.
+    ///
+    /// # Arguments
+    ///
+    /// * `element_type` - Type of element (source, sink, table, etc.)
+    /// * `name` - Name of the element
+    ///
+    /// # Returns
+    ///
+    /// The resolved configuration if it exists, None otherwise.
+    pub fn get_resolved_config(
+        &self,
+        element_type: crate::core::config::ElementType,
+        name: &str,
+    ) -> Option<&crate::core::config::ResolvedElementConfig> {
+        let key = format!("{}:{}", element_type, name);
+        self.resolved_configs.get(&key)
+    }
+
     /// Attach sink handler to junction for event delivery
     ///
     /// This connects a sink handler to the stream junction so it receives events.
@@ -609,14 +643,39 @@ impl EventFluxAppRuntime {
         let mut all_errors = Vec::new();
 
         // 2. Attachment phase - prepare all components
-        // Auto-attach sources and sinks from configuration (if available)
+        // SQL WITH definitions have highest priority - they merge with YAML base properties
+        // SQL attachment must run FIRST so it can merge YAML base + SQL WITH overrides
+        match self.auto_attach_from_sql_definitions() {
+            Ok((sources, sinks)) => {
+                if !sources.is_empty() || !sinks.is_empty() {
+                    log::info!(
+                        "Auto-attached from SQL: {} source(s), {} sink(s)",
+                        sources.len(),
+                        sinks.len()
+                    );
+                }
+            }
+            Err(errors) => {
+                log::error!(
+                    "Failed to auto-attach from SQL ({} error(s)):",
+                    errors.len()
+                );
+                for (i, e) in errors.iter().enumerate() {
+                    log::error!("  {}. {}", i + 1, e);
+                }
+                all_errors.extend(errors);
+            }
+        }
+
+        // YAML attachment runs SECOND - only attaches streams not already handled by SQL
+        // This provides default configuration for streams without SQL WITH clauses
         if let Some(app_config) = &self.eventflux_app_context.app_config {
             // Auto-attach sources - idempotent operation with error accumulation
             match self.auto_attach_sources_from_config(app_config) {
                 Ok(sources) => {
                     if !sources.is_empty() {
                         log::info!(
-                            "Successfully attached {} source(s): {}",
+                            "Successfully attached {} YAML-only source(s): {}",
                             sources.len(),
                             sources.join(", ")
                         );
@@ -636,7 +695,7 @@ impl EventFluxAppRuntime {
                 Ok(sinks) => {
                     if !sinks.is_empty() {
                         log::info!(
-                            "Successfully attached {} sink(s): {}",
+                            "Successfully attached {} YAML-only sink(s): {}",
                             sinks.len(),
                             sinks.join(", ")
                         );
@@ -669,29 +728,6 @@ impl EventFluxAppRuntime {
                     }
                     all_errors.extend(errors);
                 }
-            }
-        }
-
-        // Auto-attach from SQL WITH definitions (higher priority than YAML)
-        match self.auto_attach_from_sql_definitions() {
-            Ok((sources, sinks)) => {
-                if !sources.is_empty() || !sinks.is_empty() {
-                    log::info!(
-                        "Auto-attached from SQL: {} source(s), {} sink(s)",
-                        sources.len(),
-                        sinks.len()
-                    );
-                }
-            }
-            Err(errors) => {
-                log::error!(
-                    "Failed to auto-attach from SQL ({} error(s)):",
-                    errors.len()
-                );
-                for (i, e) in errors.iter().enumerate() {
-                    log::error!("  {}. {}", i + 1, e);
-                }
-                all_errors.extend(errors);
             }
         }
 
@@ -943,29 +979,28 @@ impl EventFluxAppRuntime {
             };
 
             // Process based on stream type
+            // Uses pre-resolved configs (YAML base + SQL WITH merged at construction time)
             match stream_type {
-                "source" => {
-                    match self.attach_single_stream_from_sql_source(stream_id, with_config) {
-                        Ok(()) => {
-                            attached_sources.push(stream_id.clone());
-                        }
-                        Err(e) => {
-                            log::error!(
-                                "[EventFluxAppRuntime] Failed to attach SQL source '{}': {}",
-                                stream_id,
-                                e
-                            );
-                            errors.push(e);
-                        }
+                "source" => match self.attach_source_from_resolved_config(stream_id) {
+                    Ok(()) => {
+                        attached_sources.push(stream_id.clone());
                     }
-                }
-                "sink" => match self.attach_single_stream_from_sql_sink(stream_id, with_config) {
+                    Err(e) => {
+                        log::error!(
+                            "[EventFluxAppRuntime] Failed to attach source '{}': {}",
+                            stream_id,
+                            e
+                        );
+                        errors.push(e);
+                    }
+                },
+                "sink" => match self.attach_sink_from_resolved_config(stream_id) {
                     Ok(()) => {
                         attached_sinks.push(stream_id.clone());
                     }
                     Err(e) => {
                         log::error!(
-                            "[EventFluxAppRuntime] Failed to attach SQL sink '{}': {}",
+                            "[EventFluxAppRuntime] Failed to attach sink '{}': {}",
                             stream_id,
                             e
                         );
@@ -1083,124 +1118,136 @@ impl EventFluxAppRuntime {
         Ok(())
     }
 
-    /// Attach a single source stream from SQL WITH configuration
+    /// Attach a single source stream using pre-resolved configuration
     ///
-    /// Converts SQL WITH configuration to StreamTypeConfig and delegates to common helper.
+    /// Uses the pre-resolved configuration (YAML base + SQL WITH merged at construction time)
+    /// to attach the source stream. This is the simplified attachment flow that consumes
+    /// pre-resolved configs instead of doing inline merging.
     ///
     /// # Arguments
     ///
     /// * `stream_name` - Name of the stream to attach
-    /// * `with_config` - SQL WITH configuration from StreamDefinition
     ///
     /// # Returns
     ///
     /// * `Ok(())` - Source successfully attached and started
     /// * `Err(EventFluxError)` - Detailed error with context
-    fn attach_single_stream_from_sql_source(
+    fn attach_source_from_resolved_config(
         &self,
         stream_name: &str,
-        with_config: &crate::core::config::stream_config::FlatConfig,
     ) -> Result<(), crate::core::exception::EventFluxError> {
         use crate::core::config::stream_config::{StreamType, StreamTypeConfig};
+        use crate::core::config::ElementType;
         use crate::core::exception::EventFluxError;
 
-        // Extract required properties from SQL WITH configuration
-        let extension = with_config
-            .get("extension")
+        // Get pre-resolved config (computed at construction time)
+        let resolved = self
+            .get_resolved_config(ElementType::Source, stream_name)
             .ok_or_else(|| {
                 EventFluxError::configuration(format!(
-                    "Missing 'extension' property in SQL WITH clause for source stream '{}'. \
-                     Source streams require: type='source', extension='<name>', format='<type>'",
+                    "No resolved configuration found for source stream '{}'. \
+                     Ensure the stream has WITH clause or YAML config.",
                     stream_name
                 ))
-            })?
-            .clone();
+            })?;
 
-        let format = with_config.get("format").cloned();
+        // Validate required fields
+        let extension = resolved.extension.clone().ok_or_else(|| {
+            EventFluxError::configuration(format!(
+                "Missing 'extension' property for source stream '{}'. \
+                 Source streams require: type='source', extension='<name>', format='<type>'",
+                stream_name
+            ))
+        })?;
 
-        // Create StreamTypeConfig from SQL WITH properties
-        // Key advantage: FlatConfig.properties is already HashMap<String, String>!
-        // No conversion needed unlike YAML which requires extract_connection_config()
+        // Create StreamTypeConfig from pre-resolved properties
         let stream_type_config = StreamTypeConfig::new(
             StreamType::Source,
             Some(extension.clone()),
-            format.clone(),
-            with_config.properties().clone(), // Direct use of properties HashMap via getter
+            resolved.format.clone(),
+            resolved.properties.clone(),
         )
         .map_err(|e| {
             EventFluxError::configuration(format!(
-                "Invalid StreamTypeConfig for SQL source '{}' (extension={}, format={:?}): {}",
-                stream_name, extension, format, e
+                "Invalid StreamTypeConfig for source '{}' (extension={}, format={:?}): {}",
+                stream_name, extension, resolved.format, e
             ))
         })?;
 
         // Delegate to common helper for actual attachment
-        self.attach_source_common(stream_name, &stream_type_config, "SQL")?;
+        self.attach_source_common(stream_name, &stream_type_config, "resolved")?;
 
         log::info!(
-            "[EventFluxAppRuntime] Auto-attached SQL source '{}' (extension={}, format={:?})",
+            "[EventFluxAppRuntime] Attached source '{}' (extension={}, format={:?}) [{}]",
             stream_name,
             extension,
-            format
+            resolved.format,
+            resolved.get_source_summary()
         );
 
         Ok(())
     }
 
-    /// Attach a single sink stream from SQL WITH configuration
+    /// Attach a single sink stream using pre-resolved configuration
     ///
-    /// Similar to attach_single_stream_from_sql_source() but for sinks.
+    /// Uses the pre-resolved configuration (YAML base + SQL WITH merged at construction time)
+    /// to attach the sink stream. This is the simplified attachment flow that consumes
+    /// pre-resolved configs instead of doing inline merging.
     ///
     /// # Arguments
     ///
     /// * `stream_name` - Name of the stream to attach
-    /// * `with_config` - SQL WITH configuration from StreamDefinition
     ///
     /// # Returns
     ///
     /// * `Ok(())` - Sink successfully attached
     /// * `Err(EventFluxError)` - Detailed error with context
-    fn attach_single_stream_from_sql_sink(
+    fn attach_sink_from_resolved_config(
         &self,
         stream_name: &str,
-        with_config: &crate::core::config::stream_config::FlatConfig,
     ) -> Result<(), crate::core::exception::EventFluxError> {
         use crate::core::config::stream_config::{StreamType, StreamTypeConfig};
+        use crate::core::config::ElementType;
         use crate::core::exception::EventFluxError;
         use crate::core::stream::handler::SinkStreamHandler;
         use crate::core::stream::stream_initializer::{initialize_stream, InitializedStream};
 
         // Check if handler already registered (idempotent operation)
         if self.get_sink_handler(stream_name).is_some() {
-            // Handler already exists - sinks don't need explicit start
             return Ok(());
         }
 
-        // Extract required properties from SQL WITH configuration
-        let extension = with_config
-            .get("extension")
+        // Get pre-resolved config (computed at construction time)
+        let resolved = self
+            .get_resolved_config(ElementType::Sink, stream_name)
             .ok_or_else(|| {
                 EventFluxError::configuration(format!(
-                    "Missing 'extension' property in SQL WITH clause for sink stream '{}'. \
-                     Sink streams require: type='sink', extension='<name>', format='<type>'",
+                    "No resolved configuration found for sink stream '{}'. \
+                     Ensure the stream has WITH clause or YAML config.",
                     stream_name
                 ))
-            })?
-            .clone();
+            })?;
 
-        let format = with_config.get("format").cloned();
+        // Validate required fields
+        let extension = resolved.extension.clone().ok_or_else(|| {
+            EventFluxError::configuration(format!(
+                "Missing 'extension' property for sink stream '{}'. \
+                 Sink streams require: type='sink', extension='<name>', format='<type>'",
+                stream_name
+            ))
+        })?;
 
-        // Create StreamTypeConfig from SQL WITH properties
+        // Create StreamTypeConfig from pre-resolved properties
         let stream_type_config = StreamTypeConfig::new(
             StreamType::Sink,
             Some(extension.clone()),
-            format.clone(),
-            with_config.properties().clone(), // Direct use of properties HashMap via getter
+            resolved.format.clone(),
+            resolved.properties.clone(),
         )
         .map_err(|e| {
             EventFluxError::configuration(format!(
-                "Invalid StreamTypeConfig for SQL sink '{}' (extension={}, format={:?}): {}",
-                stream_name, extension, format, e
+                "Invalid StreamTypeConfig for sink '{}' (extension={}, format={:?}): {}",
+                stream_name, extension, resolved.format, e
             ))
         })?;
 
@@ -1211,17 +1258,17 @@ impl EventFluxAppRuntime {
         )
         .map_err(|e| {
             EventFluxError::app_creation(format!(
-                "Failed to initialize SQL sink '{}' (extension={}, format={:?}): {}",
-                stream_name, extension, format, e
+                "Failed to initialize sink '{}' (extension={}, format={:?}): {}",
+                stream_name, extension, resolved.format, e
             ))
         })?;
 
         // Extract sink and mapper from initialized stream
         let (sink, mapper) = match initialized {
-            InitializedStream::Sink(init_sink) => (init_sink.sink, init_sink.mapper),  // mapper is already Option
+            InitializedStream::Sink(init_sink) => (init_sink.sink, init_sink.mapper),
             _ => {
                 return Err(EventFluxError::app_creation(format!(
-                    "Expected sink stream initialization for SQL stream '{}', got different stream type",
+                    "Expected sink stream initialization for '{}', got different stream type",
                     stream_name
                 )))
             }
@@ -1238,14 +1285,14 @@ impl EventFluxAppRuntime {
         self.register_sink_handler(stream_name.to_string(), Arc::clone(&handler));
 
         // Attach sink to junction for event delivery
-        // Uses existing attach_sink_to_junction which properly converts Sink to StreamCallback
         self.attach_sink_to_junction(stream_name, Arc::clone(&handler))?;
 
         log::info!(
-            "[EventFluxAppRuntime] Auto-attached SQL sink '{}' (extension={}, format={:?})",
+            "[EventFluxAppRuntime] Attached sink '{}' (extension={}, format={:?}) [{}]",
             stream_name,
             extension,
-            format
+            resolved.format,
+            resolved.get_source_summary()
         );
 
         Ok(())
@@ -1746,6 +1793,11 @@ impl EventFluxAppRuntime {
         // Create TableTypeConfig with validation
         TableTypeConfig::new(extension, properties)
     }
+
+    // NOTE: The old get_yaml_source_base_properties() and get_yaml_sink_base_properties()
+    // methods have been removed. Their functionality is now handled by ElementConfigResolver
+    // which pre-resolves all element configurations at runtime construction time.
+    // See src/core/config/element_config_resolver.rs for the new implementation.
 
     /// Merge SinkConfig fields into properties HashMap
     ///

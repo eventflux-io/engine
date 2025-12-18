@@ -28,8 +28,9 @@ pub use global_config::{
     AuditConfig, AuditDestination, AuditLevel, AuthenticationConfig, AuthenticationMethod,
     AuthorizationConfig, AuthorizationPolicy, AuthorizationProvider, BackpressureStrategy,
     CpuConfig, EventFluxGlobalConfig, ExtensionConfig, ExtensionSecurityConfig, ExtensionsConfig,
-    GcStrategy, LogFormat, LogLevel as GlobalLogLevel, LogOutput, LoggingConfig, MemoryConfig,
-    MetricsConfig, MetricsProvider, NetworkConfig, ObservabilityConfig, PerformanceConfig,
+    GcStrategy, GlobalPersistenceConfig, LogFormat, LogLevel as GlobalLogLevel, LogOutput,
+    LoggingConfig, MemoryConfig, MetricsConfig, MetricsProvider, NetworkConfig,
+    ObservabilityConfig, PerformanceConfig, PersistenceBackendType, PersistenceCompression,
     ResourceConfig, RuntimeConfig, RuntimeMode, SecurityConfig, StorageConfig,
     TlsConfig as GlobalTlsConfig, TracingConfig, TracingProvider,
 };

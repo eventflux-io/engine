@@ -18,6 +18,10 @@ pub struct EventFluxGlobalConfig {
     /// Runtime configuration
     pub runtime: RuntimeConfig,
 
+    /// Global persistence backend configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persistence: Option<GlobalPersistenceConfig>,
+
     /// Distributed processing configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub distributed: Option<DistributedConfig>,
@@ -44,6 +48,7 @@ impl Default for EventFluxGlobalConfig {
         Self {
             application: None,
             runtime: RuntimeConfig::default(),
+            persistence: None,
             distributed: None,
             security: None,
             observability: None,
@@ -73,6 +78,19 @@ impl EventFluxGlobalConfig {
 
         // Deep merge runtime configuration
         self.runtime.merge(other.runtime);
+
+        // Merge persistence configuration
+        if other.persistence.is_some() {
+            match (&mut self.persistence, other.persistence) {
+                (Some(ref mut self_pers), Some(other_pers)) => {
+                    self_pers.merge(other_pers);
+                }
+                (self_pers, Some(other_pers)) => {
+                    *self_pers = Some(other_pers);
+                }
+                _ => {}
+            }
+        }
 
         // For optional configurations, other takes precedence if present
         if other.distributed.is_some() {
@@ -997,6 +1015,189 @@ fn default_metrics_interval() -> Duration {
 
 fn default_sample_rate() -> f64 {
     0.1
+}
+
+fn default_checkpoint_interval() -> Duration {
+    Duration::from_secs(60)
+}
+
+// ============================================================================
+// Global Persistence Configuration
+// ============================================================================
+
+/// Global persistence backend configuration
+///
+/// Configures the persistence backend for EventFlux engine state, including
+/// checkpoints, window state, and aggregation state.
+///
+/// # Example YAML
+///
+/// ```yaml
+/// eventflux:
+///   persistence:
+///     type: sqlite
+///     path: ./eventflux.db
+/// ```
+///
+/// Or for file-based:
+///
+/// ```yaml
+/// eventflux:
+///   persistence:
+///     type: file
+///     path: ./snapshots
+/// ```
+///
+/// Or for Redis:
+///
+/// ```yaml
+/// eventflux:
+///   persistence:
+///     type: redis
+///     url: redis://localhost:6379
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GlobalPersistenceConfig {
+    /// Persistence backend type
+    #[serde(rename = "type")]
+    pub backend_type: PersistenceBackendType,
+
+    /// Path for file-based or SQLite persistence
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+
+    /// URL for network-based persistence (Redis, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+
+    /// Enable persistence (defaults to true when config is present)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Checkpoint interval
+    #[serde(with = "duration_serde", default = "default_checkpoint_interval")]
+    pub checkpoint_interval: Duration,
+
+    /// Enable compression for persisted state
+    #[serde(default)]
+    pub compression: PersistenceCompression,
+
+    /// Additional backend-specific options
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub options: std::collections::HashMap<String, String>,
+}
+
+impl Default for GlobalPersistenceConfig {
+    fn default() -> Self {
+        Self {
+            backend_type: PersistenceBackendType::File,
+            path: None,
+            url: None,
+            enabled: true,
+            checkpoint_interval: default_checkpoint_interval(),
+            compression: PersistenceCompression::default(),
+            options: std::collections::HashMap::new(),
+        }
+    }
+}
+
+impl GlobalPersistenceConfig {
+    /// Create a file-based persistence configuration
+    pub fn file(path: impl Into<String>) -> Self {
+        Self {
+            backend_type: PersistenceBackendType::File,
+            path: Some(path.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Create a SQLite-based persistence configuration
+    pub fn sqlite(path: impl Into<String>) -> Self {
+        Self {
+            backend_type: PersistenceBackendType::Sqlite,
+            path: Some(path.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Create a Redis-based persistence configuration
+    pub fn redis(url: impl Into<String>) -> Self {
+        Self {
+            backend_type: PersistenceBackendType::Redis,
+            url: Some(url.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Create an in-memory persistence configuration (no persistence)
+    pub fn memory() -> Self {
+        Self {
+            backend_type: PersistenceBackendType::Memory,
+            enabled: true,
+            ..Default::default()
+        }
+    }
+
+    /// Merge another persistence configuration into this one
+    pub fn merge(&mut self, other: GlobalPersistenceConfig) {
+        self.backend_type = other.backend_type;
+        self.enabled = other.enabled;
+        self.checkpoint_interval = other.checkpoint_interval;
+        self.compression = other.compression;
+
+        if other.path.is_some() {
+            self.path = other.path;
+        }
+        if other.url.is_some() {
+            self.url = other.url;
+        }
+
+        // Merge options
+        self.options.extend(other.options);
+    }
+}
+
+/// Persistence backend types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PersistenceBackendType {
+    /// In-memory only (no persistence across restarts)
+    Memory,
+
+    /// File-based persistence (directory with snapshot files)
+    File,
+
+    /// SQLite database persistence
+    Sqlite,
+
+    /// Redis persistence
+    Redis,
+}
+
+impl Default for PersistenceBackendType {
+    fn default() -> Self {
+        Self::File
+    }
+}
+
+/// Compression options for persistence
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PersistenceCompression {
+    /// No compression
+    None,
+
+    /// LZ4 compression (fast)
+    Lz4,
+
+    /// Zstd compression (better ratio)
+    Zstd,
+}
+
+impl Default for PersistenceCompression {
+    fn default() -> Self {
+        Self::None
+    }
 }
 
 // Import distributed config from separate module

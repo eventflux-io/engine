@@ -25,10 +25,12 @@ pub mod eventflux_query_context;
 pub mod statistics_configuration;
 
 // Configuration management modules
+pub mod element_config_resolver;
 pub mod error;
 pub mod loader;
 pub mod manager;
 pub mod monitoring;
+pub mod override_utils;
 pub mod processor_config_reader;
 pub mod resolver;
 pub mod security;
@@ -47,8 +49,13 @@ pub use self::eventflux_query_context::EventFluxQueryContext;
 pub use self::statistics_configuration::StatisticsConfiguration;
 
 // Re-export main configuration types for easy access
+pub use element_config_resolver::{
+    ConfigSource, ElementConfigResolver, ElementType, ResolvedElementConfig,
+    ResolvedElementConfigBuilder,
+};
 pub use error::{ConfigError, ConfigResult, ValidationError, ValidationResult};
 pub use manager::ConfigManager;
+pub use override_utils::apply_config_overrides;
 pub use processor_config_reader::{ConfigValue, ProcessorConfigReader};
 pub use stream_config::{FlatConfig, PropertySource, StreamType, StreamTypeConfig};
 pub use toml_config::{
