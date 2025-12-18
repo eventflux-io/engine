@@ -148,6 +148,20 @@ impl EventFluxAppRuntimeBuilder {
                 )))
             });
 
+        // Pre-resolve all element configurations (YAML base + SQL WITH overrides)
+        // This happens ONCE at construction time, before any attachment
+        let resolved_configs = {
+            use crate::core::config::ElementConfigResolver;
+
+            let yaml_config = self.application_config.as_ref();
+            let resolver = ElementConfigResolver::new(yaml_config);
+
+            resolver.resolve_all(
+                &api_eventflux_app.stream_definition_map,
+                &api_eventflux_app.table_definition_map,
+            )
+        };
+
         Ok(EventFluxAppRuntime {
             name: self.eventflux_app_context.name.clone(),
             eventflux_app: api_eventflux_app, // The original parsed API definition
@@ -167,6 +181,7 @@ impl EventFluxAppRuntimeBuilder {
             source_handlers: Arc::new(std::sync::RwLock::new(HashMap::new())),
             sink_handlers: Arc::new(std::sync::RwLock::new(HashMap::new())),
             table_handlers: Arc::new(std::sync::RwLock::new(HashMap::new())),
+            resolved_configs,
         })
     }
 }
