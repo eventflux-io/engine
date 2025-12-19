@@ -25,8 +25,8 @@ The connector system consists of three main components:
 │        │                                              ▼         │
 │   ┌─────────┐                                    ┌─────────┐   │
 │   │RabbitMQ │                                    │   Sink  │   │
-│   │ Kafka   │                                    │         │   │
-│   │  HTTP   │                                    └─────────┘   │
+│   │WebSocket│                                    │         │   │
+│   │ Kafka   │                                    └─────────┘   │
 │   └─────────┘                                                   │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -96,6 +96,7 @@ CREATE STREAM StreamName (
 | Connector | Source | Sink | Status | Description |
 |-----------|--------|------|--------|-------------|
 | **RabbitMQ** | Yes | Yes | Production Ready | AMQP 0-9-1 message broker |
+| **WebSocket** | Yes | Yes | Production Ready | Real-time bidirectional streaming |
 | **Kafka** | Planned | Planned | Roadmap | Apache Kafka streaming |
 | **HTTP** | Planned | Planned | Roadmap | REST/Webhook endpoints |
 | **File** | Planned | Planned | Roadmap | File-based input/output |
@@ -190,4 +191,5 @@ manager.context().add_sink_factory(
 ## Next Steps
 
 - **[RabbitMQ Connector](/docs/connectors/rabbitmq)** - Connect to RabbitMQ message broker
+- **[WebSocket Connector](/docs/connectors/websocket)** - Connect to WebSocket endpoints for real-time streaming
 - **[Mappers Reference](/docs/connectors/mappers)** - JSON, CSV, and bytes format handling

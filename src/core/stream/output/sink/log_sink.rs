@@ -61,12 +61,24 @@ impl LogSink {
 
 impl Sink for LogSink {
     fn publish(&self, payload: &[u8]) -> Result<(), EventFluxError> {
-        // Deserialize events from binary format
+        let prefix = self.get_prefix();
+
+        // Check if payload looks like JSON (starts with '{' or '[' after optional whitespace)
+        // This handles JSON mapper output which should be logged as text
+        if let Ok(text) = std::str::from_utf8(payload) {
+            let trimmed = text.trim_start();
+            if trimmed.starts_with('{') || trimmed.starts_with('[') {
+                // JSON format - log as-is without deserialization
+                log::info!("{} {}", prefix, text);
+                return Ok(());
+            }
+        }
+
+        // Fall back to binary deserialization for bincode format
         let events = PassthroughMapper::deserialize(payload).map_err(|e| {
             EventFluxError::app_runtime(format!("LogSink deserialization failed: {}", e))
         })?;
 
-        let prefix = self.get_prefix();
         for e in &events {
             log::info!("{} {:?}", prefix, e);
             self.events.lock().unwrap().push(e.clone());

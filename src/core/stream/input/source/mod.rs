@@ -2,6 +2,7 @@
 
 pub mod rabbitmq_source;
 pub mod timer_source;
+pub mod websocket_source;
 
 use crate::core::exception::EventFluxError;
 use crate::core::stream::input::input_handler::InputHandler;

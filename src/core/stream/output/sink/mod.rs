@@ -4,6 +4,7 @@ pub mod log_sink;
 pub mod rabbitmq_sink;
 pub mod sink_factory;
 pub mod sink_trait;
+pub mod websocket_sink;
 
 use crate::core::event::event::Event;
 use crate::core::stream::output::mapper::SinkMapper;

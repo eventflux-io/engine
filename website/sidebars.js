@@ -16,6 +16,14 @@ const sidebars = {
     },
     {
       type: 'category',
+      label: 'Demos',
+      collapsed: false,
+      items: [
+        'demo/crypto-trading',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Configuration',
       collapsed: false,
       items: [
@@ -42,6 +50,7 @@ const sidebars = {
       items: [
         'connectors/overview',
         'connectors/rabbitmq',
+        'connectors/websocket',
         'connectors/mappers',
       ],
     },

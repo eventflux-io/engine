@@ -1,0 +1,80 @@
+-- EventFlux Demo: Real-Time Bitcoin Trade Counter
+--
+-- Demonstrates multi-stream pipeline processing with real Bitcoin trades
+--
+-- Architecture:
+--   RawTrades (source) ─┬─> ShortTermStats (internal) ─> MarketPulse (sink)
+--                       └─> TrendSummary (sink)
+
+-- =============================================================================
+-- STREAMS
+-- =============================================================================
+
+-- Source: Real BTC/USDT trades from Binance (no API key required)
+CREATE STREAM RawTrades (
+    price VARCHAR,
+    quantity VARCHAR,
+    symbol VARCHAR,
+    trade_time BIGINT
+) WITH (
+    type = 'source',
+    extension = 'websocket',
+    format = 'json',
+    "websocket.url" = 'wss://stream.binance.com:9443/ws/btcusdt@trade',
+    "websocket.reconnect" = 'true',
+    "websocket.reconnect.max.attempts" = '-1',
+    "json.mapping.price" = '$.p',
+    "json.mapping.quantity" = '$.q',
+    "json.mapping.symbol" = '$.s',
+    "json.mapping.trade_time" = '$.T'
+);
+
+-- Internal stream for pipeline processing
+CREATE STREAM ShortTermStats (
+    symbol VARCHAR,
+    trade_count BIGINT
+);
+
+-- Sink: Market pulse every 5 seconds
+CREATE STREAM MarketPulse (
+    symbol VARCHAR,
+    trades_per_5sec BIGINT,
+    activity VARCHAR
+) WITH (
+    type = 'sink',
+    extension = 'log',
+    format = 'json'
+);
+
+-- Sink: Trend summary every 30 seconds
+CREATE STREAM TrendSummary (
+    symbol VARCHAR,
+    trades_per_30sec BIGINT
+) WITH (
+    type = 'sink',
+    extension = 'log',
+    format = 'json'
+);
+
+-- =============================================================================
+-- QUERIES
+-- =============================================================================
+
+-- Query 1: 5-second trade aggregation
+INSERT INTO ShortTermStats
+SELECT symbol, COUNT(*) AS trade_count
+FROM RawTrades
+WINDOW('tumbling', INTERVAL '5' SECOND)
+GROUP BY symbol;
+
+-- Query 2: Pass through to sink with activity label
+INSERT INTO MarketPulse
+SELECT symbol, trade_count AS trades_per_5sec, 'ACTIVE' AS activity
+FROM ShortTermStats;
+
+-- Query 3: 30-second trend summary
+INSERT INTO TrendSummary
+SELECT symbol, COUNT(*) AS trades_per_30sec
+FROM RawTrades
+WINDOW('tumbling', INTERVAL '30' SECOND)
+GROUP BY symbol;

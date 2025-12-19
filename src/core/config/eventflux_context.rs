@@ -407,7 +407,9 @@ impl EventFluxContext {
             MinForeverAttributeAggregatorFactory, SumAttributeAggregatorFactory,
         };
         use crate::core::stream::input::source::rabbitmq_source::RabbitMQSourceFactory;
+        use crate::core::stream::input::source::websocket_source::WebSocketSourceFactory;
         use crate::core::stream::output::sink::rabbitmq_sink::RabbitMQSinkFactory;
+        use crate::core::stream::output::sink::websocket_sink::WebSocketSinkFactory;
         use crate::core::table::{CacheTableFactory, InMemoryTableFactory, JdbcTableFactory};
 
         self.add_window_factory("length".to_string(), Box::new(LengthWindowFactory));
@@ -471,8 +473,10 @@ impl EventFluxContext {
         self.add_table_factory("cache".to_string(), Box::new(CacheTableFactory));
         self.add_source_factory("timer".to_string(), Box::new(TimerSourceFactory));
         self.add_source_factory("rabbitmq".to_string(), Box::new(RabbitMQSourceFactory));
+        self.add_source_factory("websocket".to_string(), Box::new(WebSocketSourceFactory));
         self.add_sink_factory("log".to_string(), Box::new(LogSinkFactory));
         self.add_sink_factory("rabbitmq".to_string(), Box::new(RabbitMQSinkFactory));
+        self.add_sink_factory("websocket".to_string(), Box::new(WebSocketSinkFactory));
 
         // Mapper factories for format = 'json' / 'csv' / 'bytes'
         use crate::core::extension::{

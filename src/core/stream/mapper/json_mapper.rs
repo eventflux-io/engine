@@ -228,6 +228,8 @@ pub struct JsonSinkMapper {
     template: Option<String>,
     /// Whether to pretty-print JSON (with indentation)
     pretty_print: bool,
+    /// Schema field names for JSON output (uses field_0, field_1 if not set)
+    field_names: Option<Vec<String>>,
 }
 
 impl JsonSinkMapper {
@@ -236,6 +238,7 @@ impl JsonSinkMapper {
         Self {
             template: None,
             pretty_print: false,
+            field_names: None,
         }
     }
 
@@ -244,12 +247,18 @@ impl JsonSinkMapper {
         Self {
             template: Some(template),
             pretty_print: false,
+            field_names: None,
         }
     }
 
     /// Enable pretty-printing (formatted JSON with indentation)
     pub fn set_pretty_print(&mut self, pretty: bool) {
         self.pretty_print = pretty;
+    }
+
+    /// Set the schema field names for JSON output
+    pub fn set_field_names(&mut self, names: Vec<String>) {
+        self.field_names = Some(names);
     }
 }
 
@@ -272,8 +281,8 @@ impl SinkMapper for JsonSinkMapper {
             let rendered = render_template(template, event)?;
             Ok(rendered.into_bytes())
         } else {
-            // Simple JSON serialization
-            let json_value = event_to_json(event)?;
+            // Simple JSON serialization with optional field names
+            let json_value = event_to_json_with_names(event, self.field_names.as_deref())?;
             let json_str = if self.pretty_print {
                 serde_json::to_string_pretty(&json_value)
             } else {
@@ -614,8 +623,16 @@ pub fn json_value_to_attribute(
     }
 }
 
-/// Convert Event to JSON value
+/// Convert Event to JSON value (legacy - uses generic field names)
 pub fn event_to_json(event: &Event) -> Result<JsonValue, EventFluxError> {
+    event_to_json_with_names(event, None)
+}
+
+/// Convert Event to JSON value with optional schema field names
+pub fn event_to_json_with_names(
+    event: &Event,
+    field_names: Option<&[String]>,
+) -> Result<JsonValue, EventFluxError> {
     let mut obj = serde_json::Map::new();
 
     // Add timestamp
@@ -624,9 +641,16 @@ pub fn event_to_json(event: &Event) -> Result<JsonValue, EventFluxError> {
         JsonValue::Number(event.timestamp.into()),
     );
 
-    // Add event data
+    // Add event data with schema field names if available
     for (idx, attr_value) in event.data.iter().enumerate() {
-        let field_name = format!("field_{}", idx); // Generic field names (schema would provide real names)
+        let field_name = if let Some(names) = field_names {
+            names
+                .get(idx)
+                .cloned()
+                .unwrap_or_else(|| format!("field_{}", idx))
+        } else {
+            format!("field_{}", idx)
+        };
         let json_value = attribute_to_json_value(attr_value)?;
         obj.insert(field_name, json_value);
     }
