@@ -42,6 +42,7 @@ const sidebars = {
       items: [
         'connectors/overview',
         'connectors/rabbitmq',
+        'connectors/websocket',
         'connectors/mappers',
       ],
     },
