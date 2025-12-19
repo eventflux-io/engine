@@ -1210,7 +1210,7 @@ impl EventFluxAppRuntime {
         use crate::core::config::ElementType;
         use crate::core::exception::EventFluxError;
         use crate::core::stream::handler::SinkStreamHandler;
-        use crate::core::stream::stream_initializer::{initialize_stream, InitializedStream};
+        use crate::core::stream::stream_initializer::InitializedStream;
 
         // Check if handler already registered (idempotent operation)
         if self.get_sink_handler(stream_name).is_some() {
@@ -1251,17 +1251,35 @@ impl EventFluxAppRuntime {
             ))
         })?;
 
-        // Use stream_initializer to create sink with mapper
-        let initialized = initialize_stream(
-            &self.eventflux_app_context.eventflux_context,
-            &stream_type_config,
-        )
-        .map_err(|e| {
-            EventFluxError::app_creation(format!(
-                "Failed to initialize sink '{}' (extension={}, format={:?}): {}",
-                stream_name, extension, resolved.format, e
-            ))
-        })?;
+        // Extract field names from stream definition for proper JSON output
+        // (e.g., "symbol", "trade_count" instead of "field_0", "field_1")
+        let field_names: Vec<String> = self
+            .eventflux_app
+            .stream_definition_map
+            .get(stream_name)
+            .map(|stream_def| {
+                stream_def
+                    .abstract_definition
+                    .attribute_list
+                    .iter()
+                    .map(|attr| attr.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Use stream_initializer to create sink with mapper (using field names for JSON output)
+        let initialized =
+            crate::core::stream::stream_initializer::initialize_sink_stream_with_schema(
+                &self.eventflux_app_context.eventflux_context,
+                &stream_type_config,
+                &field_names,
+            )
+            .map_err(|e| {
+                EventFluxError::app_creation(format!(
+                    "Failed to initialize sink '{}' (extension={}, format={:?}): {}",
+                    stream_name, extension, resolved.format, e
+                ))
+            })?;
 
         // Extract sink and mapper from initialized stream
         let (sink, mapper) = match initialized {

@@ -126,6 +126,20 @@ pub trait SinkMapperFactory: Debug + Send + Sync {
         config: &HashMap<String, String>,
     ) -> Result<Box<dyn SinkMapper>, EventFluxError>;
 
+    /// Create a sink mapper with schema field names for proper JSON output
+    ///
+    /// # Arguments
+    /// * `config` - Flat configuration map with format-prefixed keys
+    /// * `field_names` - Schema field names for output (e.g., ["symbol", "trade_count"])
+    fn create_with_schema(
+        &self,
+        config: &HashMap<String, String>,
+        field_names: &[String],
+    ) -> Result<Box<dyn SinkMapper>, EventFluxError> {
+        // Default implementation ignores field names
+        self.create_initialized(config)
+    }
+
     /// Clone this factory into a boxed trait object
     fn clone_box(&self) -> Box<dyn SinkMapperFactory>;
 }
@@ -268,6 +282,27 @@ impl SinkMapperFactory for JsonSinkMapperFactory {
         };
 
         mapper.set_pretty_print(mapper_config.pretty_print);
+
+        Ok(Box::new(mapper))
+    }
+
+    fn create_with_schema(
+        &self,
+        config: &HashMap<String, String>,
+        field_names: &[String],
+    ) -> Result<Box<dyn SinkMapper>, EventFluxError> {
+        // Parse and validate configuration
+        let mapper_config = JsonSinkMapperConfig::parse(config)?;
+
+        // Create fully initialized mapper with field names
+        let mut mapper = if let Some(template) = mapper_config.template {
+            JsonSinkMapper::with_template(template)
+        } else {
+            JsonSinkMapper::new()
+        };
+
+        mapper.set_pretty_print(mapper_config.pretty_print);
+        mapper.set_field_names(field_names.to_vec());
 
         Ok(Box::new(mapper))
     }
@@ -599,6 +634,24 @@ impl MapperFactoryRegistry {
                 })?;
 
         factory.create_initialized(config)
+    }
+
+    /// Create a sink mapper for the given format with schema field names
+    pub fn create_sink_mapper_with_schema(
+        &self,
+        format: &str,
+        config: &HashMap<String, String>,
+        field_names: &[String],
+    ) -> Result<Box<dyn SinkMapper>, EventFluxError> {
+        let factory =
+            self.sink_factories
+                .get(format)
+                .ok_or_else(|| EventFluxError::Configuration {
+                    message: format!("Unknown sink mapper format: {}", format),
+                    config_key: Some("format".to_string()),
+                })?;
+
+        factory.create_with_schema(config, field_names)
     }
 }
 

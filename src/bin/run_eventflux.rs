@@ -109,6 +109,9 @@ fn init_persistence_store(
 
 #[tokio::main]
 async fn main() {
+    // Initialize logging from RUST_LOG environment variable
+    env_logger::init();
+
     let cli = Cli::parse();
 
     // Load configuration from file or use defaults

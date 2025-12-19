@@ -1,0 +1,20 @@
+# EventFlux Zero-Friction Demo
+#
+# Real-time Bitcoin trade processing with EventFlux CEP engine.
+# No setup required - just run and watch!
+#
+# Usage:
+#   docker compose up
+#
+# Press Ctrl+C to stop.
+
+services:
+  eventflux:
+    image: ghcr.io/eventflux-io/engine:latest
+    container_name: eventflux-crypto-demo
+    command: ["/app/query.eventflux"]
+    volumes:
+      - ./query.eventflux:/app/query.eventflux:ro
+    environment:
+      - RUST_LOG=info
+    restart: unless-stopped

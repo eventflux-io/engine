@@ -167,6 +167,11 @@ impl WebSocketSource {
         }
     }
 
+    /// Check if we need custom headers for the request
+    fn needs_custom_request(config: &WebSocketSourceConfig) -> bool {
+        !config.headers.is_empty() || config.subprotocol.is_some()
+    }
+
     /// Build an HTTP request with configured headers and subprotocol
     fn build_request(config: &WebSocketSourceConfig) -> Result<Request<()>, EventFluxError> {
         let mut request = Request::builder().uri(&config.url);
@@ -248,10 +253,15 @@ impl WebSocketSource {
 
             log::info!("[WebSocketSource] Connecting to {}", config.url);
 
-            // Build request with headers and subprotocol
-            let request = Self::build_request(config)?;
+            // Use URL directly when no custom headers, otherwise build request
+            let connect_result = if Self::needs_custom_request(config) {
+                let request = Self::build_request(config)?;
+                connect_async(request).await
+            } else {
+                connect_async(&config.url).await
+            };
 
-            match connect_async(request).await {
+            match connect_result {
                 Ok((stream, response)) => {
                     log::info!(
                         "[WebSocketSource] Connected to {} (status: {})",
@@ -546,18 +556,26 @@ impl Source for WebSocketSource {
 
     fn validate_connectivity(&self) -> Result<(), EventFluxError> {
         let config = self.config.clone();
+        let needs_custom = Self::needs_custom_request(&config);
 
-        // Build request with headers and subprotocol (before async block)
-        let request = Self::build_request(&config)?;
+        // Build request only if custom headers are needed
+        let request = if needs_custom {
+            Some(Self::build_request(&config)?)
+        } else {
+            None
+        };
         let url = config.url.clone();
 
         // Create the async validation logic
         let validate_future = async move {
             log::info!("[WebSocketSource] Validating connectivity to {}", url);
 
-            // Try to connect with a timeout
-            let connect_result =
-                tokio::time::timeout(Duration::from_secs(10), connect_async(request)).await;
+            // Try to connect with a timeout - use URL directly if no custom headers
+            let connect_result = if let Some(req) = request {
+                tokio::time::timeout(Duration::from_secs(10), connect_async(req)).await
+            } else {
+                tokio::time::timeout(Duration::from_secs(10), connect_async(&url)).await
+            };
 
             match connect_result {
                 Ok(Ok((ws_stream, response))) => {

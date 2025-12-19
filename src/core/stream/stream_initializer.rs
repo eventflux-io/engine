@@ -264,6 +264,24 @@ fn initialize_sink_stream(
     context: &EventFluxContext,
     stream_config: &StreamTypeConfig,
 ) -> Result<InitializedStream, EventFluxError> {
+    initialize_sink_stream_internal(context, stream_config, None)
+}
+
+/// Initialize a sink stream with schema field names for proper JSON output
+pub fn initialize_sink_stream_with_schema(
+    context: &EventFluxContext,
+    stream_config: &StreamTypeConfig,
+    field_names: &[String],
+) -> Result<InitializedStream, EventFluxError> {
+    initialize_sink_stream_internal(context, stream_config, Some(field_names))
+}
+
+/// Internal sink stream initialization with optional field names
+fn initialize_sink_stream_internal(
+    context: &EventFluxContext,
+    stream_config: &StreamTypeConfig,
+    field_names: Option<&[String]>,
+) -> Result<InitializedStream, EventFluxError> {
     // 1. Look up sink factory by extension
     let extension = stream_config
         .extension()
@@ -325,8 +343,16 @@ fn initialize_sink_stream(
 
     // 5. Create fully initialized instances (fail-fast validation)
     let sink = sink_factory.create_initialized(&stream_config.properties)?;
+
+    // Create mapper with field names if provided, otherwise use standard initialization
     let mapper = mapper_factory
-        .map(|factory| factory.create_initialized(&stream_config.properties))
+        .map(|factory| {
+            if let Some(names) = field_names {
+                factory.create_with_schema(&stream_config.properties, names)
+            } else {
+                factory.create_initialized(&stream_config.properties)
+            }
+        })
         .transpose()?;
 
     // 6. Phase 2 Validation: Verify external connectivity (FAIL-FAST)
@@ -628,7 +654,7 @@ fn initialize_source_stream_with_handler(
 ///
 /// Creates a fully initialized sink with:
 /// 1. Sink instance from factory
-/// 2. Mapper instance from factory
+/// 2. Mapper instance from factory (with schema field names for proper JSON output)
 /// 3. SinkStreamHandler for lifecycle management
 fn initialize_sink_stream_with_handler(
     stream_def: &StreamDefinition,
@@ -636,8 +662,17 @@ fn initialize_sink_stream_with_handler(
     context: &EventFluxContext,
     stream_name: &str,
 ) -> Result<Arc<SinkStreamHandler>, EventFluxError> {
-    // Use existing initialization logic
-    let initialized = initialize_sink_stream(context, stream_config)?;
+    // Extract field names from stream definition for proper JSON output
+    // (e.g., "symbol", "trade_count" instead of "field_0", "field_1")
+    let field_names: Vec<String> = stream_def
+        .abstract_definition
+        .attribute_list
+        .iter()
+        .map(|attr| attr.name.clone())
+        .collect();
+
+    // Use initialization with schema field names
+    let initialized = initialize_sink_stream_with_schema(context, stream_config, &field_names)?;
 
     match initialized {
         InitializedStream::Sink(sink) => {
