@@ -1,10 +1,19 @@
--- EventFlux Demo: Real-Time Bitcoin Trade Counter
+-- EventFlux Advanced Demo: Real-Time Bitcoin Trend Detection
 --
--- Demonstrates multi-stream pipeline processing with real Bitcoin trades
+-- Demonstrates PATTERN PROCESSING for detecting market activity and price trends
 --
 -- Architecture:
---   RawTrades (source) ─┬─> ShortTermStats (internal) ─> MarketPulse (sink)
---                       └─> TrendSummary (sink)
+--   RawTrades (source) ─> ActivityStats (internal) ─┬─> ActivityPulse (sink)
+--                                                   └─> TrendSignal (sink)
+--
+-- Features demonstrated:
+--   - WebSocket source with live Bitcoin trades
+--   - Tumbling window aggregation (10-second periods)
+--   - CAST expression for type conversion (VARCHAR price to DOUBLE)
+--   - PATTERN MATCHING for trend detection (EVERY for continuous matching)
+--   - Same-stream pattern (e1=Stream -> e2=Stream)
+--   - Arithmetic expressions in pattern queries (e2.count - e1.count)
+--   - Multi-query pipeline processing
 
 -- =============================================================================
 -- STREAMS
@@ -29,27 +38,37 @@ CREATE STREAM RawTrades (
     "json.mapping.trade_time" = '$.T'
 );
 
--- Internal stream for pipeline processing
-CREATE STREAM ShortTermStats (
+-- Internal: 10-second activity statistics
+-- This stream aggregates raw trades into periodic activity summaries
+-- Uses CAST to convert VARCHAR price to DOUBLE for averaging
+CREATE STREAM ActivityStats (
     symbol VARCHAR,
-    trade_count BIGINT
+    trade_count BIGINT,
+    avg_price DOUBLE,
+    period_end BIGINT
 );
 
--- Sink: Market pulse every 5 seconds
-CREATE STREAM MarketPulse (
+-- Sink 1: Activity pulse - shows each 10-second period's activity and average price
+CREATE STREAM ActivityPulse (
     symbol VARCHAR,
-    trades_per_5sec BIGINT,
-    activity VARCHAR
+    trades BIGINT,
+    avg_price DOUBLE
 ) WITH (
     type = 'sink',
     extension = 'log',
     format = 'json'
 );
 
--- Sink: Trend summary every 30 seconds
-CREATE STREAM TrendSummary (
+-- Sink 2: Trend signal - pattern-detected activity and price trends
+-- Compares consecutive 10-second periods to detect momentum
+CREATE STREAM TrendSignal (
     symbol VARCHAR,
-    trades_per_30sec BIGINT
+    prev_trades BIGINT,
+    curr_trades BIGINT,
+    activity_change BIGINT,
+    prev_price DOUBLE,
+    curr_price DOUBLE,
+    price_change_pct DOUBLE
 ) WITH (
     type = 'sink',
     extension = 'log',
@@ -60,21 +79,51 @@ CREATE STREAM TrendSummary (
 -- QUERIES
 -- =============================================================================
 
--- Query 1: 5-second trade aggregation
-INSERT INTO ShortTermStats
-SELECT symbol, COUNT(*) AS trade_count
+-- Query 1: Aggregate raw trades into 10-second activity windows
+-- Counts trades per period and calculates average price
+-- Uses CAST to convert VARCHAR price to DOUBLE for averaging
+INSERT INTO ActivityStats
+SELECT
+    symbol,
+    COUNT(*) AS trade_count,
+    AVG(CAST(price AS DOUBLE)) AS avg_price,
+    MAX(trade_time) AS period_end
 FROM RawTrades
-WINDOW('tumbling', INTERVAL '5' SECOND)
+WINDOW('tumbling', INTERVAL '10' SECOND)
 GROUP BY symbol;
 
--- Query 2: Pass through to sink with activity label
-INSERT INTO MarketPulse
-SELECT symbol, trade_count AS trades_per_5sec, 'ACTIVE' AS activity
-FROM ShortTermStats;
+-- Query 2: Pass through to activity pulse sink
+INSERT INTO ActivityPulse
+SELECT
+    symbol,
+    trade_count AS trades,
+    avg_price
+FROM ActivityStats;
 
--- Query 3: 30-second trend summary
-INSERT INTO TrendSummary
-SELECT symbol, COUNT(*) AS trades_per_30sec
-FROM RawTrades
-WINDOW('tumbling', INTERVAL '30' SECOND)
-GROUP BY symbol;
+-- Query 3: PATTERN-BASED TREND DETECTION
+-- Uses EVERY to continuously match consecutive 10-second periods
+-- Detects if market activity and price are increasing or decreasing
+--
+-- Pattern: EVERY(e1=ActivityStats -> e2=ActivityStats)
+-- - e1 represents the previous period
+-- - e2 represents the current period
+-- - EVERY ensures continuous matching after each period
+--
+-- Output:
+--   prev_trades: trade count in previous 10-second period
+--   curr_trades: trade count in current 10-second period
+--   activity_change: difference (positive = increasing activity)
+--   prev_price: average price in previous period
+--   curr_price: average price in current period
+--   price_change_pct: percentage change (positive = price increasing)
+INSERT INTO TrendSignal
+SELECT
+    e2.symbol AS symbol,
+    e1.trade_count AS prev_trades,
+    e2.trade_count AS curr_trades,
+    e2.trade_count - e1.trade_count AS activity_change,
+    e1.avg_price AS prev_price,
+    e2.avg_price AS curr_price,
+    ((e2.avg_price - e1.avg_price) / e1.avg_price) * 100.0 AS price_change_pct
+FROM ActivityStats
+PATTERN (EVERY(e1=ActivityStats -> e2=ActivityStats));
