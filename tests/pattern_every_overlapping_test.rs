@@ -261,7 +261,10 @@ fn test_pattern_without_every_no_overlapping() {
         .process(Some(Box::new(b3)));
     chain.update_state();
 
-    // Without EVERY, should only get 1 match (the last A -> B match)
+    // Without EVERY, should only get 1 match - the first complete sequence
+    // When A(1) arrives, it starts a pattern instance
+    // When B(3) arrives, it completes that instance (A(1) -> B(3))
+    // A(2) arrives after A(1) already consumed the initial state, so A(2) is ignored
     let collected = collector.get_outputs();
     assert_eq!(
         collected.len(),
@@ -270,11 +273,11 @@ fn test_pattern_without_every_no_overlapping() {
         collected.len()
     );
 
-    // Verify it's the A(2) - B(3) match
+    // Verify it's the A(1) - B(3) match (first complete sequence)
     let match1 = &collected[0];
     if let Some(e1) = match1.get_stream_event(0) {
         if let Some(AttributeValue::Long(val)) = e1.before_window_data.get(0) {
-            assert_eq!(*val, 2, "Match should be from A(2), not A(1)");
+            assert_eq!(*val, 1, "Match should be from A(1), the first complete sequence");
         }
     }
 }

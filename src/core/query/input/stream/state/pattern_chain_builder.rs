@@ -566,9 +566,12 @@ impl ProcessorChain {
                 stream_defs[0].clone() // Fallback to first def
             };
 
-            let meta_stream = MetaStreamEvent::new_for_single_input(stream_def);
-            let stream_factory = StreamEventFactory::new(i, 0, 0);
-            let stream_cloner = StreamEventCloner::new(&meta_stream, stream_factory);
+            let meta_stream = MetaStreamEvent::new_for_single_input(stream_def.clone());
+            // Use attribute count from stream definition for before_window_data size
+            // (new_for_single_input puts attrs in output_data but we need before_window_data)
+            let attr_count = stream_def.abstract_definition.attribute_list.len();
+            let stream_factory = StreamEventFactory::new(attr_count, 0, 0);
+            let stream_cloner = StreamEventCloner::new_with_sizes(attr_count, 0, 0, stream_factory);
 
             // Set up state event cloner
             let meta_state = MetaStateEvent::new(num_steps);

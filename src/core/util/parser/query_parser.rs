@@ -26,6 +26,134 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 // use rand; // For generating random names, if not using query name from annotation
 
+use crate::core::event::complex_event::ComplexEvent;
+use crate::core::query::input::stream::state::PostStateProcessor;
+use crate::core::query::input::stream::state::PreStateProcessor;
+
+/// TerminalPostStateProcessor - bridges PostStateProcessor chain to Processor chain
+///
+/// This processor sits at the end of a pattern chain and:
+/// 1. Receives completed StateEvent from the last pattern PostStateProcessor
+/// 2. Flattens all StreamEvents into a single StreamEvent
+/// 3. Forwards the flattened event to the Processor chain (SelectProcessor, etc.)
+#[derive(Debug)]
+struct TerminalPostStateProcessor {
+    state_id: usize,
+    next_processor: Option<Arc<Mutex<dyn PostStateProcessor>>>,
+    output_processor: Option<Arc<Mutex<dyn Processor>>>,
+    is_event_returned: bool,
+    total_attr_count: usize,
+}
+
+impl TerminalPostStateProcessor {
+    fn new(state_id: usize, total_attr_count: usize) -> Self {
+        Self {
+            state_id,
+            next_processor: None,
+            output_processor: None,
+            is_event_returned: false,
+            total_attr_count,
+        }
+    }
+
+    fn set_output_processor(&mut self, processor: Arc<Mutex<dyn Processor>>) {
+        self.output_processor = Some(processor);
+    }
+
+    /// Flatten StateEvent into a single StreamEvent
+    /// Copies all attributes from each position's StreamEvent
+    fn flatten_state_event(
+        &self,
+        state_event: &crate::core::event::state::state_event::StateEvent,
+    ) -> crate::core::event::stream::stream_event::StreamEvent {
+        use crate::core::event::stream::stream_event::StreamEvent;
+        use crate::core::event::value::AttributeValue;
+
+        // Create flattened before_window_data by concatenating all positions
+        let mut flattened_data: Vec<AttributeValue> = Vec::with_capacity(self.total_attr_count);
+        let mut timestamp = state_event.timestamp;
+
+        for i in 0..state_event.stream_event_count() {
+            if let Some(stream_event) = state_event.get_stream_event(i) {
+                // Copy attributes from this position's StreamEvent
+                for attr in &stream_event.before_window_data {
+                    flattened_data.push(attr.clone());
+                }
+                // Use first valid timestamp if not set
+                if timestamp < 0 && stream_event.timestamp >= 0 {
+                    timestamp = stream_event.timestamp;
+                }
+            }
+        }
+
+        // Create the flattened StreamEvent
+        let mut result = StreamEvent::new_with_data(timestamp, flattened_data);
+        result.event_type = state_event.event_type;
+        result
+    }
+}
+
+impl PostStateProcessor for TerminalPostStateProcessor {
+    fn process(&mut self, chunk: Option<Box<dyn ComplexEvent>>) -> Option<Box<dyn ComplexEvent>> {
+        if let Some(event) = chunk {
+            if let Some(state_event) = event
+                .as_any()
+                .downcast_ref::<crate::core::event::state::state_event::StateEvent>()
+            {
+                // Flatten the StateEvent to a StreamEvent
+                let flattened = self.flatten_state_event(state_event);
+
+                // Forward to the output processor (Processor chain)
+                if let Some(ref output) = self.output_processor {
+                    self.is_event_returned = true;
+                    output.lock().unwrap().process(Some(Box::new(flattened)));
+                }
+            }
+        }
+        None // Terminal - doesn't return events via PostStateProcessor chain
+    }
+
+    fn set_next_processor(&mut self, processor: Arc<Mutex<dyn PostStateProcessor>>) {
+        self.next_processor = Some(processor);
+    }
+
+    fn get_next_processor(&self) -> Option<Arc<Mutex<dyn PostStateProcessor>>> {
+        self.next_processor.clone()
+    }
+
+    fn state_id(&self) -> usize {
+        self.state_id
+    }
+
+    fn set_next_state_pre_processor(&mut self, _next: Arc<Mutex<dyn PreStateProcessor>>) {
+        // Terminal processor - no next state
+    }
+
+    fn set_next_every_state_pre_processor(&mut self, _next: Arc<Mutex<dyn PreStateProcessor>>) {
+        // Terminal processor - doesn't loop back
+    }
+
+    fn set_callback_pre_state_processor(&mut self, _callback: Arc<Mutex<dyn PreStateProcessor>>) {
+        // Terminal processor - no callback
+    }
+
+    fn get_next_every_state_pre_processor(&self) -> Option<Arc<Mutex<dyn PreStateProcessor>>> {
+        None
+    }
+
+    fn is_event_returned(&self) -> bool {
+        self.is_event_returned
+    }
+
+    fn clear_processed_event(&mut self) {
+        self.is_event_returned = false;
+    }
+
+    fn this_state_pre_processor(&self) -> Option<Arc<Mutex<dyn PreStateProcessor>>> {
+        None
+    }
+}
+
 pub struct QueryParser;
 
 impl QueryParser {
@@ -98,6 +226,14 @@ impl QueryParser {
 
         let mut processor_chain_head: Option<Arc<Mutex<dyn Processor>>> = None;
         let mut last_processor_in_chain: Option<Arc<Mutex<dyn Processor>>> = None;
+
+        // For N-element patterns, we need to connect the terminal to the selector chain later
+        // This is set in the N-element pattern block and used after selector chain is built
+        let mut n_element_terminal: Option<Arc<Mutex<TerminalPostStateProcessor>>> = None;
+
+        // Flag to track if we're handling a logical pattern (AND/OR)
+        // Logical patterns subscribe their processors directly to junctions, so we skip final subscription
+        let mut is_logical_pattern = false;
 
         // Helper closure to link processors
         let mut link_processor = |new_processor_arc: Arc<Mutex<dyn Processor>>| {
@@ -400,274 +536,678 @@ impl QueryParser {
                 }
             }
             ApiInputStream::State(state_stream) => {
-                use crate::core::query::input::stream::state::{
-                    LogicalProcessor, OldLogicalType as LogicalType, SequenceProcessor,
-                    SequenceSide, SequenceType,
-                };
+                use crate::core::event::complex_event::ComplexEvent;
                 use crate::query_api::execution::query::input::state::logical_state_element::Type as ApiLogicalType;
                 use crate::query_api::execution::query::input::state::state_element::StateElement;
+                use crate::core::query::input::stream::state::pattern_chain_builder::{
+                    PatternChainBuilder as PCB, PatternStepConfig,
+                };
+                use crate::core::query::input::stream::state::stream_pre_state_processor::StateType;
 
-                fn extract_stream_state_with_count(
-                    se: &StateElement,
-                ) -> Option<(
-                    &crate::query_api::execution::query::input::state::stream_state_element::StreamStateElement,
-                    i32,
-                    i32,
-                )>{
+                /// Adapter that wraps a PreStateProcessor to implement the Processor trait
+                /// This allows PreStateProcessors to be subscribed to StreamJunctions
+                #[derive(Debug)]
+                struct PreStateProcessorAdapter {
+                    pre_processor: Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>,
+                    app_context: Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>,
+                    query_context: Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                    next_processor: Option<Arc<Mutex<dyn Processor>>>,
+                }
+
+                impl PreStateProcessorAdapter {
+                    fn new(
+                        pre_processor: Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>,
+                        app_context: Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>,
+                        query_context: Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                    ) -> Self {
+                        Self {
+                            pre_processor,
+                            app_context,
+                            query_context,
+                            next_processor: None,
+                        }
+                    }
+                }
+
+                impl Processor for PreStateProcessorAdapter {
+                    fn process(&self, chunk: Option<Box<dyn ComplexEvent>>) {
+                        // Convert ComplexEvent to StreamEvent and process
+                        if let Some(event) = chunk {
+                            if let Some(stream_event) = event.as_any().downcast_ref::<crate::core::event::stream::stream_event::StreamEvent>() {
+                                // Clone the stream event since we need owned data
+                                let se_clone = stream_event.clone();
+
+                                // Process through the PreStateProcessor
+                                let mut pre = self.pre_processor.lock().unwrap();
+
+                                // CRITICAL: Update state FIRST to move new events (from add_state) to pending
+                                // This allows events forwarded from previous processors to be matched
+                                pre.update_state();
+
+                                // Now process the incoming event against pending states
+                                let _result = pre.process_and_return(Some(Box::new(se_clone)));
+                            }
+                        }
+                    }
+
+                    fn next_processor(&self) -> Option<Arc<Mutex<dyn Processor>>> {
+                        self.next_processor.clone()
+                    }
+
+                    fn set_next_processor(&mut self, next: Option<Arc<Mutex<dyn Processor>>>) {
+                        self.next_processor = next;
+                    }
+
+                    fn clone_processor(
+                        &self,
+                        _ctx: &Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                    ) -> Box<dyn Processor> {
+                        Box::new(PreStateProcessorAdapter {
+                            pre_processor: Arc::clone(&self.pre_processor),
+                            app_context: Arc::clone(&self.app_context),
+                            query_context: Arc::clone(&self.query_context),
+                            next_processor: self.next_processor.clone(),
+                        })
+                    }
+
+                    fn get_eventflux_app_context(&self) -> Arc<crate::core::config::eventflux_app_context::EventFluxAppContext> {
+                        Arc::clone(&self.app_context)
+                    }
+
+                    fn get_eventflux_query_context(&self) -> Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext> {
+                        Arc::clone(&self.query_context)
+                    }
+
+                    fn get_processing_mode(&self) -> crate::core::query::processor::ProcessingMode {
+                        crate::core::query::processor::ProcessingMode::DEFAULT
+                    }
+
+                    fn is_stateful(&self) -> bool {
+                        true
+                    }
+                }
+
+                // TerminalPostStateProcessor is now defined at module level
+
+                /// Adapter for N-element same-stream patterns
+                ///
+                /// For same-stream patterns (e.g., e1=Trades -> e2=Trades -> e3=Trades),
+                /// events must be processed carefully to ensure each event matches at
+                /// exactly one position in the pattern.
+                ///
+                /// The key insight is:
+                /// 1. Call update_state() on ALL processors FIRST to move forwarded states
+                ///    from new_list to pending_list
+                /// 2. Then process the event - only processors with pending states will match
+                /// 3. When a processor matches, it forwards state to the next processor's
+                ///    new_list, which won't be available until the NEXT event's update_state()
+                ///
+                /// This ensures that each event can only match one position, because forwarded
+                /// states don't become "pending" until after the current event is processed.
+                #[derive(Debug)]
+                struct NElementSameStreamAdapter {
+                    pre_processors: Vec<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>>,
+                    app_context: Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>,
+                    query_context: Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                }
+
+                impl NElementSameStreamAdapter {
+                    fn new(
+                        pre_processors: Vec<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>>,
+                        app_context: Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>,
+                        query_context: Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                    ) -> Self {
+                        Self { pre_processors, app_context, query_context }
+                    }
+                }
+
+                impl Processor for NElementSameStreamAdapter {
+                    fn process(&self, chunk: Option<Box<dyn ComplexEvent>>) {
+                        // Step 1: Update state on ALL processors FIRST
+                        // This moves any forwarded states from new_list to pending_list
+                        // BEFORE we process the current event
+                        for pre in &self.pre_processors {
+                            pre.lock().unwrap().update_state();
+                        }
+
+                        // Step 2: Process the event through each processor
+                        // Only processors with pending states will actually match
+                        if let Some(event) = chunk {
+                            if let Some(stream_event) = event.as_any().downcast_ref::<crate::core::event::stream::stream_event::StreamEvent>() {
+                                for pre in &self.pre_processors {
+                                    let se_clone = stream_event.clone();
+                                    let mut pre_guard = pre.lock().unwrap();
+                                    // Note: We don't call update_state() here - it was done above
+                                    let _result = pre_guard.process_and_return(Some(Box::new(se_clone)));
+                                }
+                            }
+                        }
+                    }
+
+                    fn next_processor(&self) -> Option<Arc<Mutex<dyn Processor>>> {
+                        None // Terminal adapter - output goes through PostStateProcessor chain
+                    }
+
+                    fn set_next_processor(&mut self, _next: Option<Arc<Mutex<dyn Processor>>>) {
+                        // No-op - wiring is done through PostStateProcessor chain
+                    }
+
+                    fn clone_processor(
+                        &self,
+                        _ctx: &Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                    ) -> Box<dyn Processor> {
+                        Box::new(NElementSameStreamAdapter {
+                            pre_processors: self.pre_processors.clone(),
+                            app_context: Arc::clone(&self.app_context),
+                            query_context: Arc::clone(&self.query_context),
+                        })
+                    }
+
+                    fn get_eventflux_app_context(&self) -> Arc<crate::core::config::eventflux_app_context::EventFluxAppContext> {
+                        Arc::clone(&self.app_context)
+                    }
+
+                    fn get_eventflux_query_context(&self) -> Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext> {
+                        Arc::clone(&self.query_context)
+                    }
+
+                    fn get_processing_mode(&self) -> crate::core::query::processor::ProcessingMode {
+                        crate::core::query::processor::ProcessingMode::DEFAULT
+                    }
+
+                    fn is_stateful(&self) -> bool {
+                        true
+                    }
+                }
+
+                /// Holds information about a pattern element
+                struct PatternElementInfo {
+                    stream_id: String,
+                    alias: Option<String>,
+                    min_count: i32,
+                    max_count: i32,
+                }
+
+                /// Extract pattern element info from a StateElement
+                fn extract_element_info(se: &StateElement) -> Option<PatternElementInfo> {
                     match se {
-                        StateElement::Stream(s) => Some((s, 1, 1)),
+                        StateElement::Stream(s) => {
+                            let alias = s.get_single_input_stream()
+                                .get_stream_reference_id_str()
+                                .map(|s| s.to_string());
+                            Some(PatternElementInfo {
+                                stream_id: s.get_single_input_stream().get_stream_id_str().to_string(),
+                                alias,
+                                min_count: 1,
+                                max_count: 1,
+                            })
+                        }
                         StateElement::Every(ev) => {
-                            extract_stream_state_with_count(&ev.state_element)
+                            extract_element_info(&ev.state_element)
                         }
                         StateElement::Count(c) => {
-                            Some((&c.stream_state_element, c.min_count, c.max_count))
+                            let alias = c.stream_state_element.get_single_input_stream()
+                                .get_stream_reference_id_str()
+                                .map(|s| s.to_string());
+                            Some(PatternElementInfo {
+                                stream_id: c.stream_state_element.get_single_input_stream().get_stream_id_str().to_string(),
+                                alias,
+                                min_count: c.min_count,
+                                max_count: c.max_count,
+                            })
                         }
                         _ => None,
                     }
                 }
 
-                enum StateRuntimeKind {
-                    Sequence {
-                        first_id: String,
-                        second_id: String,
-                        seq_type: SequenceType,
-                        first_min: i32,
-                        first_max: i32,
-                        second_min: i32,
-                        second_max: i32,
-                        within: Option<i64>,
-                    },
+                /// Recursively extract all pattern elements from a nested Next structure
+                /// For pattern A -> B -> C -> D (represented as Next(A, Next(B, Next(C, D))))
+                /// Returns [A, B, C, D] in order
+                fn extract_all_sequence_elements(se: &StateElement) -> Option<Vec<PatternElementInfo>> {
+                    match se {
+                        StateElement::Stream(_) | StateElement::Count(_) => {
+                            extract_element_info(se).map(|info| vec![info])
+                        }
+                        StateElement::Every(ev) => {
+                            extract_all_sequence_elements(&ev.state_element)
+                        }
+                        StateElement::Next(next_elem) => {
+                            let mut elements = extract_all_sequence_elements(&next_elem.state_element)?;
+                            let next_elements = extract_all_sequence_elements(&next_elem.next_state_element)?;
+                            elements.extend(next_elements);
+                            Some(elements)
+                        }
+                        _ => None, // Logical handled separately
+                    }
+                }
+
+                /// Represents a pattern type for unified handling
+                enum PatternType {
+                    /// Sequence pattern (A -> B, A -> B -> C, etc.)
+                    Sequence(Vec<PatternElementInfo>),
+                    /// Logical pattern (A AND B, A OR B)
                     Logical {
-                        first_id: String,
-                        second_id: String,
-                        logical_type: LogicalType,
+                        left: PatternElementInfo,
+                        right: PatternElementInfo,
+                        is_and: bool,
                     },
                 }
 
-                let runtime_kind = match state_stream.state_element.as_ref() {
-                    StateElement::Next(next_elem) => {
-                        let (s1, fmin, fmax) = extract_stream_state_with_count(
-                            &next_elem.state_element,
-                        )
-                        .ok_or_else(|| {
-                            format!("Query '{query_name}': Unsupported Next pattern structure")
-                        })?;
-                        let (s2, smin, smax) =
-                            extract_stream_state_with_count(&next_elem.next_state_element)
-                                .ok_or_else(|| {
-                                    format!(
-                                        "Query '{query_name}': Unsupported Next pattern structure"
-                                    )
-                                })?;
-                        let seq_type = match state_stream.state_type {
-                            crate::query_api::execution::query::input::stream::state_input_stream::Type::Pattern => SequenceType::Pattern,
-                            crate::query_api::execution::query::input::stream::state_input_stream::Type::Sequence => SequenceType::Sequence,
-                        };
-                        let within = state_stream
-                            .within_time
-                            .as_ref()
-                            .and_then(|c| match c.get_value() {
-                                crate::query_api::expression::constant::ConstantValueWithFloat::Time(t) => Some(*t),
-                                crate::query_api::expression::constant::ConstantValueWithFloat::Long(l) => Some(*l),
-                                crate::query_api::expression::constant::ConstantValueWithFloat::Int(i) => Some(*i as i64),
-                                _ => None,
-                            });
-                        StateRuntimeKind::Sequence {
-                            first_id: s1.get_single_input_stream().get_stream_id_str().to_string(),
-                            second_id: s2.get_single_input_stream().get_stream_id_str().to_string(),
-                            seq_type,
-                            first_min: fmin,
-                            first_max: fmax,
-                            second_min: smin,
-                            second_max: smax,
-                            within,
+                /// Parse the state element into a unified PatternType
+                fn parse_pattern_type(se: &StateElement) -> Option<PatternType> {
+                    match se {
+                        StateElement::Next(_) => {
+                            extract_all_sequence_elements(se).map(PatternType::Sequence)
                         }
-                    }
-                    StateElement::Logical(log_elem) => {
-                        let (s1, _, _) = extract_stream_state_with_count(
-                            &log_elem.stream_state_element_1,
-                        )
-                        .ok_or_else(|| {
-                            format!("Query '{query_name}': Unsupported Logical pattern structure")
-                        })?;
-                        let (s2, _, _) = extract_stream_state_with_count(
-                            &log_elem.stream_state_element_2,
-                        )
-                        .ok_or_else(|| {
-                            format!("Query '{query_name}': Unsupported Logical pattern structure")
-                        })?;
-                        let logical_type = match log_elem.logical_type {
-                            ApiLogicalType::And => LogicalType::And,
-                            ApiLogicalType::Or => LogicalType::Or,
-                        };
-                        StateRuntimeKind::Logical {
-                            first_id: s1.get_single_input_stream().get_stream_id_str().to_string(),
-                            second_id: s2.get_single_input_stream().get_stream_id_str().to_string(),
-                            logical_type,
+                        StateElement::Stream(_) | StateElement::Count(_) => {
+                            // Single element pattern (unusual but valid)
+                            extract_element_info(se).map(|info| PatternType::Sequence(vec![info]))
                         }
+                        StateElement::Every(ev) => {
+                            parse_pattern_type(&ev.state_element)
+                        }
+                        StateElement::Logical(log) => {
+                            let left = extract_element_info(&log.stream_state_element_1)?;
+                            let right = extract_element_info(&log.stream_state_element_2)?;
+                            let is_and = matches!(log.logical_type, ApiLogicalType::And);
+                            Some(PatternType::Logical { left, right, is_and })
+                        }
+                        _ => None,
                     }
-                    _ => {
-                        return Err(format!("Query '{query_name}': Unsupported state element"));
-                    }
+                }
+
+                // Parse the pattern type
+                let pattern_type = parse_pattern_type(state_stream.state_element.as_ref())
+                    .ok_or_else(|| format!("Query '{query_name}': Unsupported pattern structure"))?;
+
+                // Collect all elements for metadata building
+                let all_elements: Vec<&PatternElementInfo> = match &pattern_type {
+                    PatternType::Sequence(elements) => elements.iter().collect(),
+                    PatternType::Logical { left, right, .. } => vec![left, right],
                 };
 
-                let (
-                    first_junction,
-                    second_junction,
-                    first_len,
-                    second_len,
+                // Build metadata maps for all elements
+                let mut stream_meta_map = HashMap::new();
+                let mut stream_positions_map: HashMap<String, i32> = HashMap::new();
+                let mut total_attr_count = 0;
+                let mut offset = 0;
+
+                for (idx, elem) in all_elements.iter().enumerate() {
+                    let junction = stream_junction_map
+                        .get(&elem.stream_id)
+                        .ok_or_else(|| format!("Input stream '{}' not found", elem.stream_id))?
+                        .clone();
+                    let stream_def = junction.lock().unwrap().get_stream_definition();
+                    let attr_len = stream_def.abstract_definition.attribute_list.len();
+
+                    let mut meta = MetaStreamEvent::new_for_single_input(stream_def.clone());
+                    if offset > 0 {
+                        meta.apply_attribute_offset(offset);
+                    }
+                    let meta = Arc::new(meta);
+
+                    // Register by stream name
+                    stream_meta_map.insert(elem.stream_id.clone(), Arc::clone(&meta));
+                    stream_positions_map.insert(elem.stream_id.clone(), idx as i32);
+
+                    // Register by alias if present
+                    if let Some(ref alias) = elem.alias {
+                        stream_meta_map.insert(alias.clone(), Arc::clone(&meta));
+                        stream_positions_map.insert(alias.clone(), idx as i32);
+                    }
+
+                    offset += attr_len;
+                    total_attr_count += attr_len;
+                }
+
+                let table_meta_map: HashMap<String, Arc<MetaStreamEvent>> = HashMap::new();
+                let default_source = all_elements[0].stream_id.clone();
+
+                // Handle patterns based on type
+                match &pattern_type {
+                    PatternType::Sequence(elements) => {
+                        // Sequence patterns use PatternChainBuilder
+                        let state_type = match state_stream.state_type {
+                            crate::query_api::execution::query::input::stream::state_input_stream::Type::Pattern => StateType::Pattern,
+                            crate::query_api::execution::query::input::stream::state_input_stream::Type::Sequence => StateType::Sequence,
+                        };
+
+                        let mut builder = PCB::new(state_type);
+
+                        for elem in elements.iter() {
+                            builder.add_step(PatternStepConfig::new(
+                                elem.alias.clone().unwrap_or_else(|| elem.stream_id.clone()),
+                                elem.stream_id.clone(),
+                                elem.min_count as usize,
+                                elem.max_count as usize,
+                            ));
+                        }
+
+                        // Set WITHIN if present
+                        if let Some(within_time) = state_stream.within_time.as_ref().and_then(|c| match c.get_value() {
+                            crate::query_api::expression::constant::ConstantValueWithFloat::Time(t) => Some(*t),
+                            crate::query_api::expression::constant::ConstantValueWithFloat::Long(l) => Some(*l),
+                            crate::query_api::expression::constant::ConstantValueWithFloat::Int(i) => Some(*i as i64),
+                            _ => None,
+                        }) {
+                            builder.set_within(within_time);
+                        }
+
+                        // Set EVERY if the top-level StateElement is Every
+                        if matches!(state_stream.state_element.as_ref(), StateElement::Every(_)) {
+                            builder.set_every(true);
+                        }
+
+                        // Build the processor chain
+                        let mut chain = builder.build(
+                            Arc::clone(eventflux_app_context),
+                            Arc::clone(&eventflux_query_context),
+                        ).map_err(|e| format!("Query '{query_name}': Failed to build pattern chain: {e}"))?;
+
+                        chain.init();
+
+                        // Collect stream definitions for cloner setup
+                        let mut stream_defs = Vec::new();
+                        for elem in elements.iter() {
+                            let junction = stream_junction_map.get(&elem.stream_id).unwrap();
+                            let stream_def = junction.lock().unwrap().get_stream_definition();
+                            stream_defs.push(stream_def);
+                        }
+                        chain.setup_cloners(stream_defs);
+
+                        // Create TerminalPostStateProcessor
+                        let terminal = Arc::new(Mutex::new(TerminalPostStateProcessor::new(
+                            elements.len() - 1,
+                            total_attr_count,
+                        )));
+
+                        // Wire the last post processor to the terminal
+                        if let Some(last_post) = chain.post_processors.last() {
+                            last_post.lock().unwrap().set_next_processor(
+                                terminal.clone() as Arc<Mutex<dyn crate::core::query::input::stream::state::PostStateProcessor>>
+                            );
+                        }
+
+                        // Group elements by stream_id
+                        let mut stream_to_processors: HashMap<String, Vec<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>>> = HashMap::new();
+                        for (idx, elem) in elements.iter().enumerate() {
+                            if idx < chain.pre_processors.len() {
+                                let pre = chain.pre_processors[idx].clone();
+                                stream_to_processors
+                                    .entry(elem.stream_id.clone())
+                                    .or_insert_with(Vec::new)
+                                    .push(pre);
+                            }
+                        }
+
+                        // Subscribe adapters to junctions
+                        for (stream_id, processors) in stream_to_processors {
+                            let junction = stream_junction_map.get(&stream_id).unwrap().clone();
+                            if processors.len() == 1 {
+                                let adapter = Arc::new(Mutex::new(PreStateProcessorAdapter::new(
+                                    processors[0].clone(),
+                                    Arc::clone(eventflux_app_context),
+                                    Arc::clone(&eventflux_query_context),
+                                )));
+                                junction.lock().unwrap().subscribe(adapter);
+                            } else {
+                                let n_adapter = Arc::new(Mutex::new(NElementSameStreamAdapter::new(
+                                    processors.clone(),
+                                    Arc::clone(eventflux_app_context),
+                                    Arc::clone(&eventflux_query_context),
+                                )));
+                                junction.lock().unwrap().subscribe(n_adapter);
+                            }
+                        }
+
+                        n_element_terminal = Some(terminal);
+                    }
+                    PatternType::Logical { left, right, is_and } => {
+                        // Mark this as a logical pattern - subscription is handled below
+                        is_logical_pattern = true;
+
+                        // Logical patterns use a simple shared-buffer processor
+                        use crate::core::event::stream::stream_event::StreamEvent;
+                        use crate::core::event::stream::stream_event_factory::StreamEventFactory;
+                        use crate::core::event::stream::stream_event_cloner::StreamEventCloner;
+                        use crate::core::event::value::AttributeValue;
+
+                        // Get junctions
+                        let first_junction = stream_junction_map.get(&left.stream_id)
+                            .ok_or_else(|| format!("Input stream '{}' not found", left.stream_id))?.clone();
+                        let second_junction = stream_junction_map.get(&right.stream_id)
+                            .ok_or_else(|| format!("Input stream '{}' not found", right.stream_id))?.clone();
+
+                        let first_def = first_junction.lock().unwrap().get_stream_definition();
+                        let second_def = second_junction.lock().unwrap().get_stream_definition();
+                        let first_len = first_def.abstract_definition.attribute_list.len();
+                        let second_len = second_def.abstract_definition.attribute_list.len();
+
+                        // Shared state for logical pattern
+                        struct SharedLogicalState {
+                            is_and: bool,
+                            first_buffer: Vec<StreamEvent>,
+                            second_buffer: Vec<StreamEvent>,
+                            first_len: usize,
+                            second_len: usize,
+                            factory: StreamEventFactory,
+                            next_processor: Option<Arc<Mutex<dyn Processor>>>,
+                        }
+
+                        impl SharedLogicalState {
+                            fn try_produce(&mut self) {
+                                if self.is_and {
+                                    while !self.first_buffer.is_empty() && !self.second_buffer.is_empty() {
+                                        let first = self.first_buffer.remove(0);
+                                        let second = self.second_buffer.remove(0);
+                                        self.forward_joined(Some(&first), Some(&second));
+                                    }
+                                } else {
+                                    while !self.first_buffer.is_empty() {
+                                        let first = self.first_buffer.remove(0);
+                                        self.forward_joined(Some(&first), None);
+                                    }
+                                    while !self.second_buffer.is_empty() {
+                                        let second = self.second_buffer.remove(0);
+                                        self.forward_joined(None, Some(&second));
+                                    }
+                                }
+                            }
+
+                            fn forward_joined(&self, first: Option<&StreamEvent>, second: Option<&StreamEvent>) {
+                                let mut event = self.factory.new_instance();
+                                event.timestamp = second.map(|s| s.timestamp)
+                                    .or_else(|| first.map(|f| f.timestamp)).unwrap_or(0);
+                                for i in 0..self.first_len {
+                                    let val = first.and_then(|f| f.before_window_data.get(i).cloned())
+                                        .unwrap_or(AttributeValue::Null);
+                                    event.before_window_data[i] = val;
+                                }
+                                for j in 0..self.second_len {
+                                    let val = second.and_then(|s| s.before_window_data.get(j).cloned())
+                                        .unwrap_or(AttributeValue::Null);
+                                    event.before_window_data[self.first_len + j] = val;
+                                }
+                                if let Some(ref next) = self.next_processor {
+                                    if let Ok(mut proc) = next.lock() {
+                                        proc.process(Some(Box::new(event)));
+                                    }
+                                }
+                            }
+                        }
+
+                        let shared_state = Arc::new(Mutex::new(SharedLogicalState {
+                            is_and: *is_and,
+                            first_buffer: Vec::new(),
+                            second_buffer: Vec::new(),
+                            first_len,
+                            second_len,
+                            factory: StreamEventFactory::new(first_len + second_len, 0, 0),
+                            next_processor: None,
+                        }));
+
+                        // Side processors
+                        struct LogicalSideProcessor {
+                            shared: Arc<Mutex<SharedLogicalState>>,
+                            is_first: bool,
+                            #[allow(dead_code)]
+                            cloner: Option<StreamEventCloner>,
+                            app_ctx: Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>,
+                            query_ctx: Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                        }
+
+                        impl std::fmt::Debug for LogicalSideProcessor {
+                            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                                f.debug_struct("LogicalSideProcessor")
+                                    .field("is_first", &self.is_first)
+                                    .finish()
+                            }
+                        }
+
+                        impl Processor for LogicalSideProcessor {
+                            fn process(&self, chunk: Option<Box<dyn ComplexEvent>>) {
+                                if let Some(ce) = chunk {
+                                    if let Some(se) = ce.as_any().downcast_ref::<StreamEvent>() {
+                                        if let Ok(mut state) = self.shared.lock() {
+                                            let cloned = se.clone();
+                                            if self.is_first {
+                                                state.first_buffer.push(cloned);
+                                            } else {
+                                                state.second_buffer.push(cloned);
+                                            }
+                                            state.try_produce();
+                                        }
+                                    }
+                                }
+                            }
+
+                            fn next_processor(&self) -> Option<Arc<Mutex<dyn Processor>>> {
+                                self.shared.lock().ok().and_then(|s| s.next_processor.clone())
+                            }
+
+                            fn set_next_processor(&mut self, next: Option<Arc<Mutex<dyn Processor>>>) {
+                                if let Ok(mut state) = self.shared.lock() {
+                                    state.next_processor = next;
+                                }
+                            }
+
+                            fn clone_processor(&self, _ctx: &Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>) -> Box<dyn Processor> {
+                                Box::new(LogicalSideProcessor {
+                                    shared: Arc::clone(&self.shared),
+                                    is_first: self.is_first,
+                                    cloner: None,
+                                    app_ctx: Arc::clone(&self.app_ctx),
+                                    query_ctx: Arc::clone(&self.query_ctx),
+                                })
+                            }
+
+                            fn get_eventflux_app_context(&self) -> Arc<crate::core::config::eventflux_app_context::EventFluxAppContext> {
+                                Arc::clone(&self.app_ctx)
+                            }
+
+                            fn get_eventflux_query_context(&self) -> Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext> {
+                                Arc::clone(&self.query_ctx)
+                            }
+
+                            fn get_processing_mode(&self) -> crate::core::query::processor::ProcessingMode {
+                                crate::core::query::processor::ProcessingMode::DEFAULT
+                            }
+
+                            fn is_stateful(&self) -> bool { true }
+                        }
+
+                        let first_side: Arc<Mutex<dyn Processor>> = Arc::new(Mutex::new(LogicalSideProcessor {
+                            shared: Arc::clone(&shared_state),
+                            is_first: true,
+                            cloner: None,
+                            app_ctx: Arc::clone(eventflux_app_context),
+                            query_ctx: Arc::clone(&eventflux_query_context),
+                        }));
+
+                        let second_side: Arc<Mutex<dyn Processor>> = Arc::new(Mutex::new(LogicalSideProcessor {
+                            shared: Arc::clone(&shared_state),
+                            is_first: false,
+                            cloner: None,
+                            app_ctx: Arc::clone(eventflux_app_context),
+                            query_ctx: Arc::clone(&eventflux_query_context),
+                        }));
+
+                        // Subscribe to junctions
+                        if left.stream_id == right.stream_id {
+                            // Same-stream logical pattern
+                            use std::sync::atomic::{AtomicBool, Ordering};
+                            struct SameStreamLogicalAdapter {
+                                first: Arc<Mutex<dyn Processor>>,
+                                second: Arc<Mutex<dyn Processor>>,
+                                has_first: AtomicBool,
+                            }
+                            impl std::fmt::Debug for SameStreamLogicalAdapter {
+                                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                                    f.debug_struct("SameStreamLogicalAdapter").finish()
+                                }
+                            }
+                            impl Processor for SameStreamLogicalAdapter {
+                                fn process(&self, chunk: Option<Box<dyn ComplexEvent>>) {
+                                    use crate::core::event::complex_event::clone_box_complex_event;
+                                    if !self.has_first.swap(true, Ordering::SeqCst) {
+                                        self.first.lock().unwrap().process(chunk);
+                                    } else {
+                                        let c1 = chunk.as_ref().map(|e| clone_box_complex_event(e.as_ref()));
+                                        self.second.lock().unwrap().process(chunk);
+                                        self.first.lock().unwrap().process(c1);
+                                    }
+                                }
+                                fn next_processor(&self) -> Option<Arc<Mutex<dyn Processor>>> {
+                                    self.first.lock().unwrap().next_processor()
+                                }
+                                fn set_next_processor(&mut self, next: Option<Arc<Mutex<dyn Processor>>>) {
+                                    self.first.lock().unwrap().set_next_processor(next);
+                                }
+                                fn clone_processor(&self, _: &Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>) -> Box<dyn Processor> {
+                                    Box::new(SameStreamLogicalAdapter {
+                                        first: Arc::clone(&self.first),
+                                        second: Arc::clone(&self.second),
+                                        has_first: AtomicBool::new(false),
+                                    })
+                                }
+                                fn get_eventflux_app_context(&self) -> Arc<crate::core::config::eventflux_app_context::EventFluxAppContext> {
+                                    self.first.lock().unwrap().get_eventflux_app_context()
+                                }
+                                fn get_eventflux_query_context(&self) -> Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext> {
+                                    self.first.lock().unwrap().get_eventflux_query_context()
+                                }
+                                fn get_processing_mode(&self) -> crate::core::query::processor::ProcessingMode {
+                                    crate::core::query::processor::ProcessingMode::DEFAULT
+                                }
+                                fn is_stateful(&self) -> bool { true }
+                            }
+                            let adapter = Arc::new(Mutex::new(SameStreamLogicalAdapter {
+                                first: first_side.clone(),
+                                second: second_side.clone(),
+                                has_first: AtomicBool::new(false),
+                            }));
+                            first_junction.lock().unwrap().subscribe(adapter);
+                        } else {
+                            first_junction.lock().unwrap().subscribe(first_side.clone());
+                            second_junction.lock().unwrap().subscribe(second_side.clone());
+                        }
+
+                        link_processor(first_side.clone());
+                    }
+                }
+
+                // Return expr_parser_context
+                ExpressionParserContext {
+                    eventflux_app_context: Arc::clone(eventflux_app_context),
+                    eventflux_query_context: Arc::clone(&eventflux_query_context),
                     stream_meta_map,
-                    first_id_clone,
-                    second_id_clone,
-                ) = {
-                    let fid_str = match &runtime_kind {
-                        StateRuntimeKind::Sequence { first_id, .. }
-                        | StateRuntimeKind::Logical { first_id, .. } => first_id,
-                    };
-                    let sid_str = match &runtime_kind {
-                        StateRuntimeKind::Sequence { second_id, .. }
-                        | StateRuntimeKind::Logical { second_id, .. } => second_id,
-                    };
-
-                    let first_junction = stream_junction_map
-                        .get(fid_str)
-                        .ok_or_else(|| format!("Input stream '{fid_str}' not found"))?
-                        .clone();
-                    let second_junction = stream_junction_map
-                        .get(sid_str)
-                        .ok_or_else(|| format!("Input stream '{sid_str}' not found"))?
-                        .clone();
-
-                    let first_def = first_junction.lock().unwrap().get_stream_definition();
-                    let second_def = second_junction.lock().unwrap().get_stream_definition();
-                    let first_len = first_def.abstract_definition.attribute_list.len();
-                    let second_len = second_def.abstract_definition.attribute_list.len();
-
-                    let first_meta = MetaStreamEvent::new_for_single_input(first_def);
-                    let mut second_meta = MetaStreamEvent::new_for_single_input(second_def);
-                    second_meta.apply_attribute_offset(first_len);
-                    let mut stream_meta_map = HashMap::new();
-                    stream_meta_map.insert(fid_str.clone(), Arc::new(first_meta));
-                    stream_meta_map.insert(sid_str.clone(), Arc::new(second_meta));
-                    (
-                        first_junction,
-                        second_junction,
-                        first_len,
-                        second_len,
-                        stream_meta_map,
-                        fid_str.clone(),
-                        sid_str.clone(),
-                    )
-                };
-
-                // Tables are not currently supported as inputs for state
-                // streams, so avoid creating metadata entries that would clash
-                // with the actual stream attributes.
-                let table_meta_map = HashMap::new();
-
-                match runtime_kind {
-                    StateRuntimeKind::Sequence {
-                        first_id: _fid,
-                        second_id: _sid,
-                        seq_type,
-                        first_min,
-                        first_max,
-                        second_min,
-                        second_max,
-                        within,
-                    } => {
-                        let seq_proc = Arc::new(Mutex::new(SequenceProcessor::new(
-                            seq_type,
-                            first_len,
-                            second_len,
-                            first_min,
-                            first_max,
-                            second_min,
-                            second_max,
-                            within,
-                            Arc::clone(eventflux_app_context),
-                            Arc::clone(&eventflux_query_context),
-                        )));
-                        let first_side = SequenceProcessor::create_side_processor(
-                            &seq_proc,
-                            SequenceSide::First,
-                        );
-                        let second_side = SequenceProcessor::create_side_processor(
-                            &seq_proc,
-                            SequenceSide::Second,
-                        );
-
-                        first_junction.lock().unwrap().subscribe(first_side.clone());
-                        second_junction
-                            .lock()
-                            .unwrap()
-                            .subscribe(second_side.clone());
-
-                        link_processor(first_side.clone());
-
-                        ExpressionParserContext {
-                            eventflux_app_context: Arc::clone(eventflux_app_context),
-                            eventflux_query_context: Arc::clone(&eventflux_query_context),
-                            stream_meta_map,
-                            table_meta_map,
-                            window_meta_map: HashMap::new(),
-                            aggregation_meta_map: HashMap::new(),
-                            state_meta_map: HashMap::new(),
-                            stream_positions: {
-                                let mut m = HashMap::new();
-                                m.insert(first_id_clone.clone(), 0);
-                                m.insert(second_id_clone.clone(), 1);
-                                m
-                            },
-                            default_source: first_id_clone.clone(),
-                            query_name: &query_name,
-                        }
-                    }
-                    StateRuntimeKind::Logical {
-                        first_id: _fid,
-                        second_id: _sid,
-                        logical_type,
-                    } => {
-                        let log_proc = Arc::new(Mutex::new(LogicalProcessor::new(
-                            logical_type,
-                            first_len,
-                            second_len,
-                            Arc::clone(eventflux_app_context),
-                            Arc::clone(&eventflux_query_context),
-                        )));
-                        let first_side =
-                            LogicalProcessor::create_side_processor(&log_proc, SequenceSide::First);
-                        let second_side = LogicalProcessor::create_side_processor(
-                            &log_proc,
-                            SequenceSide::Second,
-                        );
-
-                        first_junction.lock().unwrap().subscribe(first_side.clone());
-                        second_junction
-                            .lock()
-                            .unwrap()
-                            .subscribe(second_side.clone());
-
-                        link_processor(first_side.clone());
-
-                        ExpressionParserContext {
-                            eventflux_app_context: Arc::clone(eventflux_app_context),
-                            eventflux_query_context: Arc::clone(&eventflux_query_context),
-                            stream_meta_map,
-                            table_meta_map,
-                            window_meta_map: HashMap::new(),
-                            aggregation_meta_map: HashMap::new(),
-                            state_meta_map: HashMap::new(),
-                            stream_positions: {
-                                let mut m = HashMap::new();
-                                m.insert(first_id_clone.clone(), 0);
-                                m.insert(second_id_clone.clone(), 1);
-                                m
-                            },
-                            default_source: first_id_clone.clone(),
-                            query_name: &query_name,
-                        }
-                    }
+                    table_meta_map,
+                    window_meta_map: HashMap::new(),
+                    aggregation_meta_map: HashMap::new(),
+                    state_meta_map: HashMap::new(),
+                    stream_positions: stream_positions_map,
+                    default_source,
+                    query_name: &query_name,
                 }
 
                 // All ApiInputStream variants are handled above
@@ -849,6 +1389,14 @@ impl QueryParser {
             _ => return Err(format!("Query '{query_name}': Only INSERT INTO, UPDATE, DELETE outputs supported for now.")),
         }
 
+        // For N-element patterns, connect the terminal's output to the processor chain head
+        // This bridges the PostStateProcessor chain to the Processor chain
+        if let Some(ref terminal) = n_element_terminal {
+            if let Some(ref head) = processor_chain_head {
+                terminal.lock().unwrap().set_output_processor(Arc::clone(head));
+            }
+        }
+
         // 7. Create QueryRuntime
         let mut query_runtime = QueryRuntime::new_with_context(
             query_name.clone(),
@@ -858,12 +1406,16 @@ impl QueryParser {
         query_runtime.processor_chain_head = processor_chain_head;
 
         // 8. Register the entry processor with the input stream junction if applicable
-        if let Some(head_proc_arc) = &query_runtime.processor_chain_head {
-            if let Some(junction) = stream_junction_map.get(&expr_parser_context.default_source) {
-                junction
-                    .lock()
-                    .expect("Input junction Mutex poisoned")
-                    .subscribe(Arc::clone(head_proc_arc));
+        // NOTE: For N-element patterns, skip this - the terminal bridges to the processor chain
+        // NOTE: For logical patterns, skip this - they subscribe their processors directly to junctions
+        if n_element_terminal.is_none() && !is_logical_pattern {
+            if let Some(head_proc_arc) = &query_runtime.processor_chain_head {
+                if let Some(junction) = stream_junction_map.get(&expr_parser_context.default_source) {
+                    junction
+                        .lock()
+                        .expect("Input junction Mutex poisoned")
+                        .subscribe(Arc::clone(head_proc_arc));
+                }
             }
         }
 

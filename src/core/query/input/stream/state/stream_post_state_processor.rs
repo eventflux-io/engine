@@ -8,7 +8,6 @@ use crate::core::event::state::state_event::StateEvent;
 use crate::core::query::input::stream::state::post_state_processor::PostStateProcessor;
 use crate::core::query::input::stream::state::pre_state_processor::PreStateProcessor;
 use crate::core::query::input::stream::state::shared_processor_state::ProcessorSharedState;
-use crate::core::query::processor::Processor;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
@@ -206,6 +205,13 @@ impl StreamPostStateProcessor {
                 // This is handled by CountPreStateProcessor in Phase 2
                 // For now, just mark state changed
                 callback.lock().unwrap().state_changed();
+            }
+
+            // Forward to next_processor in chain (e.g., TerminalPostStateProcessor)
+            // This is used for N-element patterns where the last PostStateProcessor
+            // needs to forward to a terminal that bridges to the Processor chain
+            if let Some(ref next) = self.next_processor {
+                next.lock().unwrap().process(Some(Box::new(state_event.clone())));
             }
         }
     }

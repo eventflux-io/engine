@@ -488,10 +488,52 @@ impl<'a> TypeInferenceEngine<'a> {
                 Self::collect_from_single_stream(&join.right_input_stream, identifiers);
             }
             InputStream::State(state) => {
-                // State streams have nested BasicSingleInputStream which wraps SingleInputStream
-                // The get_all_stream_ids() already handles the recursion for state streams
-                use crate::query_api::execution::query::input::stream::input_stream::InputStreamTrait;
-                identifiers.extend(state.get_all_stream_ids());
+                // For StateInputStream, we need to recursively collect BOTH stream IDs
+                // AND their aliases (reference IDs) from the StateElement tree
+                Self::collect_from_state_element(&state.state_element, identifiers);
+            }
+        }
+    }
+
+    /// Recursively collect stream IDs and aliases from a StateElement
+    fn collect_from_state_element(
+        element: &crate::query_api::execution::query::input::state::StateElement,
+        identifiers: &mut Vec<String>,
+    ) {
+        use crate::query_api::execution::query::input::state::StateElement;
+
+        match element {
+            StateElement::Stream(stream_state) => {
+                // Collect from the SingleInputStream within StreamStateElement
+                Self::collect_from_single_stream(
+                    stream_state.get_single_input_stream(),
+                    identifiers,
+                );
+            }
+            StateElement::Next(next) => {
+                Self::collect_from_state_element(&next.state_element, identifiers);
+                Self::collect_from_state_element(&next.next_state_element, identifiers);
+            }
+            StateElement::Logical(logical) => {
+                Self::collect_from_state_element(&logical.stream_state_element_1, identifiers);
+                Self::collect_from_state_element(&logical.stream_state_element_2, identifiers);
+            }
+            StateElement::Every(every) => {
+                Self::collect_from_state_element(&every.state_element, identifiers);
+            }
+            StateElement::Count(count) => {
+                // Count wraps a StreamStateElement
+                Self::collect_from_single_stream(
+                    count.stream_state_element.get_single_input_stream(),
+                    identifiers,
+                );
+            }
+            StateElement::AbsentStream(absent) => {
+                // AbsentStream wraps a StreamStateElement
+                Self::collect_from_single_stream(
+                    absent.stream_state_element.get_single_input_stream(),
+                    identifiers,
+                );
             }
         }
     }

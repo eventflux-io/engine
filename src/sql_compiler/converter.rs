@@ -210,6 +210,9 @@ impl SqlConverter {
         // Check if this is a JOIN query
         let has_join = !select.from.is_empty() && !select.from[0].joins.is_empty();
 
+        // Track pattern aliases for catalog augmentation
+        let mut pattern_aliases: Vec<(String, String)> = Vec::new();
+
         let (input_stream, stream_name_for_selector) = if has_join {
             // Handle JOIN
             let join_input =
@@ -266,6 +269,9 @@ impl SqlConverter {
                     within,
                     ..
                 } => {
+                    // Extract pattern aliases for catalog augmentation
+                    pattern_aliases = Self::extract_pattern_aliases(pattern);
+
                     // Convert pattern/sequence to StateInputStream
                     let state_input_stream =
                         Self::convert_pattern_input(mode, pattern, within, catalog)?;
@@ -279,10 +285,22 @@ impl SqlConverter {
             }
         };
 
+        // For pattern queries, create a catalog with pattern aliases registered
+        let effective_catalog: std::borrow::Cow<'_, SqlCatalog> = if !pattern_aliases.is_empty() {
+            let mut catalog_with_aliases = catalog.clone();
+            for (alias, stream_name) in &pattern_aliases {
+                catalog_with_aliases.register_alias(alias.clone(), stream_name.clone());
+            }
+            std::borrow::Cow::Owned(catalog_with_aliases)
+        } else {
+            std::borrow::Cow::Borrowed(catalog)
+        };
+
         let mut selector = SelectExpander::expand_select_items(
             &select.projection,
             &stream_name_for_selector,
-            catalog,
+            &effective_catalog,
+            &pattern_aliases,
         )
         .map_err(|e| ConverterError::ConversionFailed(e.to_string()))?;
 
@@ -1139,6 +1157,64 @@ impl SqlConverter {
             _ => Err(ConverterError::UnsupportedFeature(
                 "Array index must be numeric or 'last'".to_string(),
             )),
+        }
+    }
+
+    // ============================================================================
+    // Pattern Alias Extraction
+    // ============================================================================
+
+    /// Extract all pattern aliases from a PatternExpression
+    ///
+    /// Returns a Vec of (alias, stream_name) pairs.
+    /// For example, `e1=A -> e2=B` returns `[("e1", "A"), ("e2", "B")]`
+    pub fn extract_pattern_aliases(pattern: &PatternExpression) -> Vec<(String, String)> {
+        let mut aliases = Vec::new();
+        Self::collect_pattern_aliases(pattern, &mut aliases);
+        aliases
+    }
+
+    /// Recursively collect pattern aliases from a PatternExpression
+    fn collect_pattern_aliases(
+        pattern: &PatternExpression,
+        aliases: &mut Vec<(String, String)>,
+    ) {
+        match pattern {
+            PatternExpression::Stream {
+                alias,
+                stream_name,
+                ..
+            } => {
+                if let Some(alias_ident) = alias {
+                    let stream_id = stream_name
+                        .0
+                        .last()
+                        .and_then(|part| part.as_ident())
+                        .map(|ident| ident.value.clone())
+                        .unwrap_or_default();
+                    aliases.push((alias_ident.value.clone(), stream_id));
+                }
+            }
+            PatternExpression::Sequence { first, second } => {
+                Self::collect_pattern_aliases(first, aliases);
+                Self::collect_pattern_aliases(second, aliases);
+            }
+            PatternExpression::Logical { left, right, .. } => {
+                Self::collect_pattern_aliases(left, aliases);
+                Self::collect_pattern_aliases(right, aliases);
+            }
+            PatternExpression::Every { pattern } => {
+                Self::collect_pattern_aliases(pattern, aliases);
+            }
+            PatternExpression::Count { pattern, .. } => {
+                Self::collect_pattern_aliases(pattern, aliases);
+            }
+            PatternExpression::Grouped { pattern } => {
+                Self::collect_pattern_aliases(pattern, aliases);
+            }
+            PatternExpression::Absent { .. } => {
+                // Absent patterns don't have aliases (only stream_name)
+            }
         }
     }
 

@@ -305,8 +305,92 @@ impl SqlApplication {
         self.execution_elements.is_empty()
     }
 
+    /// Extract pattern aliases from a Query's StateInputStream
+    ///
+    /// Returns a vector of (alias, stream_id) pairs for pattern queries.
+    fn extract_pattern_aliases_from_query(
+        query: &crate::query_api::execution::query::Query,
+    ) -> Vec<(String, String)> {
+        use crate::query_api::execution::query::input::stream::input_stream::InputStream;
+
+        let mut aliases = Vec::new();
+
+        if let Some(InputStream::State(state)) = query.get_input_stream() {
+            Self::collect_pattern_aliases_from_state_element(&state.state_element, &mut aliases);
+        }
+
+        aliases
+    }
+
+    /// Recursively collect (alias, stream_id) pairs from a StateElement
+    fn collect_pattern_aliases_from_state_element(
+        element: &crate::query_api::execution::query::input::state::StateElement,
+        aliases: &mut Vec<(String, String)>,
+    ) {
+        use crate::query_api::execution::query::input::state::StateElement;
+
+        match element {
+            StateElement::Stream(stream_state) => {
+                let single = stream_state.get_single_input_stream();
+                if let Some(ref_id) = single.get_stream_reference_id_str() {
+                    let stream_id = single.get_stream_id_str().to_string();
+                    aliases.push((ref_id.to_string(), stream_id));
+                }
+            }
+            StateElement::Next(next) => {
+                Self::collect_pattern_aliases_from_state_element(&next.state_element, aliases);
+                Self::collect_pattern_aliases_from_state_element(&next.next_state_element, aliases);
+            }
+            StateElement::Logical(logical) => {
+                Self::collect_pattern_aliases_from_state_element(
+                    &logical.stream_state_element_1,
+                    aliases,
+                );
+                Self::collect_pattern_aliases_from_state_element(
+                    &logical.stream_state_element_2,
+                    aliases,
+                );
+            }
+            StateElement::Every(every) => {
+                Self::collect_pattern_aliases_from_state_element(&every.state_element, aliases);
+            }
+            StateElement::Count(count) => {
+                let single = count.stream_state_element.get_single_input_stream();
+                if let Some(ref_id) = single.get_stream_reference_id_str() {
+                    let stream_id = single.get_stream_id_str().to_string();
+                    aliases.push((ref_id.to_string(), stream_id));
+                }
+            }
+            StateElement::AbsentStream(absent) => {
+                let single = absent.stream_state_element.get_single_input_stream();
+                if let Some(ref_id) = single.get_stream_reference_id_str() {
+                    let stream_id = single.get_stream_id_str().to_string();
+                    aliases.push((ref_id.to_string(), stream_id));
+                }
+            }
+        }
+    }
+
     /// Process output streams using type inference (called before moving catalog)
-    fn process_output_streams(&self, app: &mut EventFluxApp) -> Result<(), ApplicationError> {
+    fn process_output_streams(&mut self, app: &mut EventFluxApp) -> Result<(), ApplicationError> {
+        // First, extract and register all pattern aliases from queries
+        // This allows type inference to resolve aliased column references like e1.price
+        for elem in &self.execution_elements {
+            if let ExecutionElement::Query(query) = elem {
+                let aliases = Self::extract_pattern_aliases_from_query(query);
+                for (alias, stream_id) in aliases {
+                    self.catalog.register_alias(alias, stream_id);
+                }
+            } else if let ExecutionElement::Partition(partition) = elem {
+                for query in &partition.query_list {
+                    let aliases = Self::extract_pattern_aliases_from_query(query);
+                    for (alias, stream_id) in aliases {
+                        self.catalog.register_alias(alias, stream_id);
+                    }
+                }
+            }
+        }
+
         let type_engine = TypeInferenceEngine::new(&self.catalog);
 
         for elem in &self.execution_elements {
