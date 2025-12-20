@@ -35,6 +35,15 @@ impl StreamCallback for CollectCallback {
     }
 }
 
+/// Test sequence pattern WITHOUT EVERY - matches only once
+///
+/// Pattern: A -> B (no EVERY)
+/// Events: A(1), B(2), A(3), B(4)
+/// Expected: 1 match (first complete sequence only)
+///
+/// Without EVERY, the pattern matches once and stops. The second A(3)->B(4)
+/// sequence does not match because the pattern has already completed.
+/// This is standard CEP behavior - use EVERY for continuous matching.
 #[test]
 fn test_sequence_runtime_processing() {
     let eventflux_context = Arc::new(EventFluxContext::new());
@@ -103,7 +112,7 @@ fn test_sequence_runtime_processing() {
             Box::new(CollectCallback::new(Arc::clone(&collected))),
         )
         .unwrap();
-    runtime.start();
+    let _ = runtime.start();
     let a_handler = runtime.get_input_handler("AStream").unwrap();
     let b_handler = runtime.get_input_handler("BStream").unwrap();
 
@@ -131,13 +140,20 @@ fn test_sequence_runtime_processing() {
     runtime.shutdown();
 
     let events = collected.lock().unwrap();
-    assert_eq!(events.len(), 2);
+    // Without EVERY, pattern matches only once (first complete sequence)
+    assert_eq!(events.len(), 1, "Without EVERY, pattern matches only once");
     assert_eq!(events[0].data[0], CoreAttributeValue::Int(1));
     assert_eq!(events[0].data[1], CoreAttributeValue::Int(2));
-    assert_eq!(events[1].data[0], CoreAttributeValue::Int(3));
-    assert_eq!(events[1].data[1], CoreAttributeValue::Int(4));
 }
 
+/// Test EVERY pattern - pattern restarts after each complete match
+///
+/// Pattern: EVERY(A -> B)
+/// Events: A(1), B(2), A(3), B(4)
+/// Expected: 2 matches (pattern restarts after each completion)
+///
+/// EVERY must wrap the entire pattern. After A(1)->B(2) completes,
+/// the pattern restarts and matches A(3)->B(4).
 #[test]
 fn test_every_sequence() {
     let eventflux_context = Arc::new(EventFluxContext::new());
@@ -161,11 +177,11 @@ fn test_every_sequence() {
     let b_si = SingleInputStream::new_basic("BStream".to_string(), false, false, None, Vec::new());
     let sse1 = State::stream(a_si);
     let sse2 = State::stream(b_si);
-    let next = State::next(
-        State::every(StateElement::Stream(sse1)),
-        StateElement::Stream(sse2),
-    );
-    let state_stream = StateInputStream::sequence_stream(next, None);
+    // EVERY must wrap the ENTIRE pattern at top level
+    let inner_pattern = State::next(StateElement::Stream(sse1), StateElement::Stream(sse2));
+    let every_pattern = State::every(inner_pattern);
+    // EVERY requires PATTERN mode (not SEQUENCE mode)
+    let state_stream = StateInputStream::pattern_stream(every_pattern, None);
     let input = InputStream::State(Box::new(state_stream));
 
     let mut selector = Selector::new();
@@ -209,7 +225,7 @@ fn test_every_sequence() {
             Box::new(CollectCallback::new(Arc::clone(&collected))),
         )
         .unwrap();
-    runtime.start();
+    let _ = runtime.start();
     let a_handler = runtime.get_input_handler("AStream").unwrap();
     let b_handler = runtime.get_input_handler("BStream").unwrap();
 
@@ -237,7 +253,7 @@ fn test_every_sequence() {
     runtime.shutdown();
 
     let events = collected.lock().unwrap();
-    assert_eq!(events.len(), 2);
+    assert_eq!(events.len(), 2, "EVERY pattern should produce 2 matches");
     assert_eq!(events[0].data[0], CoreAttributeValue::Int(1));
     assert_eq!(events[0].data[1], CoreAttributeValue::Int(2));
     assert_eq!(events[1].data[0], CoreAttributeValue::Int(3));
@@ -312,7 +328,7 @@ fn test_logical_and_pattern() {
             Box::new(CollectCallback::new(Arc::clone(&collected))),
         )
         .unwrap();
-    runtime.start();
+    let _ = runtime.start();
     let a_handler = runtime.get_input_handler("AStream").unwrap();
     let b_handler = runtime.get_input_handler("BStream").unwrap();
 

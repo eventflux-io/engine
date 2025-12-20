@@ -41,6 +41,21 @@ impl StreamEventCloner {
         }
     }
 
+    /// Create a cloner with explicit sizes (useful when MetaStreamEvent doesn't have correct sizes)
+    pub fn new_with_sizes(
+        before_window_data_size: usize,
+        on_after_window_data_size: usize,
+        output_data_size: usize,
+        factory: StreamEventFactory,
+    ) -> Self {
+        Self {
+            before_window_data_size,
+            on_after_window_data_size,
+            output_data_size,
+            event_factory: factory,
+        }
+    }
+
     pub fn from_event(event: &StreamEvent) -> Self {
         Self {
             before_window_data_size: event.before_window_data.len(),

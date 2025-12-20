@@ -1,9 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-// Core state processing components
-pub mod logical_processor;
-pub mod sequence_processor;
-
 // Pattern processing foundation (Phase 1)
 pub mod logical_post_state_processor;
 pub mod logical_pre_state_processor; // AND/OR PreStateProcessor implementation
@@ -28,14 +24,6 @@ pub mod stream_inner_state_runtime; // Basic InnerStateRuntime implementation //
 // Utility components (preserved from cleanup)
 pub mod timers; // timer_wheel for Phase 3 absent patterns (NOT operator)
 pub mod util; // event_store for memory optimization (commit after profiling)
-
-// Re-export core types
-pub use logical_processor::{
-    LogicalProcessor, LogicalProcessorSide, LogicalType as OldLogicalType,
-};
-pub use sequence_processor::{
-    SequenceProcessor, SequenceProcessorSide, SequenceSide, SequenceType,
-};
 
 // Re-export pattern processing types
 pub use logical_post_state_processor::LogicalPostStateProcessor;

@@ -10,6 +10,7 @@ use crate::core::event::stream::meta_stream_event::MetaStreamEvent;
 use crate::core::event::value::AttributeValue as CoreAttributeValue;
 use crate::core::executor::function::scalar_function_executor::ScalarFunctionExecutor;
 use crate::core::executor::{
+    cast_executor::CastExecutor,
     condition::*,
     constant_expression_executor::ConstantExpressionExecutor,
     expression_executor::ExpressionExecutor,
@@ -411,6 +412,13 @@ pub fn parse_expression<'a>(
                         )
                     })?,
             ))
+        }
+        ApiExpression::Cast(api_cast) => {
+            let inner_exec = parse_expression(&api_cast.expression, context)?;
+            Ok(Box::new(CastExecutor::new(
+                inner_exec,
+                api_cast.target_type,
+            )))
         }
         ApiExpression::AttributeFunction(api_func) => {
             let mut arg_execs: Vec<Box<dyn ExpressionExecutor>> = Vec::new();

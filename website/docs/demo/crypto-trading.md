@@ -1,12 +1,12 @@
 ---
 sidebar_position: 1
 title: Real-Time Crypto Trading Demo
-description: Experience EventFlux CEP with live Bitcoin trades in under a minute
+description: Experience EventFlux pattern processing with live Bitcoin trades
 ---
 
 # Real-Time Crypto Trading Demo
 
-Experience EventFlux's Complex Event Processing with **real Bitcoin trades** - no setup, no API keys, just two files and one command.
+Experience EventFlux's **Pattern Processing** with real Bitcoin trades - detect market activity and price trends using complex event patterns.
 
 ## Quick Start
 
@@ -22,18 +22,22 @@ cd eventflux-demo
 Create `query.eventflux` with this content:
 
 ```sql title="query.eventflux"
--- EventFlux Advanced Demo: Real-Time Bitcoin Market Analysis
+-- EventFlux Advanced Demo: Real-Time Bitcoin Trend Detection
+--
+-- Demonstrates PATTERN PROCESSING for detecting market activity and price trends
 --
 -- Architecture:
---   RawTrades (source) ─┬─> ShortTermStats (internal) ─> MarketPulse (sink)
---                       └─> TrendSummary (sink)
+--   RawTrades (source) ─> ActivityStats (internal) ─┬─> ActivityPulse (sink)
+--                                                   └─> TrendSignal (sink)
 --
 -- Features demonstrated:
---   - WebSocket source with JSON mapping
---   - Multiple window sizes (5-sec and 30-sec)
---   - Internal stream for pipeline processing
---   - Multiple sink outputs
---   - Multi-query processing
+--   - WebSocket source with live Bitcoin trades
+--   - Tumbling window aggregation (10-second periods)
+--   - CAST expression for type conversion (VARCHAR price to DOUBLE)
+--   - PATTERN MATCHING for trend detection (EVERY for continuous matching)
+--   - Same-stream pattern (e1=Stream -> e2=Stream)
+--   - Arithmetic expressions in pattern queries (e2.count - e1.count)
+--   - Multi-query pipeline processing
 
 -- =============================================================================
 -- STREAMS
@@ -58,28 +62,37 @@ CREATE STREAM RawTrades (
     "json.mapping.trade_time" = '$.T'
 );
 
--- Internal: Short-term statistics (5-second windows)
--- This intermediate stream enables pipeline processing
-CREATE STREAM ShortTermStats (
+-- Internal: 10-second activity statistics
+-- This stream aggregates raw trades into periodic activity summaries
+-- Uses CAST to convert VARCHAR price to DOUBLE for averaging
+CREATE STREAM ActivityStats (
     symbol VARCHAR,
-    trade_count BIGINT
+    trade_count BIGINT,
+    avg_price DOUBLE,
+    period_end BIGINT
 );
 
--- Sink 1: Market pulse - real-time activity from short-term analysis
-CREATE STREAM MarketPulse (
+-- Sink 1: Activity pulse - shows each 10-second period's activity and average price
+CREATE STREAM ActivityPulse (
     symbol VARCHAR,
-    trades_per_5sec BIGINT,
-    activity VARCHAR
+    trades BIGINT,
+    avg_price DOUBLE
 ) WITH (
     type = 'sink',
     extension = 'log',
     format = 'json'
 );
 
--- Sink 2: Trend summary - longer-term 30-second view
-CREATE STREAM TrendSummary (
+-- Sink 2: Trend signal - pattern-detected activity and price trends
+-- Compares consecutive 10-second periods to detect momentum
+CREATE STREAM TrendSignal (
     symbol VARCHAR,
-    trades_per_30sec BIGINT
+    prev_trades BIGINT,
+    curr_trades BIGINT,
+    activity_change BIGINT,
+    prev_price DOUBLE,
+    curr_price DOUBLE,
+    price_change_pct DOUBLE
 ) WITH (
     type = 'sink',
     extension = 'log',
@@ -90,34 +103,54 @@ CREATE STREAM TrendSummary (
 -- QUERIES
 -- =============================================================================
 
--- Query 1: Aggregate raw trades into 5-second windows
--- Feeds the internal ShortTermStats stream
-INSERT INTO ShortTermStats
+-- Query 1: Aggregate raw trades into 10-second activity windows
+-- Counts trades per period and calculates average price
+-- Uses CAST to convert VARCHAR price to DOUBLE for averaging
+INSERT INTO ActivityStats
 SELECT
     symbol,
-    COUNT(*) AS trade_count
+    COUNT(*) AS trade_count,
+    AVG(CAST(price AS DOUBLE)) AS avg_price,
+    MAX(trade_time) AS period_end
 FROM RawTrades
-WINDOW('tumbling', INTERVAL '5' SECOND)
+WINDOW('tumbling', INTERVAL '10' SECOND)
 GROUP BY symbol;
 
--- Query 2: Process short-term stats and output to MarketPulse
--- Classifies activity level based on trade frequency
-INSERT INTO MarketPulse
+-- Query 2: Pass through to activity pulse sink
+INSERT INTO ActivityPulse
 SELECT
     symbol,
-    trade_count AS trades_per_5sec,
-    'ACTIVE' AS activity
-FROM ShortTermStats;
+    trade_count AS trades,
+    avg_price
+FROM ActivityStats;
 
--- Query 3: Longer-term trend analysis (30-second windows)
--- Provides a smoother view of market activity
-INSERT INTO TrendSummary
+-- Query 3: PATTERN-BASED TREND DETECTION
+-- Uses EVERY to continuously match consecutive 10-second periods
+-- Detects if market activity and price are increasing or decreasing
+--
+-- Pattern: EVERY(e1=ActivityStats -> e2=ActivityStats)
+-- - e1 represents the previous period
+-- - e2 represents the current period
+-- - EVERY ensures continuous matching after each period
+--
+-- Output:
+--   prev_trades: trade count in previous 10-second period
+--   curr_trades: trade count in current 10-second period
+--   activity_change: difference (positive = increasing activity)
+--   prev_price: average price in previous period
+--   curr_price: average price in current period
+--   price_change_pct: percentage change (positive = price increasing)
+INSERT INTO TrendSignal
 SELECT
-    symbol,
-    COUNT(*) AS trades_per_30sec
-FROM RawTrades
-WINDOW('tumbling', INTERVAL '30' SECOND)
-GROUP BY symbol;
+    e2.symbol AS symbol,
+    e1.trade_count AS prev_trades,
+    e2.trade_count AS curr_trades,
+    e2.trade_count - e1.trade_count AS activity_change,
+    e1.avg_price AS prev_price,
+    e2.avg_price AS curr_price,
+    ((e2.avg_price - e1.avg_price) / e1.avg_price) * 100.0 AS price_change_pct
+FROM ActivityStats
+PATTERN (EVERY(e1=ActivityStats -> e2=ActivityStats));
 ```
 
 ### 3. Create the Docker Compose file
@@ -143,43 +176,66 @@ services:
 docker compose up
 ```
 
-That's it! Within seconds you'll see real trade data flowing through multiple processing pipelines.
+That's it! After ~20 seconds you'll see pattern-detected trend signals flowing.
 
 ## What You'll See
 
-The demo outputs two types of summaries:
+The demo outputs two types of data:
 
-**Market Pulse (every 5 seconds):**
+**Activity Pulse (every 10 seconds):**
 ```
-[LOG] {"_timestamp":1703001234567,"symbol":"BTCUSDT","trades_per_5sec":340,"activity":"ACTIVE"}
-[LOG] {"_timestamp":1703001239567,"symbol":"BTCUSDT","trades_per_5sec":456,"activity":"ACTIVE"}
+[LOG] {"_timestamp":1703001234567,"symbol":"BTCUSDT","trades":456,"avg_price":43256.78}
+[LOG] {"_timestamp":1703001244567,"symbol":"BTCUSDT","trades":523,"avg_price":43312.45}
 ```
 
-**Trend Summary (every 30 seconds):**
+**Trend Signal (pattern-detected, after 2 periods):**
 ```
-[LOG] {"_timestamp":1703001260000,"symbol":"BTCUSDT","trades_per_30sec":1850}
+[LOG] {"_timestamp":1703001244567,"symbol":"BTCUSDT","prev_trades":456,"curr_trades":523,"activity_change":67,"prev_price":43256.78,"curr_price":43312.45,"price_change_pct":0.129}
+[LOG] {"_timestamp":1703001254567,"symbol":"BTCUSDT","prev_trades":523,"curr_trades":412,"activity_change":-111,"prev_price":43312.45,"curr_price":43298.12,"price_change_pct":-0.033}
 ```
+
+### Understanding the Output
 
 | Field | Description |
 |-------|-------------|
 | **_timestamp** | Event processing time (Unix ms) |
 | **symbol** | Trading pair (BTCUSDT) |
-| **trades_per_5sec** | Trades in the 5-second window |
-| **trades_per_30sec** | Trades in the 30-second window |
-| **activity** | Activity classification |
+| **trades** | Trades in the 10-second period |
+| **avg_price** | Average price during the period |
+| **prev_trades** | Previous period's trade count |
+| **curr_trades** | Current period's trade count |
+| **activity_change** | Trend indicator (positive = bullish momentum, negative = bearish) |
+| **prev_price** | Previous period's average price |
+| **curr_price** | Current period's average price |
+| **price_change_pct** | Price change percentage (e.g., 0.129 = +0.129%) |
+
+### Interpreting Trends
+
+- **activity_change > 0**: Increasing activity (more trades this period)
+- **activity_change < 0**: Decreasing activity (fewer trades this period)
+- **price_change_pct > 0**: Price is rising (e.g., +0.5% means half a percent up)
+- **price_change_pct < 0**: Price is falling (e.g., -0.2% means two-tenths percent down)
+- **Large positive values**: Surge in trading activity (potential breakout)
+- **Large negative values**: Sharp decline in activity (potential consolidation)
 
 ## Architecture
 
 ```
-┌─────────────────┐     ┌─────────────────────────────────────────────────┐     ┌─────────────────┐
-│     Binance     │────▶│                  EventFlux                      │────▶│     Console     │
-│    WebSocket    │     │                                                 │     │                 │
-│                 │     │  RawTrades ─┬─> 5-sec window ─> ShortTermStats  │     │  Market Pulse   │
-│  Real BTC/USDT  │     │             │                   ↓               │     │  (every 5 sec)  │
-│     trades      │     │             │              MarketPulse ─────────────▶│                 │
-│                 │     │             │                                   │     │  Trend Summary  │
-│                 │     │             └─> 30-sec window ─> TrendSummary ──────▶│  (every 30 sec) │
-└─────────────────┘     └─────────────────────────────────────────────────┘     └─────────────────┘
+┌─────────────────┐     ┌──────────────────────────────────────────────────────┐     ┌────────────────────┐
+│     Binance     │────▶│                    EventFlux                         │────▶│      Console       │
+│    WebSocket    │     │                                                      │     │                    │
+│                 │     │  RawTrades ─> 10-sec window ─> ActivityStats         │     │  Activity Pulse    │
+│  Real BTC/USDT  │     │            (with CAST for price averaging)           │     │  (every 10 sec)    │
+│     trades      │     │                                      │               │     │                    │
+│                 │     │                                      ↓               │     │  Trend Signal      │
+│                 │     │                           ┌──────────────────────┐   │     │  (pattern-based)   │
+│                 │     │                           │  PATTERN MATCHING    │   │     │                    │
+│                 │     │                           │                      │   │     │  activity_change   │
+│                 │     │                           │  EVERY(e1 -> e2)     │──────▶│  price_change      │
+│                 │     │                           │  Compare consecutive │   │     │                    │
+│                 │     │                           │  10-second periods   │   │     │                    │
+│                 │     │                           └──────────────────────┘   │     │                    │
+└─────────────────┘     └──────────────────────────────────────────────────────┘     └────────────────────┘
 ```
 
 ### Stream Types
@@ -187,15 +243,64 @@ The demo outputs two types of summaries:
 | Stream | Type | Purpose |
 |--------|------|---------|
 | **RawTrades** | Source | Receives real-time trades from Binance WebSocket |
-| **ShortTermStats** | Internal | Intermediate processing - enables pipeline architecture |
-| **MarketPulse** | Sink | Outputs 5-second activity analysis |
-| **TrendSummary** | Sink | Outputs 30-second trend data |
+| **ActivityStats** | Internal | Aggregates trades into 10-second activity summaries with average price |
+| **ActivityPulse** | Sink | Outputs activity counts and average price per period |
+| **TrendSignal** | Sink | Pattern-detected trend comparisons (activity + price) |
 
 ### Query Pipeline
 
-1. **Query 1**: Aggregates raw trades into 5-second windows → `ShortTermStats`
-2. **Query 2**: Processes internal stream, adds classification → `MarketPulse`
-3. **Query 3**: Parallel 30-second aggregation → `TrendSummary`
+1. **Query 1**: Aggregates raw trades into 10-second windows with `CAST(price AS DOUBLE)` for averaging → `ActivityStats`
+2. **Query 2**: Passes activity to direct output → `ActivityPulse`
+3. **Query 3**: **Pattern matching** on consecutive periods → `TrendSignal`
+
+## Pattern Processing Explained
+
+The core innovation in this demo is **pattern matching on consecutive events**:
+
+```sql
+INSERT INTO TrendSignal
+SELECT
+    e2.symbol AS symbol,
+    e1.trade_count AS prev_trades,
+    e2.trade_count AS curr_trades,
+    e2.trade_count - e1.trade_count AS activity_change,
+    e1.avg_price AS prev_price,
+    e2.avg_price AS curr_price,
+    ((e2.avg_price - e1.avg_price) / e1.avg_price) * 100.0 AS price_change_pct
+FROM ActivityStats
+PATTERN (EVERY(e1=ActivityStats -> e2=ActivityStats));
+```
+
+### How it works:
+
+1. **Same-stream pattern**: `e1=ActivityStats -> e2=ActivityStats` matches two consecutive events from the same stream
+2. **Pattern aliases**: `e1` refers to the previous event, `e2` to the current one
+3. **EVERY modifier**: Ensures continuous matching - after each match, the pattern restarts
+4. **Arithmetic expression**: `e2.trade_count - e1.trade_count` computes the activity trend
+5. **Percentage calculation**: `((e2.avg_price - e1.avg_price) / e1.avg_price) * 100.0` computes price change as a percentage
+
+### CAST Expression for Type Conversion
+
+The Binance API sends prices as strings. EventFlux uses `CAST` to convert them:
+
+```sql
+AVG(CAST(price AS DOUBLE)) AS avg_price
+```
+
+This converts the VARCHAR price to DOUBLE for numeric averaging.
+
+### Pattern Semantics
+
+```
+Time:     T1           T2           T3           T4
+Events:   [Stats1] --> [Stats2] --> [Stats3] --> [Stats4]
+                 ↓           ↓           ↓
+Matches:    (e1=Stats1, e2=Stats2)
+                         (e1=Stats2, e2=Stats3)
+                                      (e1=Stats3, e2=Stats4)
+```
+
+Each consecutive pair produces a trend signal, creating a continuous stream of trend data.
 
 ## Directory Structure
 
@@ -227,8 +332,9 @@ docker compose up
 
 ## Troubleshooting
 
-### No output after 5 seconds
+### No output after 20 seconds
 
+- **Wait for 2 periods**: Pattern needs 2 consecutive events (first TrendSignal after ~20 seconds)
 - **Internet connectivity**: Ensure you can reach `stream.binance.com`
 - **Firewall**: Some corporate networks block WebSocket connections
 - **Region**: Binance may be restricted in some countries
@@ -251,16 +357,20 @@ chmod 644 query.eventflux
 
 ## What's Next?
 
-Now that you've seen EventFlux in action:
+Now that you've seen EventFlux pattern processing in action:
 
+- **[Pattern Reference](/docs/sql-reference/patterns)** - Master pattern syntax and semantics
 - **[Quick Start Guide](/docs/getting-started/quick-start)** - Learn the fundamentals
-- **[SQL Reference](/docs/sql-reference/queries)** - Master the query language
+- **[SQL Reference](/docs/sql-reference/queries)** - Full query language reference
 - **[WebSocket Connector](/docs/connectors/websocket)** - Build custom integrations
-- **[RabbitMQ Connector](/docs/connectors/rabbitmq)** - Connect to message queues
 
-## Why Binance WebSocket?
+## Why This Demo?
 
-- **No authentication** - Connect and receive data immediately
-- **High volume** - Hundreds of trades per second
-- **Free** - No API keys or subscriptions
-- **Reliable** - Well-documented, stable API
+This demo showcases EventFlux's unique capabilities:
+
+1. **Real-time pattern matching** - Detect trends as they happen
+2. **Same-stream patterns** - Compare consecutive events
+3. **EVERY modifier** - Continuous pattern matching
+4. **CAST expression** - Type conversion for numeric operations
+5. **Pipeline processing** - Chain queries for complex analytics
+6. **Zero configuration** - No API keys, just copy-paste and run
