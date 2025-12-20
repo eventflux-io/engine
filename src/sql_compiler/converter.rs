@@ -895,6 +895,20 @@ impl SqlConverter {
                 Ok(Expression::case(operand_expr, when_clauses, else_expr))
             }
 
+            SqlExpr::Cast {
+                expr,
+                data_type,
+                format: _,
+                kind: _,
+            } => {
+                // Convert CAST(expr AS type) to EventFlux Cast expression
+                let inner_expr = Self::convert_expression(expr, catalog)?;
+                let target_type =
+                    crate::sql_compiler::type_mapping::sql_type_to_attribute_type(data_type)
+                        .map_err(|e| ConverterError::UnsupportedFeature(e.to_string()))?;
+                Ok(Expression::cast(inner_expr, target_type))
+            }
+
             _ => Err(ConverterError::UnsupportedFeature(format!(
                 "Expression type {:?}",
                 expr
@@ -1175,15 +1189,10 @@ impl SqlConverter {
     }
 
     /// Recursively collect pattern aliases from a PatternExpression
-    fn collect_pattern_aliases(
-        pattern: &PatternExpression,
-        aliases: &mut Vec<(String, String)>,
-    ) {
+    fn collect_pattern_aliases(pattern: &PatternExpression, aliases: &mut Vec<(String, String)>) {
         match pattern {
             PatternExpression::Stream {
-                alias,
-                stream_name,
-                ..
+                alias, stream_name, ..
             } => {
                 if let Some(alias_ident) = alias {
                     let stream_id = stream_name

@@ -277,7 +277,10 @@ fn test_pattern_without_every_no_overlapping() {
     let match1 = &collected[0];
     if let Some(e1) = match1.get_stream_event(0) {
         if let Some(AttributeValue::Long(val)) = e1.before_window_data.get(0) {
-            assert_eq!(*val, 1, "Match should be from A(1), the first complete sequence");
+            assert_eq!(
+                *val, 1,
+                "Match should be from A(1), the first complete sequence"
+            );
         }
     }
 }

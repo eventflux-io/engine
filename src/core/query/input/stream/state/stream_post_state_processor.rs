@@ -211,7 +211,9 @@ impl StreamPostStateProcessor {
             // This is used for N-element patterns where the last PostStateProcessor
             // needs to forward to a terminal that bridges to the Processor chain
             if let Some(ref next) = self.next_processor {
-                next.lock().unwrap().process(Some(Box::new(state_event.clone())));
+                next.lock()
+                    .unwrap()
+                    .process(Some(Box::new(state_event.clone())));
             }
         }
     }

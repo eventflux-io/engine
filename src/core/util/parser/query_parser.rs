@@ -98,8 +98,8 @@ impl PostStateProcessor for TerminalPostStateProcessor {
         if let Some(event) = chunk {
             if let Some(state_event) = event
                 .as_any()
-                .downcast_ref::<crate::core::event::state::state_event::StateEvent>()
-            {
+                .downcast_ref::<crate::core::event::state::state_event::StateEvent>(
+            ) {
                 // Flatten the StateEvent to a StreamEvent
                 let flattened = self.flatten_state_event(state_event);
 
@@ -537,28 +537,37 @@ impl QueryParser {
             }
             ApiInputStream::State(state_stream) => {
                 use crate::core::event::complex_event::ComplexEvent;
-                use crate::query_api::execution::query::input::state::logical_state_element::Type as ApiLogicalType;
-                use crate::query_api::execution::query::input::state::state_element::StateElement;
                 use crate::core::query::input::stream::state::pattern_chain_builder::{
                     PatternChainBuilder as PCB, PatternStepConfig,
                 };
                 use crate::core::query::input::stream::state::stream_pre_state_processor::StateType;
+                use crate::query_api::execution::query::input::state::logical_state_element::Type as ApiLogicalType;
+                use crate::query_api::execution::query::input::state::state_element::StateElement;
 
                 /// Adapter that wraps a PreStateProcessor to implement the Processor trait
                 /// This allows PreStateProcessors to be subscribed to StreamJunctions
                 #[derive(Debug)]
                 struct PreStateProcessorAdapter {
-                    pre_processor: Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>,
-                    app_context: Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>,
-                    query_context: Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                    pre_processor:
+                        Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>,
+                    app_context:
+                        Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>,
+                    query_context:
+                        Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
                     next_processor: Option<Arc<Mutex<dyn Processor>>>,
                 }
 
                 impl PreStateProcessorAdapter {
                     fn new(
-                        pre_processor: Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>,
-                        app_context: Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>,
-                        query_context: Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                        pre_processor: Arc<
+                            Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>,
+                        >,
+                        app_context: Arc<
+                            crate::core::config::eventflux_app_context::EventFluxAppContext,
+                        >,
+                        query_context: Arc<
+                            crate::core::config::eventflux_query_context::EventFluxQueryContext,
+                        >,
                     ) -> Self {
                         Self {
                             pre_processor,
@@ -600,7 +609,9 @@ impl QueryParser {
 
                     fn clone_processor(
                         &self,
-                        _ctx: &Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                        _ctx: &Arc<
+                            crate::core::config::eventflux_query_context::EventFluxQueryContext,
+                        >,
                     ) -> Box<dyn Processor> {
                         Box::new(PreStateProcessorAdapter {
                             pre_processor: Arc::clone(&self.pre_processor),
@@ -610,11 +621,17 @@ impl QueryParser {
                         })
                     }
 
-                    fn get_eventflux_app_context(&self) -> Arc<crate::core::config::eventflux_app_context::EventFluxAppContext> {
+                    fn get_eventflux_app_context(
+                        &self,
+                    ) -> Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>
+                    {
                         Arc::clone(&self.app_context)
                     }
 
-                    fn get_eventflux_query_context(&self) -> Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext> {
+                    fn get_eventflux_query_context(
+                        &self,
+                    ) -> Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>
+                    {
                         Arc::clone(&self.query_context)
                     }
 
@@ -646,18 +663,36 @@ impl QueryParser {
                 /// states don't become "pending" until after the current event is processed.
                 #[derive(Debug)]
                 struct NElementSameStreamAdapter {
-                    pre_processors: Vec<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>>,
-                    app_context: Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>,
-                    query_context: Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                    pre_processors: Vec<
+                        Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>,
+                    >,
+                    app_context:
+                        Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>,
+                    query_context:
+                        Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
                 }
 
                 impl NElementSameStreamAdapter {
                     fn new(
-                        pre_processors: Vec<Arc<Mutex<dyn crate::core::query::input::stream::state::PreStateProcessor>>>,
-                        app_context: Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>,
-                        query_context: Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                        pre_processors: Vec<
+                            Arc<
+                                Mutex<
+                                    dyn crate::core::query::input::stream::state::PreStateProcessor,
+                                >,
+                            >,
+                        >,
+                        app_context: Arc<
+                            crate::core::config::eventflux_app_context::EventFluxAppContext,
+                        >,
+                        query_context: Arc<
+                            crate::core::config::eventflux_query_context::EventFluxQueryContext,
+                        >,
                     ) -> Self {
-                        Self { pre_processors, app_context, query_context }
+                        Self {
+                            pre_processors,
+                            app_context,
+                            query_context,
+                        }
                     }
                 }
 
@@ -694,7 +729,9 @@ impl QueryParser {
 
                     fn clone_processor(
                         &self,
-                        _ctx: &Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                        _ctx: &Arc<
+                            crate::core::config::eventflux_query_context::EventFluxQueryContext,
+                        >,
                     ) -> Box<dyn Processor> {
                         Box::new(NElementSameStreamAdapter {
                             pre_processors: self.pre_processors.clone(),
@@ -703,11 +740,17 @@ impl QueryParser {
                         })
                     }
 
-                    fn get_eventflux_app_context(&self) -> Arc<crate::core::config::eventflux_app_context::EventFluxAppContext> {
+                    fn get_eventflux_app_context(
+                        &self,
+                    ) -> Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>
+                    {
                         Arc::clone(&self.app_context)
                     }
 
-                    fn get_eventflux_query_context(&self) -> Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext> {
+                    fn get_eventflux_query_context(
+                        &self,
+                    ) -> Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>
+                    {
                         Arc::clone(&self.query_context)
                     }
 
@@ -732,25 +775,33 @@ impl QueryParser {
                 fn extract_element_info(se: &StateElement) -> Option<PatternElementInfo> {
                     match se {
                         StateElement::Stream(s) => {
-                            let alias = s.get_single_input_stream()
+                            let alias = s
+                                .get_single_input_stream()
                                 .get_stream_reference_id_str()
                                 .map(|s| s.to_string());
                             Some(PatternElementInfo {
-                                stream_id: s.get_single_input_stream().get_stream_id_str().to_string(),
+                                stream_id: s
+                                    .get_single_input_stream()
+                                    .get_stream_id_str()
+                                    .to_string(),
                                 alias,
                                 min_count: 1,
                                 max_count: 1,
                             })
                         }
-                        StateElement::Every(ev) => {
-                            extract_element_info(&ev.state_element)
-                        }
+                        StateElement::Every(ev) => extract_element_info(&ev.state_element),
                         StateElement::Count(c) => {
-                            let alias = c.stream_state_element.get_single_input_stream()
+                            let alias = c
+                                .stream_state_element
+                                .get_single_input_stream()
                                 .get_stream_reference_id_str()
                                 .map(|s| s.to_string());
                             Some(PatternElementInfo {
-                                stream_id: c.stream_state_element.get_single_input_stream().get_stream_id_str().to_string(),
+                                stream_id: c
+                                    .stream_state_element
+                                    .get_single_input_stream()
+                                    .get_stream_id_str()
+                                    .to_string(),
                                 alias,
                                 min_count: c.min_count,
                                 max_count: c.max_count,
@@ -763,17 +814,19 @@ impl QueryParser {
                 /// Recursively extract all pattern elements from a nested Next structure
                 /// For pattern A -> B -> C -> D (represented as Next(A, Next(B, Next(C, D))))
                 /// Returns [A, B, C, D] in order
-                fn extract_all_sequence_elements(se: &StateElement) -> Option<Vec<PatternElementInfo>> {
+                fn extract_all_sequence_elements(
+                    se: &StateElement,
+                ) -> Option<Vec<PatternElementInfo>> {
                     match se {
                         StateElement::Stream(_) | StateElement::Count(_) => {
                             extract_element_info(se).map(|info| vec![info])
                         }
-                        StateElement::Every(ev) => {
-                            extract_all_sequence_elements(&ev.state_element)
-                        }
+                        StateElement::Every(ev) => extract_all_sequence_elements(&ev.state_element),
                         StateElement::Next(next_elem) => {
-                            let mut elements = extract_all_sequence_elements(&next_elem.state_element)?;
-                            let next_elements = extract_all_sequence_elements(&next_elem.next_state_element)?;
+                            let mut elements =
+                                extract_all_sequence_elements(&next_elem.state_element)?;
+                            let next_elements =
+                                extract_all_sequence_elements(&next_elem.next_state_element)?;
                             elements.extend(next_elements);
                             Some(elements)
                         }
@@ -803,14 +856,16 @@ impl QueryParser {
                             // Single element pattern (unusual but valid)
                             extract_element_info(se).map(|info| PatternType::Sequence(vec![info]))
                         }
-                        StateElement::Every(ev) => {
-                            parse_pattern_type(&ev.state_element)
-                        }
+                        StateElement::Every(ev) => parse_pattern_type(&ev.state_element),
                         StateElement::Logical(log) => {
                             let left = extract_element_info(&log.stream_state_element_1)?;
                             let right = extract_element_info(&log.stream_state_element_2)?;
                             let is_and = matches!(log.logical_type, ApiLogicalType::And);
-                            Some(PatternType::Logical { left, right, is_and })
+                            Some(PatternType::Logical {
+                                left,
+                                right,
+                                is_and,
+                            })
                         }
                         _ => None,
                     }
@@ -818,7 +873,9 @@ impl QueryParser {
 
                 // Parse the pattern type
                 let pattern_type = parse_pattern_type(state_stream.state_element.as_ref())
-                    .ok_or_else(|| format!("Query '{query_name}': Unsupported pattern structure"))?;
+                    .ok_or_else(|| {
+                        format!("Query '{query_name}': Unsupported pattern structure")
+                    })?;
 
                 // Collect all elements for metadata building
                 let all_elements: Vec<&PatternElementInfo> = match &pattern_type {
@@ -899,10 +956,14 @@ impl QueryParser {
                         }
 
                         // Build the processor chain
-                        let mut chain = builder.build(
-                            Arc::clone(eventflux_app_context),
-                            Arc::clone(&eventflux_query_context),
-                        ).map_err(|e| format!("Query '{query_name}': Failed to build pattern chain: {e}"))?;
+                        let mut chain = builder
+                            .build(
+                                Arc::clone(eventflux_app_context),
+                                Arc::clone(&eventflux_query_context),
+                            )
+                            .map_err(|e| {
+                                format!("Query '{query_name}': Failed to build pattern chain: {e}")
+                            })?;
 
                         chain.init();
 
@@ -951,32 +1012,41 @@ impl QueryParser {
                                 )));
                                 junction.lock().unwrap().subscribe(adapter);
                             } else {
-                                let n_adapter = Arc::new(Mutex::new(NElementSameStreamAdapter::new(
-                                    processors.clone(),
-                                    Arc::clone(eventflux_app_context),
-                                    Arc::clone(&eventflux_query_context),
-                                )));
+                                let n_adapter =
+                                    Arc::new(Mutex::new(NElementSameStreamAdapter::new(
+                                        processors.clone(),
+                                        Arc::clone(eventflux_app_context),
+                                        Arc::clone(&eventflux_query_context),
+                                    )));
                                 junction.lock().unwrap().subscribe(n_adapter);
                             }
                         }
 
                         n_element_terminal = Some(terminal);
                     }
-                    PatternType::Logical { left, right, is_and } => {
+                    PatternType::Logical {
+                        left,
+                        right,
+                        is_and,
+                    } => {
                         // Mark this as a logical pattern - subscription is handled below
                         is_logical_pattern = true;
 
                         // Logical patterns use a simple shared-buffer processor
                         use crate::core::event::stream::stream_event::StreamEvent;
-                        use crate::core::event::stream::stream_event_factory::StreamEventFactory;
                         use crate::core::event::stream::stream_event_cloner::StreamEventCloner;
+                        use crate::core::event::stream::stream_event_factory::StreamEventFactory;
                         use crate::core::event::value::AttributeValue;
 
                         // Get junctions
-                        let first_junction = stream_junction_map.get(&left.stream_id)
-                            .ok_or_else(|| format!("Input stream '{}' not found", left.stream_id))?.clone();
-                        let second_junction = stream_junction_map.get(&right.stream_id)
-                            .ok_or_else(|| format!("Input stream '{}' not found", right.stream_id))?.clone();
+                        let first_junction = stream_junction_map
+                            .get(&left.stream_id)
+                            .ok_or_else(|| format!("Input stream '{}' not found", left.stream_id))?
+                            .clone();
+                        let second_junction = stream_junction_map
+                            .get(&right.stream_id)
+                            .ok_or_else(|| format!("Input stream '{}' not found", right.stream_id))?
+                            .clone();
 
                         let first_def = first_junction.lock().unwrap().get_stream_definition();
                         let second_def = second_junction.lock().unwrap().get_stream_definition();
@@ -997,7 +1067,9 @@ impl QueryParser {
                         impl SharedLogicalState {
                             fn try_produce(&mut self) {
                                 if self.is_and {
-                                    while !self.first_buffer.is_empty() && !self.second_buffer.is_empty() {
+                                    while !self.first_buffer.is_empty()
+                                        && !self.second_buffer.is_empty()
+                                    {
                                         let first = self.first_buffer.remove(0);
                                         let second = self.second_buffer.remove(0);
                                         self.forward_joined(Some(&first), Some(&second));
@@ -1014,17 +1086,25 @@ impl QueryParser {
                                 }
                             }
 
-                            fn forward_joined(&self, first: Option<&StreamEvent>, second: Option<&StreamEvent>) {
+                            fn forward_joined(
+                                &self,
+                                first: Option<&StreamEvent>,
+                                second: Option<&StreamEvent>,
+                            ) {
                                 let mut event = self.factory.new_instance();
-                                event.timestamp = second.map(|s| s.timestamp)
-                                    .or_else(|| first.map(|f| f.timestamp)).unwrap_or(0);
+                                event.timestamp = second
+                                    .map(|s| s.timestamp)
+                                    .or_else(|| first.map(|f| f.timestamp))
+                                    .unwrap_or(0);
                                 for i in 0..self.first_len {
-                                    let val = first.and_then(|f| f.before_window_data.get(i).cloned())
+                                    let val = first
+                                        .and_then(|f| f.before_window_data.get(i).cloned())
                                         .unwrap_or(AttributeValue::Null);
                                     event.before_window_data[i] = val;
                                 }
                                 for j in 0..self.second_len {
-                                    let val = second.and_then(|s| s.before_window_data.get(j).cloned())
+                                    let val = second
+                                        .and_then(|s| s.before_window_data.get(j).cloned())
                                         .unwrap_or(AttributeValue::Null);
                                     event.before_window_data[self.first_len + j] = val;
                                 }
@@ -1052,8 +1132,12 @@ impl QueryParser {
                             is_first: bool,
                             #[allow(dead_code)]
                             cloner: Option<StreamEventCloner>,
-                            app_ctx: Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>,
-                            query_ctx: Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                            app_ctx: Arc<
+                                crate::core::config::eventflux_app_context::EventFluxAppContext,
+                            >,
+                            query_ctx: Arc<
+                                crate::core::config::eventflux_query_context::EventFluxQueryContext,
+                            >,
                         }
 
                         impl std::fmt::Debug for LogicalSideProcessor {
@@ -1082,16 +1166,25 @@ impl QueryParser {
                             }
 
                             fn next_processor(&self) -> Option<Arc<Mutex<dyn Processor>>> {
-                                self.shared.lock().ok().and_then(|s| s.next_processor.clone())
+                                self.shared
+                                    .lock()
+                                    .ok()
+                                    .and_then(|s| s.next_processor.clone())
                             }
 
-                            fn set_next_processor(&mut self, next: Option<Arc<Mutex<dyn Processor>>>) {
+                            fn set_next_processor(
+                                &mut self,
+                                next: Option<Arc<Mutex<dyn Processor>>>,
+                            ) {
                                 if let Ok(mut state) = self.shared.lock() {
                                     state.next_processor = next;
                                 }
                             }
 
-                            fn clone_processor(&self, _ctx: &Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>) -> Box<dyn Processor> {
+                            fn clone_processor(
+                                &self,
+                                _ctx: &Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                            ) -> Box<dyn Processor> {
                                 Box::new(LogicalSideProcessor {
                                     shared: Arc::clone(&self.shared),
                                     is_first: self.is_first,
@@ -1101,36 +1194,50 @@ impl QueryParser {
                                 })
                             }
 
-                            fn get_eventflux_app_context(&self) -> Arc<crate::core::config::eventflux_app_context::EventFluxAppContext> {
+                            fn get_eventflux_app_context(
+                                &self,
+                            ) -> Arc<crate::core::config::eventflux_app_context::EventFluxAppContext>
+                            {
                                 Arc::clone(&self.app_ctx)
                             }
 
-                            fn get_eventflux_query_context(&self) -> Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext> {
+                            fn get_eventflux_query_context(
+                                &self,
+                            ) -> Arc<
+                                crate::core::config::eventflux_query_context::EventFluxQueryContext,
+                            > {
                                 Arc::clone(&self.query_ctx)
                             }
 
-                            fn get_processing_mode(&self) -> crate::core::query::processor::ProcessingMode {
+                            fn get_processing_mode(
+                                &self,
+                            ) -> crate::core::query::processor::ProcessingMode
+                            {
                                 crate::core::query::processor::ProcessingMode::DEFAULT
                             }
 
-                            fn is_stateful(&self) -> bool { true }
+                            fn is_stateful(&self) -> bool {
+                                true
+                            }
                         }
 
-                        let first_side: Arc<Mutex<dyn Processor>> = Arc::new(Mutex::new(LogicalSideProcessor {
-                            shared: Arc::clone(&shared_state),
-                            is_first: true,
-                            cloner: None,
-                            app_ctx: Arc::clone(eventflux_app_context),
-                            query_ctx: Arc::clone(&eventflux_query_context),
-                        }));
+                        let first_side: Arc<Mutex<dyn Processor>> =
+                            Arc::new(Mutex::new(LogicalSideProcessor {
+                                shared: Arc::clone(&shared_state),
+                                is_first: true,
+                                cloner: None,
+                                app_ctx: Arc::clone(eventflux_app_context),
+                                query_ctx: Arc::clone(&eventflux_query_context),
+                            }));
 
-                        let second_side: Arc<Mutex<dyn Processor>> = Arc::new(Mutex::new(LogicalSideProcessor {
-                            shared: Arc::clone(&shared_state),
-                            is_first: false,
-                            cloner: None,
-                            app_ctx: Arc::clone(eventflux_app_context),
-                            query_ctx: Arc::clone(&eventflux_query_context),
-                        }));
+                        let second_side: Arc<Mutex<dyn Processor>> =
+                            Arc::new(Mutex::new(LogicalSideProcessor {
+                                shared: Arc::clone(&shared_state),
+                                is_first: false,
+                                cloner: None,
+                                app_ctx: Arc::clone(eventflux_app_context),
+                                query_ctx: Arc::clone(&eventflux_query_context),
+                            }));
 
                         // Subscribe to junctions
                         if left.stream_id == right.stream_id {
@@ -1152,7 +1259,9 @@ impl QueryParser {
                                     if !self.has_first.swap(true, Ordering::SeqCst) {
                                         self.first.lock().unwrap().process(chunk);
                                     } else {
-                                        let c1 = chunk.as_ref().map(|e| clone_box_complex_event(e.as_ref()));
+                                        let c1 = chunk
+                                            .as_ref()
+                                            .map(|e| clone_box_complex_event(e.as_ref()));
                                         self.second.lock().unwrap().process(chunk);
                                         self.first.lock().unwrap().process(c1);
                                     }
@@ -1160,26 +1269,41 @@ impl QueryParser {
                                 fn next_processor(&self) -> Option<Arc<Mutex<dyn Processor>>> {
                                     self.first.lock().unwrap().next_processor()
                                 }
-                                fn set_next_processor(&mut self, next: Option<Arc<Mutex<dyn Processor>>>) {
+                                fn set_next_processor(
+                                    &mut self,
+                                    next: Option<Arc<Mutex<dyn Processor>>>,
+                                ) {
                                     self.first.lock().unwrap().set_next_processor(next);
                                 }
-                                fn clone_processor(&self, _: &Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>) -> Box<dyn Processor> {
+                                fn clone_processor(
+                                    &self,
+                                    _: &Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>,
+                                ) -> Box<dyn Processor> {
                                     Box::new(SameStreamLogicalAdapter {
                                         first: Arc::clone(&self.first),
                                         second: Arc::clone(&self.second),
                                         has_first: AtomicBool::new(false),
                                     })
                                 }
-                                fn get_eventflux_app_context(&self) -> Arc<crate::core::config::eventflux_app_context::EventFluxAppContext> {
+                                fn get_eventflux_app_context(
+                                    &self,
+                                ) -> Arc<
+                                    crate::core::config::eventflux_app_context::EventFluxAppContext,
+                                > {
                                     self.first.lock().unwrap().get_eventflux_app_context()
                                 }
-                                fn get_eventflux_query_context(&self) -> Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext> {
+                                fn get_eventflux_query_context(&self) -> Arc<crate::core::config::eventflux_query_context::EventFluxQueryContext>{
                                     self.first.lock().unwrap().get_eventflux_query_context()
                                 }
-                                fn get_processing_mode(&self) -> crate::core::query::processor::ProcessingMode {
+                                fn get_processing_mode(
+                                    &self,
+                                ) -> crate::core::query::processor::ProcessingMode
+                                {
                                     crate::core::query::processor::ProcessingMode::DEFAULT
                                 }
-                                fn is_stateful(&self) -> bool { true }
+                                fn is_stateful(&self) -> bool {
+                                    true
+                                }
                             }
                             let adapter = Arc::new(Mutex::new(SameStreamLogicalAdapter {
                                 first: first_side.clone(),
@@ -1189,7 +1313,10 @@ impl QueryParser {
                             first_junction.lock().unwrap().subscribe(adapter);
                         } else {
                             first_junction.lock().unwrap().subscribe(first_side.clone());
-                            second_junction.lock().unwrap().subscribe(second_side.clone());
+                            second_junction
+                                .lock()
+                                .unwrap()
+                                .subscribe(second_side.clone());
                         }
 
                         link_processor(first_side.clone());
@@ -1393,7 +1520,10 @@ impl QueryParser {
         // This bridges the PostStateProcessor chain to the Processor chain
         if let Some(ref terminal) = n_element_terminal {
             if let Some(ref head) = processor_chain_head {
-                terminal.lock().unwrap().set_output_processor(Arc::clone(head));
+                terminal
+                    .lock()
+                    .unwrap()
+                    .set_output_processor(Arc::clone(head));
             }
         }
 
@@ -1410,7 +1540,8 @@ impl QueryParser {
         // NOTE: For logical patterns, skip this - they subscribe their processors directly to junctions
         if n_element_terminal.is_none() && !is_logical_pattern {
             if let Some(head_proc_arc) = &query_runtime.processor_chain_head {
-                if let Some(junction) = stream_junction_map.get(&expr_parser_context.default_source) {
+                if let Some(junction) = stream_junction_map.get(&expr_parser_context.default_source)
+                {
                     junction
                         .lock()
                         .expect("Input junction Mutex poisoned")

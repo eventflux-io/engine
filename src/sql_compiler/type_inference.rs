@@ -293,6 +293,21 @@ impl<'a> TypeInferenceEngine<'a> {
 
                 Ok(result_type)
             }
+            Expression::Cast(cast) => {
+                // First, infer the source type
+                let source_type = self.infer_type(&cast.expression, context)?;
+                let target_type = cast.target_type;
+
+                // Validate that the cast is supported
+                if !Self::is_cast_supported(source_type, target_type) {
+                    return Err(TypeError::ConversionFailed(format!(
+                        "Cannot cast {:?} to {:?}",
+                        source_type, target_type
+                    )));
+                }
+
+                Ok(target_type)
+            }
         }
     }
 
@@ -312,6 +327,50 @@ impl<'a> TypeInferenceEngine<'a> {
             ConstantValueWithFloat::Bool(_) => AttributeType::BOOL,
             ConstantValueWithFloat::Null => AttributeType::OBJECT, // NULL maps to OBJECT type
         })
+    }
+
+    /// Check if a cast from source_type to target_type is supported.
+    /// This mirrors the conversions implemented in CastExecutor.
+    #[inline]
+    fn is_cast_supported(source: AttributeType, target: AttributeType) -> bool {
+        use AttributeType::*;
+
+        // Same type is always valid (no-op)
+        if source == target {
+            return true;
+        }
+
+        // NULL/OBJECT can be cast to anything (passthrough)
+        if source == OBJECT {
+            return true;
+        }
+
+        match (source, target) {
+            // String can be cast to any numeric or bool type
+            (STRING, INT | LONG | FLOAT | DOUBLE | BOOL) => true,
+
+            // Any numeric type can be cast to String
+            (INT | LONG | FLOAT | DOUBLE, STRING) => true,
+
+            // Bool can be cast to String
+            (BOOL, STRING) => true,
+
+            // Numeric widening: INT -> LONG, FLOAT -> DOUBLE, INT -> DOUBLE/FLOAT
+            (INT, LONG | FLOAT | DOUBLE) => true,
+            (LONG, FLOAT | DOUBLE) => true,
+            (FLOAT, DOUBLE) => true,
+
+            // Numeric narrowing: LONG -> INT, DOUBLE -> FLOAT/INT/LONG, FLOAT -> INT/LONG
+            (LONG, INT) => true,
+            (DOUBLE, FLOAT | INT | LONG) => true,
+            (FLOAT, INT | LONG) => true,
+
+            // Int/Long can be cast to Bool (non-zero = true)
+            (INT | LONG, BOOL) => true,
+
+            // All other combinations are not supported
+            _ => false,
+        }
     }
 
     /// Infer type from a variable (column reference)
@@ -701,5 +760,119 @@ mod tests {
             engine.infer_type(&expr, &context).unwrap(),
             AttributeType::DOUBLE
         );
+    }
+
+    #[test]
+    fn test_cast_supported_conversions() {
+        // String to numeric
+        assert!(TypeInferenceEngine::is_cast_supported(
+            AttributeType::STRING,
+            AttributeType::INT
+        ));
+        assert!(TypeInferenceEngine::is_cast_supported(
+            AttributeType::STRING,
+            AttributeType::DOUBLE
+        ));
+
+        // Numeric to String
+        assert!(TypeInferenceEngine::is_cast_supported(
+            AttributeType::INT,
+            AttributeType::STRING
+        ));
+        assert!(TypeInferenceEngine::is_cast_supported(
+            AttributeType::DOUBLE,
+            AttributeType::STRING
+        ));
+
+        // Numeric widening
+        assert!(TypeInferenceEngine::is_cast_supported(
+            AttributeType::INT,
+            AttributeType::LONG
+        ));
+        assert!(TypeInferenceEngine::is_cast_supported(
+            AttributeType::FLOAT,
+            AttributeType::DOUBLE
+        ));
+
+        // Numeric narrowing
+        assert!(TypeInferenceEngine::is_cast_supported(
+            AttributeType::LONG,
+            AttributeType::INT
+        ));
+        assert!(TypeInferenceEngine::is_cast_supported(
+            AttributeType::DOUBLE,
+            AttributeType::FLOAT
+        ));
+
+        // Same type (no-op)
+        assert!(TypeInferenceEngine::is_cast_supported(
+            AttributeType::INT,
+            AttributeType::INT
+        ));
+    }
+
+    #[test]
+    fn test_cast_unsupported_conversions() {
+        // Bool to numeric (not directly supported)
+        assert!(!TypeInferenceEngine::is_cast_supported(
+            AttributeType::BOOL,
+            AttributeType::INT
+        ));
+        assert!(!TypeInferenceEngine::is_cast_supported(
+            AttributeType::BOOL,
+            AttributeType::DOUBLE
+        ));
+
+        // Bool to String is supported
+        assert!(TypeInferenceEngine::is_cast_supported(
+            AttributeType::BOOL,
+            AttributeType::STRING
+        ));
+    }
+
+    #[test]
+    fn test_cast_type_inference_valid() {
+        let catalog = create_test_catalog();
+        let engine = TypeInferenceEngine::new(&catalog);
+        let context = TypeContext::from_stream("TestStream".to_string());
+
+        // CAST(symbol AS INT) - String to INT is valid
+        let expr = Expression::cast(
+            Expression::variable("symbol".to_string()),
+            AttributeType::INT,
+        );
+        assert_eq!(
+            engine.infer_type(&expr, &context).unwrap(),
+            AttributeType::INT
+        );
+
+        // CAST(price AS INT) - Double to INT is valid
+        let expr = Expression::cast(
+            Expression::variable("price".to_string()),
+            AttributeType::INT,
+        );
+        assert_eq!(
+            engine.infer_type(&expr, &context).unwrap(),
+            AttributeType::INT
+        );
+    }
+
+    #[test]
+    fn test_cast_type_inference_invalid() {
+        let catalog = create_test_catalog();
+        let engine = TypeInferenceEngine::new(&catalog);
+        let context = TypeContext::from_stream("TestStream".to_string());
+
+        // CAST(active AS DOUBLE) - Bool to DOUBLE is NOT valid
+        let expr = Expression::cast(
+            Expression::variable("active".to_string()),
+            AttributeType::DOUBLE,
+        );
+        let result = engine.infer_type(&expr, &context);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Cannot cast BOOL to DOUBLE"));
     }
 }

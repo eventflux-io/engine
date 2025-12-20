@@ -10,6 +10,7 @@ pub mod math;
 
 // Declare modules for individual expression types at this level
 pub mod attribute_function;
+pub mod cast;
 pub mod expression;
 pub mod indexed_variable;
 pub mod variable; // This is the main Expression enum
@@ -18,6 +19,7 @@ pub mod variable; // This is the main Expression enum
 // from parent modules (e.g., query_api)
 pub use self::attribute_function::AttributeFunction;
 pub use self::case::{Case, WhenClause};
+pub use self::cast::Cast;
 pub use self::constant::{Constant, ConstantValueWithFloat, TimeUtil as ConstantTimeUtil}; // Updated ConstantValue to ConstantValueWithFloat
 pub use self::expression::Expression;
 pub use self::indexed_variable::{EventIndex, IndexedVariable};

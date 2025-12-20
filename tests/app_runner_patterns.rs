@@ -277,7 +277,8 @@ async fn pattern_alias_two_streams() {
     use eventflux_rust::query_api::execution::query::Query;
     use eventflux_rust::query_api::execution::ExecutionElement;
 
-    let mut app = eventflux_rust::query_api::eventflux_app::EventFluxApp::new("AliasTest".to_string());
+    let mut app =
+        eventflux_rust::query_api::eventflux_app::EventFluxApp::new("AliasTest".to_string());
     let a_def = StreamDefinition::new("StreamA".to_string())
         .attribute("price".to_string(), AttrType::DOUBLE)
         .attribute("symbol".to_string(), AttrType::STRING);
@@ -288,9 +289,12 @@ async fn pattern_alias_two_streams() {
         .attribute("first_price".to_string(), AttrType::DOUBLE)
         .attribute("second_price".to_string(), AttrType::DOUBLE)
         .attribute("change".to_string(), AttrType::DOUBLE);
-    app.stream_definition_map.insert("StreamA".to_string(), Arc::new(a_def));
-    app.stream_definition_map.insert("StreamB".to_string(), Arc::new(b_def));
-    app.stream_definition_map.insert("Out".to_string(), Arc::new(out_def));
+    app.stream_definition_map
+        .insert("StreamA".to_string(), Arc::new(a_def));
+    app.stream_definition_map
+        .insert("StreamB".to_string(), Arc::new(b_def));
+    app.stream_definition_map
+        .insert("Out".to_string(), Arc::new(out_def));
 
     // Create pattern elements with aliases: e1=StreamA -> e2=StreamB
     let a_si = SingleInputStream::new_basic("StreamA".to_string(), false, false, None, Vec::new())
@@ -316,8 +320,12 @@ async fn pattern_alias_two_streams() {
             Some("change".to_string()),
             Expression::Subtract(Box::new(
                 eventflux_rust::query_api::expression::math::Subtract::new(
-                    Expression::Variable(Variable::new("price".to_string()).of_stream("e2".to_string())),
-                    Expression::Variable(Variable::new("price".to_string()).of_stream("e1".to_string())),
+                    Expression::Variable(
+                        Variable::new("price".to_string()).of_stream("e2".to_string()),
+                    ),
+                    Expression::Variable(
+                        Variable::new("price".to_string()).of_stream("e1".to_string()),
+                    ),
                 ),
             )),
         ),
@@ -332,11 +340,24 @@ async fn pattern_alias_two_streams() {
         .from(input)
         .select(selector)
         .out_stream(out_stream);
-    app.execution_element_list.push(ExecutionElement::Query(query));
+    app.execution_element_list
+        .push(ExecutionElement::Query(query));
 
     let runner = AppRunner::new_from_api(app, "Out").await;
-    runner.send("StreamA", vec![AttributeValue::Double(100.0), AttributeValue::String("AAPL".to_string())]);
-    runner.send("StreamB", vec![AttributeValue::Double(110.0), AttributeValue::String("AAPL".to_string())]);
+    runner.send(
+        "StreamA",
+        vec![
+            AttributeValue::Double(100.0),
+            AttributeValue::String("AAPL".to_string()),
+        ],
+    );
+    runner.send(
+        "StreamB",
+        vec![
+            AttributeValue::Double(110.0),
+            AttributeValue::String("AAPL".to_string()),
+        ],
+    );
     let out = runner.shutdown();
     assert_eq!(
         out,
@@ -365,15 +386,18 @@ async fn pattern_alias_same_stream() {
     use eventflux_rust::query_api::execution::query::Query;
     use eventflux_rust::query_api::execution::ExecutionElement;
 
-    let mut app = eventflux_rust::query_api::eventflux_app::EventFluxApp::new("SameStreamAlias".to_string());
+    let mut app =
+        eventflux_rust::query_api::eventflux_app::EventFluxApp::new("SameStreamAlias".to_string());
     let trades_def = StreamDefinition::new("RawTrades".to_string())
         .attribute("price".to_string(), AttrType::DOUBLE)
         .attribute("symbol".to_string(), AttrType::STRING);
     let out_def = StreamDefinition::new("Out".to_string())
         .attribute("first_price".to_string(), AttrType::DOUBLE)
         .attribute("second_price".to_string(), AttrType::DOUBLE);
-    app.stream_definition_map.insert("RawTrades".to_string(), Arc::new(trades_def));
-    app.stream_definition_map.insert("Out".to_string(), Arc::new(out_def));
+    app.stream_definition_map
+        .insert("RawTrades".to_string(), Arc::new(trades_def));
+    app.stream_definition_map
+        .insert("Out".to_string(), Arc::new(out_def));
 
     // Create pattern: e1=RawTrades -> e2=RawTrades (same stream, different aliases)
     let si1 = SingleInputStream::new_basic("RawTrades".to_string(), false, false, None, Vec::new())
@@ -406,13 +430,26 @@ async fn pattern_alias_same_stream() {
         .from(input)
         .select(selector)
         .out_stream(out_stream);
-    app.execution_element_list.push(ExecutionElement::Query(query));
+    app.execution_element_list
+        .push(ExecutionElement::Query(query));
 
     let runner = AppRunner::new_from_api(app, "Out").await;
     // Send first trade
-    runner.send("RawTrades", vec![AttributeValue::Double(100.0), AttributeValue::String("AAPL".to_string())]);
+    runner.send(
+        "RawTrades",
+        vec![
+            AttributeValue::Double(100.0),
+            AttributeValue::String("AAPL".to_string()),
+        ],
+    );
     // Send second trade - this should complete the pattern
-    runner.send("RawTrades", vec![AttributeValue::Double(110.0), AttributeValue::String("AAPL".to_string())]);
+    runner.send(
+        "RawTrades",
+        vec![
+            AttributeValue::Double(110.0),
+            AttributeValue::String("AAPL".to_string()),
+        ],
+    );
     let out = runner.shutdown();
     assert_eq!(
         out,
@@ -445,7 +482,8 @@ async fn n_element_pattern_three_streams() {
     use eventflux_rust::query_api::execution::query::Query;
     use eventflux_rust::query_api::execution::ExecutionElement;
 
-    let mut app = eventflux_rust::query_api::eventflux_app::EventFluxApp::new("NElementTest".to_string());
+    let mut app =
+        eventflux_rust::query_api::eventflux_app::EventFluxApp::new("NElementTest".to_string());
     let a_def = StreamDefinition::new("A".to_string()).attribute("val".to_string(), AttrType::INT);
     let b_def = StreamDefinition::new("B".to_string()).attribute("val".to_string(), AttrType::INT);
     let c_def = StreamDefinition::new("C".to_string()).attribute("val".to_string(), AttrType::INT);
@@ -453,10 +491,14 @@ async fn n_element_pattern_three_streams() {
         .attribute("aval".to_string(), AttrType::INT)
         .attribute("bval".to_string(), AttrType::INT)
         .attribute("cval".to_string(), AttrType::INT);
-    app.stream_definition_map.insert("A".to_string(), Arc::new(a_def));
-    app.stream_definition_map.insert("B".to_string(), Arc::new(b_def));
-    app.stream_definition_map.insert("C".to_string(), Arc::new(c_def));
-    app.stream_definition_map.insert("Out".to_string(), Arc::new(out_def));
+    app.stream_definition_map
+        .insert("A".to_string(), Arc::new(a_def));
+    app.stream_definition_map
+        .insert("B".to_string(), Arc::new(b_def));
+    app.stream_definition_map
+        .insert("C".to_string(), Arc::new(c_def));
+    app.stream_definition_map
+        .insert("Out".to_string(), Arc::new(out_def));
 
     // Create 3-element pattern: A -> B -> C (N-element pattern)
     let a_si = SingleInputStream::new_basic("A".to_string(), false, false, None, Vec::new())
@@ -497,7 +539,8 @@ async fn n_element_pattern_three_streams() {
         .from(input)
         .select(selector)
         .out_stream(out_stream);
-    app.execution_element_list.push(ExecutionElement::Query(query));
+    app.execution_element_list
+        .push(ExecutionElement::Query(query));
 
     // Use AppRunner to test the N-element pattern
     let runner = AppRunner::new_from_api(app, "Out").await;
@@ -535,7 +578,8 @@ async fn n_element_pattern_four_streams() {
     use eventflux_rust::query_api::execution::query::Query;
     use eventflux_rust::query_api::execution::ExecutionElement;
 
-    let mut app = eventflux_rust::query_api::eventflux_app::EventFluxApp::new("FourElementTest".to_string());
+    let mut app =
+        eventflux_rust::query_api::eventflux_app::EventFluxApp::new("FourElementTest".to_string());
     let a_def = StreamDefinition::new("A".to_string()).attribute("val".to_string(), AttrType::INT);
     let b_def = StreamDefinition::new("B".to_string()).attribute("val".to_string(), AttrType::INT);
     let c_def = StreamDefinition::new("C".to_string()).attribute("val".to_string(), AttrType::INT);
@@ -545,11 +589,16 @@ async fn n_element_pattern_four_streams() {
         .attribute("bval".to_string(), AttrType::INT)
         .attribute("cval".to_string(), AttrType::INT)
         .attribute("dval".to_string(), AttrType::INT);
-    app.stream_definition_map.insert("A".to_string(), Arc::new(a_def));
-    app.stream_definition_map.insert("B".to_string(), Arc::new(b_def));
-    app.stream_definition_map.insert("C".to_string(), Arc::new(c_def));
-    app.stream_definition_map.insert("D".to_string(), Arc::new(d_def));
-    app.stream_definition_map.insert("Out".to_string(), Arc::new(out_def));
+    app.stream_definition_map
+        .insert("A".to_string(), Arc::new(a_def));
+    app.stream_definition_map
+        .insert("B".to_string(), Arc::new(b_def));
+    app.stream_definition_map
+        .insert("C".to_string(), Arc::new(c_def));
+    app.stream_definition_map
+        .insert("D".to_string(), Arc::new(d_def));
+    app.stream_definition_map
+        .insert("Out".to_string(), Arc::new(out_def));
 
     // Create 4-element pattern: A -> B -> C -> D
     let a_si = SingleInputStream::new_basic("A".to_string(), false, false, None, Vec::new())
@@ -597,7 +646,8 @@ async fn n_element_pattern_four_streams() {
         .from(input)
         .select(selector)
         .out_stream(out_stream);
-    app.execution_element_list.push(ExecutionElement::Query(query));
+    app.execution_element_list
+        .push(ExecutionElement::Query(query));
 
     let runner = AppRunner::new_from_api(app, "Out").await;
 
@@ -635,7 +685,8 @@ async fn n_element_pattern_five_streams() {
     use eventflux_rust::query_api::execution::query::Query;
     use eventflux_rust::query_api::execution::ExecutionElement;
 
-    let mut app = eventflux_rust::query_api::eventflux_app::EventFluxApp::new("FiveElementTest".to_string());
+    let mut app =
+        eventflux_rust::query_api::eventflux_app::EventFluxApp::new("FiveElementTest".to_string());
     let a_def = StreamDefinition::new("A".to_string()).attribute("val".to_string(), AttrType::INT);
     let b_def = StreamDefinition::new("B".to_string()).attribute("val".to_string(), AttrType::INT);
     let c_def = StreamDefinition::new("C".to_string()).attribute("val".to_string(), AttrType::INT);
@@ -647,12 +698,18 @@ async fn n_element_pattern_five_streams() {
         .attribute("cval".to_string(), AttrType::INT)
         .attribute("dval".to_string(), AttrType::INT)
         .attribute("eval".to_string(), AttrType::INT);
-    app.stream_definition_map.insert("A".to_string(), Arc::new(a_def));
-    app.stream_definition_map.insert("B".to_string(), Arc::new(b_def));
-    app.stream_definition_map.insert("C".to_string(), Arc::new(c_def));
-    app.stream_definition_map.insert("D".to_string(), Arc::new(d_def));
-    app.stream_definition_map.insert("E".to_string(), Arc::new(e_def));
-    app.stream_definition_map.insert("Out".to_string(), Arc::new(out_def));
+    app.stream_definition_map
+        .insert("A".to_string(), Arc::new(a_def));
+    app.stream_definition_map
+        .insert("B".to_string(), Arc::new(b_def));
+    app.stream_definition_map
+        .insert("C".to_string(), Arc::new(c_def));
+    app.stream_definition_map
+        .insert("D".to_string(), Arc::new(d_def));
+    app.stream_definition_map
+        .insert("E".to_string(), Arc::new(e_def));
+    app.stream_definition_map
+        .insert("Out".to_string(), Arc::new(out_def));
 
     // Create 5-element pattern: A -> B -> C -> D -> E
     let a_si = SingleInputStream::new_basic("A".to_string(), false, false, None, Vec::new())
@@ -707,7 +764,8 @@ async fn n_element_pattern_five_streams() {
         .from(input)
         .select(selector)
         .out_stream(out_stream);
-    app.execution_element_list.push(ExecutionElement::Query(query));
+    app.execution_element_list
+        .push(ExecutionElement::Query(query));
 
     let runner = AppRunner::new_from_api(app, "Out").await;
 
