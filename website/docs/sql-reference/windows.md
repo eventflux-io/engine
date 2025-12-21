@@ -1,12 +1,12 @@
 ---
 sidebar_position: 2
 title: Windows
-description: Time-based and count-based window operations in Eventflux
+description: Time-based and count-based window operations in EventFlux
 ---
 
 # Windows
 
-Windows are fundamental to stream processing, allowing you to group events for aggregation and analysis. Eventflux supports **9 window types** to cover different streaming scenarios.
+Windows are fundamental to stream processing, allowing you to group events for aggregation and analysis. EventFlux supports **9 window types** to cover different streaming scenarios.
 
 ## Window Syntax
 

@@ -1,12 +1,12 @@
 ---
 sidebar_position: 4
 title: Joins
-description: Stream-to-stream and stream-to-table joins in Eventflux
+description: Stream-to-stream and stream-to-table joins in EventFlux
 ---
 
 # Joins
 
-Joins allow you to combine events from multiple streams or enrich streams with table data. Eventflux supports all standard SQL join types.
+Joins allow you to combine events from multiple streams or enrich streams with table data. EventFlux supports all standard SQL join types.
 
 ## Join Types
 

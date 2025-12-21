@@ -1,12 +1,12 @@
 ---
 sidebar_position: 1
 title: Installation
-description: Install Eventflux in your Rust project
+description: Install EventFlux in your Rust project
 ---
 
 # Installation
 
-Eventflux can be installed from source or added as a dependency to your Rust project.
+EventFlux can be installed from source or added as a dependency to your Rust project.
 
 ## Prerequisites
 
@@ -51,7 +51,7 @@ After building, you'll find:
 
 ## As a Dependency
 
-Add Eventflux to your `Cargo.toml`:
+Add EventFlux to your `Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -97,7 +97,7 @@ use eventflux::prelude::*;
 
 fn main() {
     let manager = EventFluxManager::new();
-    println!("Eventflux initialized successfully!");
+    println!("EventFlux initialized successfully!");
 }
 ```
 

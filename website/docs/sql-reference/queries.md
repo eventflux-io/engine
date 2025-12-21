@@ -6,7 +6,7 @@ description: Complete reference for EventFlux SQL queries
 
 # SQL Query Reference
 
-Eventflux uses an extended SQL syntax designed for stream processing. This reference covers all supported query constructs.
+EventFlux uses an extended SQL syntax designed for stream processing. This reference covers all supported query constructs.
 
 ## Stream Definitions
 
@@ -182,7 +182,7 @@ INSERT INTO Processed;
 
 ### Conditional Expressions
 
-Eventflux supports both **Searched CASE** and **Simple CASE** syntax:
+EventFlux supports both **Searched CASE** and **Simple CASE** syntax:
 
 ```sql
 -- Searched CASE: boolean conditions

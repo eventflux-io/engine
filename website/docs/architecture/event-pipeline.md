@@ -6,7 +6,7 @@ description: Understanding the high-performance event processing pipeline
 
 # Event Pipeline
 
-The event pipeline is the core of Eventflux's high-performance processing. It implements a lock-free, zero-allocation architecture designed for throughput exceeding 1 million events per second.
+The event pipeline is the core of EventFlux's high-performance processing. It implements a lock-free, zero-allocation architecture designed for throughput exceeding 1 million events per second.
 
 ## Pipeline Architecture
 
@@ -101,7 +101,7 @@ pub trait SinkHandler: Send + Sync {
 
 ## Lock-Free Queues
 
-Eventflux uses crossbeam's `ArrayQueue` for lock-free event passing:
+EventFlux uses crossbeam's `ArrayQueue` for lock-free event passing:
 
 ```rust
 use crossbeam::queue::ArrayQueue;

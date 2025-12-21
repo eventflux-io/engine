@@ -1,12 +1,12 @@
 ---
 sidebar_position: 2
 title: Quick Start
-description: Build your first streaming application with Eventflux
+description: Build your first streaming application with EventFlux
 ---
 
 # Quick Start
 
-This guide walks you through building your first streaming application with Eventflux in under 5 minutes.
+This guide walks you through building your first streaming application with EventFlux in under 5 minutes.
 
 ## Your First Application
 

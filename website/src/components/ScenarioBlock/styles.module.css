@@ -1,3 +1,4 @@
+/* ScenarioBlock - Ink + Copper Palette */
 .scenarioBlock {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -30,39 +31,40 @@
 }
 
 .title {
-  font-size: 1.75rem;
-  font-weight: 700;
+  font-size: 1.5rem;
+  font-weight: 600;
   margin-bottom: 1rem;
-  color: #263238; /* Blue Grey 900 */
+  color: #1a1a1a;
   line-height: 1.3;
+  letter-spacing: -0.015em;
 }
 
 [data-theme='dark'] .title {
-  color: #ECEFF1; /* Blue Grey 50 */
+  color: #E8E8E8;
 }
 
 .scenario {
-  font-size: 1.125rem;
+  font-size: 1.05rem;
   line-height: 1.7;
-  color: #607D8B; /* Blue Grey 500 */
+  color: #6B7280;
   margin: 0;
 }
 
 [data-theme='dark'] .scenario {
-  color: #90A4AE; /* Blue Grey 300 */
+  color: #9CA3AF;
 }
 
 .codeContent {
   background: #FFFFFF;
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid rgba(0, 150, 136, 0.15);
-  box-shadow: 0 4px 30px rgba(0, 150, 136, 0.08);
+  border: 1px solid #E5E7EB;
+  box-shadow: 0 4px 30px rgba(201, 124, 93, 0.06);
 }
 
 [data-theme='dark'] .codeContent {
-  background: #37474F; /* Blue Grey 800 */
-  border: 1px solid rgba(77, 208, 225, 0.2);
+  background: #14161B;
+  border: 1px solid #2D3139;
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
 }
 
@@ -71,13 +73,13 @@
   justify-content: space-between;
   align-items: center;
   padding: 0.75rem 1rem;
-  background: rgba(0, 150, 136, 0.08);
-  border-bottom: 1px solid rgba(0, 150, 136, 0.1);
+  background: rgba(201, 124, 93, 0.06);
+  border-bottom: 1px solid #E5E7EB;
 }
 
 [data-theme='dark'] .codeHeader {
-  background: rgba(77, 208, 225, 0.1);
-  border-bottom: 1px solid rgba(77, 208, 225, 0.15);
+  background: rgba(224, 154, 124, 0.08);
+  border-bottom: 1px solid #2D3139;
 }
 
 .codeLabel {
@@ -85,11 +87,11 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #009688; /* Teal 500 */
+  color: #C97C5D;
 }
 
 [data-theme='dark'] .codeLabel {
-  color: #4DD0E1; /* Cyan 300 */
+  color: #E09A7C;
 }
 
 .codeDots {
@@ -101,36 +103,36 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: rgba(0, 150, 136, 0.2);
+  background: #E5E7EB;
 }
 
 [data-theme='dark'] .codeDots span {
-  background: rgba(77, 208, 225, 0.3);
+  background: #2D3139;
 }
 
-/* Material Design Colors: Cyan, Teal, Deep Purple */
+/* Copper-tinted window dots */
 .codeDots span:nth-child(1) {
-  background: #00BCD4; /* Cyan 500 */
+  background: #C97C5D;
 }
 
 .codeDots span:nth-child(2) {
-  background: #009688; /* Teal 500 */
+  background: #D08A6D;
 }
 
 .codeDots span:nth-child(3) {
-  background: #7E57C2; /* Deep Purple 400 */
+  background: #E09A7C;
 }
 
 [data-theme='dark'] .codeDots span:nth-child(1) {
-  background: #4DD0E1; /* Cyan 300 */
+  background: #C97C5D;
 }
 
 [data-theme='dark'] .codeDots span:nth-child(2) {
-  background: #4DB6AC; /* Teal 300 */
+  background: #D08A6D;
 }
 
 [data-theme='dark'] .codeDots span:nth-child(3) {
-  background: #B39DDB; /* Deep Purple 200 */
+  background: #E09A7C;
 }
 
 .codeBlock {
@@ -162,7 +164,7 @@
   }
 
   .title {
-    font-size: 1.5rem;
+    font-size: 1.4rem;
   }
 
   .scenario {

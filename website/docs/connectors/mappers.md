@@ -1,16 +1,16 @@
 ---
 sidebar_position: 3
 title: Mappers Reference
-description: JSON, CSV, and Bytes format handling for Eventflux connectors
+description: JSON, CSV, and Bytes format handling for EventFlux connectors
 ---
 
 # Mappers Reference
 
-Mappers transform between raw bytes and structured Eventflux events. They handle serialization (encoding events to bytes) and deserialization (parsing bytes into events) for connector communication.
+Mappers transform between raw bytes and structured EventFlux events. They handle serialization (encoding events to bytes) and deserialization (parsing bytes into events) for connector communication.
 
 ## Overview
 
-Eventflux provides three built-in mappers:
+EventFlux provides three built-in mappers:
 
 | Mapper | Format | Source | Sink | Use Case |
 |--------|--------|--------|------|----------|
@@ -20,11 +20,11 @@ Eventflux provides three built-in mappers:
 
 ## JSON Mapper
 
-The JSON mapper is the most common choice for message queue integration. It handles automatic type conversion between JSON and Eventflux types.
+The JSON mapper is the most common choice for message queue integration. It handles automatic type conversion between JSON and EventFlux types.
 
 ### Type Mapping
 
-| Eventflux Type | JSON Type | Example |
+| EventFlux Type | JSON Type | Example |
 |----------------|-----------|---------|
 | `STRING` | string | `"hello"` |
 | `INT` | number | `42` |
@@ -291,7 +291,7 @@ The bytes sink mapper extracts raw bytes from the specified field and outputs th
 
 ### Use Cases
 
-1. **Protocol Buffers**: Pass protobuf-encoded messages through Eventflux for routing
+1. **Protocol Buffers**: Pass protobuf-encoded messages through EventFlux for routing
 2. **MessagePack**: Handle msgpack serialization at the application layer
 3. **Custom Binary Formats**: Proprietary protocols that should pass unchanged
 4. **Payload Forwarding**: Route messages between queues without parsing

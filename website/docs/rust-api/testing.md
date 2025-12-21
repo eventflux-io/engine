@@ -1,16 +1,16 @@
 ---
 sidebar_position: 3
 title: Testing
-description: Test your Eventflux streaming applications
+description: Test your EventFlux streaming applications
 ---
 
 # Testing
 
-This guide covers testing strategies for Eventflux applications, from unit tests to integration tests.
+This guide covers testing strategies for EventFlux applications, from unit tests to integration tests.
 
 ## AppRunner Test Helper
 
-The `AppRunner` is the primary testing utility for Eventflux applications:
+The `AppRunner` is the primary testing utility for EventFlux applications:
 
 ```rust
 use eventflux::testing::AppRunner;

@@ -1,12 +1,12 @@
 ---
 sidebar_position: 1
 title: Architecture Overview
-description: Understand the internal architecture of Eventflux
+description: Understand the internal architecture of EventFlux
 ---
 
 # Architecture Overview
 
-Eventflux is designed as a modular, high-performance streaming engine with clear separation of concerns between parsing, planning, and execution.
+EventFlux is designed as a modular, high-performance streaming engine with clear separation of concerns between parsing, planning, and execution.
 
 ## System Architecture
 
@@ -124,7 +124,7 @@ pub trait Processor: Send + Sync {
 
 ## High-Performance Pipeline
 
-Eventflux achieves high throughput through several optimizations:
+EventFlux achieves high throughput through several optimizations:
 
 ### Lock-Free Data Structures
 
@@ -184,7 +184,7 @@ Configurable strategies for handling backpressure:
 
 ## Window Processing
 
-Windows are central to stream processing. Eventflux implements 9 window types:
+Windows are central to stream processing. EventFlux implements 9 window types:
 
 ```rust
 pub enum WindowType {
@@ -235,7 +235,7 @@ impl PatternMatcher {
 
 ## Memory Model
 
-Eventflux uses Rust's ownership model to ensure memory safety without garbage collection:
+EventFlux uses Rust's ownership model to ensure memory safety without garbage collection:
 
 - **Zero-copy**: Events are passed by reference where possible
 - **Arc sharing**: Shared state uses `Arc<T>` for safe concurrent access

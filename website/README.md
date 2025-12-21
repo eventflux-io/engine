@@ -1,6 +1,6 @@
-# Eventflux Documentation Website
+# EventFlux Documentation Website
 
-This directory contains the Docusaurus v3 documentation and marketing website for Eventflux.
+This directory contains the Docusaurus v3 documentation and marketing website for EventFlux.
 
 ## Prerequisites
 
