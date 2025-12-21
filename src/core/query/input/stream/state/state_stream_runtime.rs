@@ -67,6 +67,16 @@ impl StateStreamRuntime {
         }
     }
 
+    /// Update state only (without reset).
+    ///
+    /// **Purpose**: Used when reset has already been done on all processors.
+    /// Moves new events to pending for processing.
+    pub fn update(&mut self) {
+        if let Ok(mut guard) = self.inner_state_runtime.lock() {
+            guard.update();
+        }
+    }
+
     /// Initialize runtime for partitioned processing.
     ///
     /// **Purpose**: Called when creating a new partition instance.

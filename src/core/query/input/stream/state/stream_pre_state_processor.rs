@@ -527,14 +527,28 @@ impl PreStateProcessor for StreamPreStateProcessor {
         let mut state = self.state.lock().unwrap();
         state.clear_pending();
 
+        // SEQUENCE mode: Auto-restart after each match (implicit EVERY behavior)
+        // Unlike PATTERN-EVERY which keeps pending for overlapping instances,
+        // SEQUENCE clears pending (strict consecutive) but still restarts for next match
+        let is_sequence_auto_restart =
+            self.is_start_state && self.state_type == StateType::Sequence;
+
         // If start state and new list is empty, reinitialize
+        // This applies to both normal patterns and SEQUENCE auto-restart
         if self.is_start_state && state.new_count() == 0 {
             // Reset initialized flag to allow init() to create new StateEvent
             state.reset_initialized();
-            // For Sequence, Java has additional checks about next processor's pending list
-            // Simplified: always reinitialize for now
             drop(state); // Release lock before calling init
             self.init();
+
+            // For SEQUENCE auto-restart, we need to ensure the processor is ready
+            // for the next consecutive match
+            if is_sequence_auto_restart {
+                log::trace!(
+                    "[StreamPreStateProcessor] SEQUENCE auto-restart: reinitializing state_id={}",
+                    self.state_id
+                );
+            }
         }
     }
 

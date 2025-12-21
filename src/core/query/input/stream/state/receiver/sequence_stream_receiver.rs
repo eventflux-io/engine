@@ -65,13 +65,14 @@ impl SequenceStreamReceiver {
     ///
     /// **Flow**:
     /// 1. Call `expire_events(timestamp)` on ALL processors in chain
-    /// 2. Call `state_stream_runtime.reset_and_update()`
+    /// 2. Call `reset_state()` on ALL processors (SEQUENCE auto-restart)
+    /// 3. Call `state_stream_runtime.reset_and_update()` for first processor reinit
     ///
     /// **Sequence Behavior**:
     /// - Expires old events outside WITHIN time window
-    /// - Resets state to clear previous match
+    /// - Resets ALL processors in chain (not just first) for auto-restart
     /// - Updates state to process new pending events
-    /// - Only allows ONE match per state (clears after match)
+    /// - Auto-restarts after each complete match (continuous matching)
     ///
     /// # Arguments
     /// * `timestamp` - Current timestamp for expiring old events
@@ -83,9 +84,18 @@ impl SequenceStreamReceiver {
             }
         }
 
-        // Step 2: Reset and update via StateStreamRuntime (Sequence semantics)
+        // Step 2: Reset ALL processors in chain (SEQUENCE auto-restart)
+        // This ensures all processors in the sequence are ready for the next match
+        for processor in &self.all_state_processors {
+            if let Ok(mut guard) = processor.lock() {
+                guard.reset_state();
+            }
+        }
+
+        // Step 3: Update via StateStreamRuntime (moves new->pending)
         if let Ok(mut runtime_guard) = self.state_stream_runtime.lock() {
-            runtime_guard.reset_and_update();
+            // Only call update, not reset (we already reset all processors above)
+            runtime_guard.update();
         }
     }
 }
