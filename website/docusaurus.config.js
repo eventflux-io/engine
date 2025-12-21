@@ -191,10 +191,9 @@ const config = {
         additionalLanguages: ['rust', 'sql', 'toml', 'bash'],
       },
       algolia: {
-        // Placeholder - configure when you have Algolia credentials
-        appId: 'YOUR_APP_ID',
-        apiKey: 'YOUR_SEARCH_API_KEY',
-        indexName: 'eventflux',
+        appId: 'MMPU9F9NTH',
+        apiKey: '0888f17cb65bf83ed95f3bdbda85e4af',
+        indexName: 'EventFlux Documentation',
         contextualSearch: true,
       },
     }),
