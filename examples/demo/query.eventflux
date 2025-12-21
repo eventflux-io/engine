@@ -1,6 +1,6 @@
 -- EventFlux Advanced Demo: Real-Time Bitcoin Trend Detection
 --
--- Demonstrates PATTERN PROCESSING for detecting market activity and price trends
+-- Demonstrates SEQUENCE PROCESSING for detecting market activity and price trends
 --
 -- Architecture:
 --   RawTrades (source) ─> ActivityStats (internal) ─┬─> ActivityPulse (sink)
@@ -10,7 +10,7 @@
 --   - WebSocket source with live Bitcoin trades
 --   - Tumbling window aggregation (10-second periods)
 --   - CAST expression for type conversion (VARCHAR price to DOUBLE)
---   - PATTERN MATCHING for trend detection (EVERY for continuous matching)
+--   - SEQUENCE matching for trend detection (continuous matching)
 --   - Same-stream pattern (e1=Stream -> e2=Stream)
 --   - Arithmetic expressions in pattern queries (e2.count - e1.count)
 --   - Multi-query pipeline processing
@@ -59,7 +59,7 @@ CREATE STREAM ActivityPulse (
     format = 'json'
 );
 
--- Sink 2: Trend signal - pattern-detected activity and price trends
+-- Sink 2: Trend signal - sequence-detected activity and price trends
 -- Compares consecutive 10-second periods to detect momentum
 CREATE STREAM TrendSignal (
     symbol VARCHAR,
@@ -100,14 +100,14 @@ SELECT
     avg_price
 FROM ActivityStats;
 
--- Query 3: PATTERN-BASED TREND DETECTION
--- Uses EVERY to continuously match consecutive 10-second periods
+-- Query 3: SEQUENCE-BASED TREND DETECTION
+-- Uses SEQUENCE to continuously match consecutive 10-second periods
 -- Detects if market activity and price are increasing or decreasing
 --
--- Pattern: EVERY(e1=ActivityStats -> e2=ActivityStats)
+-- Sequence: e1=ActivityStats -> e2=ActivityStats
 -- - e1 represents the previous period
 -- - e2 represents the current period
--- - EVERY ensures continuous matching after each period
+-- - SEQUENCE automatically restarts after each match (continuous matching)
 --
 -- Output:
 --   prev_trades: trade count in previous 10-second period
@@ -125,5 +125,4 @@ SELECT
     e1.avg_price AS prev_price,
     e2.avg_price AS curr_price,
     ((e2.avg_price - e1.avg_price) / e1.avg_price) * 100.0 AS price_change_pct
-FROM ActivityStats
-PATTERN (EVERY(e1=ActivityStats -> e2=ActivityStats));
+FROM SEQUENCE (e1=ActivityStats -> e2=ActivityStats);
