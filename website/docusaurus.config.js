@@ -21,6 +21,12 @@ const config = {
     locales: ['en'],
   },
 
+  // Enable Mermaid diagrams in Markdown
+  markdown: {
+    mermaid: true,
+  },
+  themes: ['@docusaurus/theme-mermaid'],
+
   // Google Fonts for typography
   headTags: [
     {
@@ -95,6 +101,11 @@ const config = {
             sidebarId: 'tutorialSidebar',
             position: 'left',
             label: 'Docs',
+          },
+          {
+            to: '/docs/demo/crypto-trading',
+            label: 'Demo',
+            position: 'left',
           },
           {
             to: '/docs/rust-api/getting-started',
