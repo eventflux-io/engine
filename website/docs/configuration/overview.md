@@ -12,23 +12,21 @@ EventFlux provides a flexible, layered configuration system that allows you to d
 
 EventFlux uses a **layered configuration model** where each layer can override values from the layer below it:
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  4. SQL WITH Clause              (Highest Priority)         │
-│     Per-stream inline configuration                         │
-│     CREATE STREAM ... WITH ("host" = 'override-value')      │
-├─────────────────────────────────────────────────────────────┤
-│  3. CLI --set Overrides                                     │
-│     Runtime overrides without modifying files               │
-│     --set eventflux.persistence.type=sqlite                 │
-├─────────────────────────────────────────────────────────────┤
-│  2. Configuration File (YAML)                               │
-│     Environment-specific settings                           │
-│     eventflux.yaml, config/production.yaml                  │
-├─────────────────────────────────────────────────────────────┤
-│  1. Code Defaults                (Lowest Priority)          │
-│     Built-in sensible defaults                              │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Precedence["Configuration Precedence (Top = Highest)"]
+        SQL["4. SQL WITH Clause<br/><i>Per-stream inline configuration</i><br/><code>CREATE STREAM ... WITH ('host' = 'override')</code>"]
+        CLI["3. CLI --set Overrides<br/><i>Runtime overrides without modifying files</i><br/><code>--set eventflux.persistence.type=sqlite</code>"]
+        YAML["2. Configuration File (YAML)<br/><i>Environment-specific settings</i><br/><code>eventflux.yaml, config/production.yaml</code>"]
+        Defaults["1. Code Defaults<br/><i>Built-in sensible defaults</i>"]
+
+        SQL --> CLI --> YAML --> Defaults
+    end
+
+    style SQL fill:#2d5a27,stroke:#4ade80
+    style CLI fill:#1e3a5f,stroke:#60a5fa
+    style YAML fill:#4a3728,stroke:#fbbf24
+    style Defaults fill:#3d3d3d,stroke:#9ca3af
 ```
 
 **Key principle:** Higher layers override lower layers. This allows you to:

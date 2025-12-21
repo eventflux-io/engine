@@ -10,38 +10,34 @@ EventFlux is designed as a modular, high-performance streaming engine with clear
 
 ## System Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        EventFlux Engine                              │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                    SQL Compiler Layer                        │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │   │
-│  │  │   Parser    │─▶│  Analyzer   │─▶│   Query Planner     │  │   │
-│  │  │ (sqlparser) │  │ (Semantic)  │  │   (Optimization)    │  │   │
-│  │  └─────────────┘  └─────────────┘  └─────────────────────┘  │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                              │                                       │
-│                              ▼                                       │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                  Execution Runtime Layer                     │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │   │
-│  │  │  Source  │─▶│ Processor│─▶│  Window  │─▶│   Sink   │    │   │
-│  │  │ Handler  │  │  Chain   │  │ Manager  │  │ Handler  │    │   │
-│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘    │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                              │                                       │
-│                              ▼                                       │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                 State Management Layer                       │   │
-│  │  ┌────────────┐  ┌─────────────┐  ┌───────────────────┐    │   │
-│  │  │ StateHolder│  │ Checkpoint  │  │  Storage Backend  │    │   │
-│  │  │  (Memory)  │  │   Manager   │  │  (Redis/Local)    │    │   │
-│  │  └────────────┘  └─────────────┘  └───────────────────┘    │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Engine["EventFlux Engine"]
+        subgraph Compiler["SQL Compiler Layer"]
+            Parser["Parser<br/>(sqlparser)"]
+            Analyzer["Analyzer<br/>(Semantic)"]
+            Planner["Query Planner<br/>(Optimization)"]
+            Parser --> Analyzer --> Planner
+        end
+
+        subgraph Runtime["Execution Runtime Layer"]
+            Source["Source<br/>Handler"]
+            Processor["Processor<br/>Chain"]
+            Window["Window<br/>Manager"]
+            Sink["Sink<br/>Handler"]
+            Source --> Processor --> Window --> Sink
+        end
+
+        subgraph State["State Management Layer"]
+            StateHolder["StateHolder<br/>(Memory)"]
+            Checkpoint["Checkpoint<br/>Manager"]
+            Storage["Storage Backend<br/>(Redis/Local)"]
+            StateHolder --- Checkpoint --- Storage
+        end
+
+        Compiler --> Runtime
+        Runtime --> State
+    end
 ```
 
 ## Core Components

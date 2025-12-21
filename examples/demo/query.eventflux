@@ -1,6 +1,6 @@
 -- EventFlux Advanced Demo: Real-Time Bitcoin Trend Detection
 --
--- Demonstrates SEQUENCE PROCESSING for detecting market activity and price trends
+-- Demonstrates PATTERN PROCESSING for detecting market activity and price trends
 --
 -- Architecture:
 --   RawTrades (source) ─> ActivityStats (internal) ─┬─> ActivityPulse (sink)
@@ -10,7 +10,7 @@
 --   - WebSocket source with live Bitcoin trades
 --   - Tumbling window aggregation (10-second periods)
 --   - CAST expression for type conversion (VARCHAR price to DOUBLE)
---   - SEQUENCE matching for trend detection (continuous matching)
+--   - PATTERN with EVERY for continuous trend detection
 --   - Same-stream pattern (e1=Stream -> e2=Stream)
 --   - Arithmetic expressions in pattern queries (e2.count - e1.count)
 --   - Multi-query pipeline processing
@@ -56,7 +56,8 @@ CREATE STREAM ActivityPulse (
 ) WITH (
     type = 'sink',
     extension = 'log',
-    format = 'json'
+    format = 'json',
+    "log.prefix" = '[PULSE]'
 );
 
 -- Sink 2: Trend signal - sequence-detected activity and price trends
@@ -72,7 +73,8 @@ CREATE STREAM TrendSignal (
 ) WITH (
     type = 'sink',
     extension = 'log',
-    format = 'json'
+    format = 'json',
+    "log.prefix" = '[TREND]'
 );
 
 -- =============================================================================
@@ -100,14 +102,17 @@ SELECT
     avg_price
 FROM ActivityStats;
 
--- Query 3: SEQUENCE-BASED TREND DETECTION
--- Uses SEQUENCE to continuously match consecutive 10-second periods
+-- Query 3: PATTERN-BASED TREND DETECTION (Continuous Matching)
+-- Uses PATTERN with EVERY to continuously match consecutive 10-second periods
 -- Detects if market activity and price are increasing or decreasing
 --
--- Sequence: e1=ActivityStats -> e2=ActivityStats
+-- Pattern: EVERY (e1=ActivityStats -> e2=ActivityStats)
 -- - e1 represents the previous period
 -- - e2 represents the current period
--- - SEQUENCE automatically restarts after each match (continuous matching)
+-- - EVERY enables continuous matching (restarts after each match)
+--
+-- Note: SEQUENCE would provide strict consecutive matching but currently
+-- only matches once. Use PATTERN with EVERY for continuous matching.
 --
 -- Output:
 --   prev_trades: trade count in previous 10-second period
@@ -125,4 +130,4 @@ SELECT
     e1.avg_price AS prev_price,
     e2.avg_price AS curr_price,
     ((e2.avg_price - e1.avg_price) / e1.avg_price) * 100.0 AS price_change_pct
-FROM SEQUENCE (e1=ActivityStats -> e2=ActivityStats);
+FROM PATTERN (EVERY (e1=ActivityStats -> e2=ActivityStats));

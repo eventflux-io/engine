@@ -10,25 +10,25 @@ The event pipeline is the core of EventFlux's high-performance processing. It im
 
 ## Pipeline Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                       Event Pipeline                              │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌─────────┐    ┌─────────────────────────────────┐    ┌──────┐ │
-│  │ Source  │───▶│      Processor Chain             │───▶│ Sink │ │
-│  │ Handler │    │                                  │    │      │ │
-│  └─────────┘    │  Filter → Project → Window → Agg │    └──────┘ │
-│       │         └─────────────────────────────────┘        │     │
-│       │                        │                           │     │
-│       └────────────────────────┴───────────────────────────┘     │
-│                                │                                  │
-│                    ┌───────────▼───────────┐                     │
-│                    │    State Manager      │                     │
-│                    │  (Checkpoint/Recovery)│                     │
-│                    └───────────────────────┘                     │
-│                                                                   │
-└──────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph Pipeline["Event Pipeline"]
+        Source["Source<br/>Handler"]
+
+        subgraph Chain["Processor Chain"]
+            Filter["Filter"]
+            Project["Project"]
+            Window["Window"]
+            Agg["Agg"]
+            Filter --> Project --> Window --> Agg
+        end
+
+        Sink["Sink"]
+        State["State Manager<br/>(Checkpoint/Recovery)"]
+
+        Source --> Chain --> Sink
+        Chain --> State
+    end
 ```
 
 ## Event Flow

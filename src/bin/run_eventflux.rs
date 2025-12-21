@@ -16,7 +16,6 @@ use eventflux_rust::core::eventflux_manager::EventFluxManager;
 use eventflux_rust::core::persistence::{
     FilePersistenceStore, PersistenceStore, SqlitePersistenceStore,
 };
-use eventflux_rust::core::stream::output::LogStreamCallback;
 
 #[derive(Parser, Debug)]
 #[command(about = "Run a EventFluxQL file", author, version)]
@@ -188,13 +187,8 @@ async fn main() {
         }
     };
 
-    // Add log callbacks for all streams
-    for stream_id in runtime.stream_junction_map.keys() {
-        let _ = runtime.add_callback(
-            stream_id,
-            Box::new(LogStreamCallback::new(stream_id.clone())),
-        );
-    }
+    // Note: Sink streams configured via SQL WITH clause (extension = 'log')
+    // already have proper logging. No need to add callbacks to all streams.
 
     // Start the runtime
     if let Err(e) = runtime.start() {
