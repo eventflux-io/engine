@@ -1,12 +1,12 @@
 ---
 sidebar_position: 1
 title: Connectors Overview
-description: Connect Eventflux to external systems with Sources, Sinks, and Mappers
+description: Connect EventFlux to external systems with Sources, Sinks, and Mappers
 ---
 
 # Connectors Overview
 
-Eventflux provides a powerful connector system that enables integration with external messaging systems and data stores. Connect your streaming pipelines to message brokers, databases, and other services using SQL-native syntax.
+EventFlux provides a powerful connector system that enables integration with external messaging systems and data stores. Connect your streaming pipelines to message brokers, databases, and other services using SQL-native syntax.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ The connector system consists of three main components:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Eventflux Engine                         │
+│                        EventFlux Engine                         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │   ┌─────────┐    ┌──────────┐    ┌─────────┐    ┌──────────┐   │

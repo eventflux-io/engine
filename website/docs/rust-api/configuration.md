@@ -1,12 +1,12 @@
 ---
 sidebar_position: 2
 title: Configuration
-description: Configure Eventflux runtime behavior
+description: Configure EventFlux runtime behavior
 ---
 
 # Configuration
 
-This guide covers all configuration options for customizing Eventflux runtime behavior.
+This guide covers all configuration options for customizing EventFlux runtime behavior.
 
 ## Runtime Configuration
 

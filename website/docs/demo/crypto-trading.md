@@ -1,12 +1,12 @@
 ---
 sidebar_position: 1
 title: Real-Time Crypto Trading Demo
-description: Experience EventFlux pattern processing with live Bitcoin trades
+description: Experience EventFlux sequence processing with live Bitcoin trades
 ---
 
 # Real-Time Crypto Trading Demo
 
-Experience EventFlux's **Pattern Processing** with real Bitcoin trades - detect market activity and price trends using complex event patterns.
+Experience EventFlux's **Sequence Processing** with real Bitcoin trades - detect market activity and price trends using sequence matching.
 
 ## Quick Start
 
@@ -24,7 +24,7 @@ Create `query.eventflux` with this content:
 ```sql title="query.eventflux"
 -- EventFlux Advanced Demo: Real-Time Bitcoin Trend Detection
 --
--- Demonstrates PATTERN PROCESSING for detecting market activity and price trends
+-- Demonstrates SEQUENCE PROCESSING for detecting market activity and price trends
 --
 -- Architecture:
 --   RawTrades (source) ─> ActivityStats (internal) ─┬─> ActivityPulse (sink)
@@ -34,7 +34,7 @@ Create `query.eventflux` with this content:
 --   - WebSocket source with live Bitcoin trades
 --   - Tumbling window aggregation (10-second periods)
 --   - CAST expression for type conversion (VARCHAR price to DOUBLE)
---   - PATTERN MATCHING for trend detection (EVERY for continuous matching)
+--   - SEQUENCE matching for trend detection (continuous matching)
 --   - Same-stream pattern (e1=Stream -> e2=Stream)
 --   - Arithmetic expressions in pattern queries (e2.count - e1.count)
 --   - Multi-query pipeline processing
@@ -83,7 +83,7 @@ CREATE STREAM ActivityPulse (
     format = 'json'
 );
 
--- Sink 2: Trend signal - pattern-detected activity and price trends
+-- Sink 2: Trend signal - sequence-detected activity and price trends
 -- Compares consecutive 10-second periods to detect momentum
 CREATE STREAM TrendSignal (
     symbol VARCHAR,
@@ -124,14 +124,14 @@ SELECT
     avg_price
 FROM ActivityStats;
 
--- Query 3: PATTERN-BASED TREND DETECTION
--- Uses EVERY to continuously match consecutive 10-second periods
+-- Query 3: SEQUENCE-BASED TREND DETECTION
+-- Uses SEQUENCE to continuously match consecutive 10-second periods
 -- Detects if market activity and price are increasing or decreasing
 --
--- Pattern: EVERY(e1=ActivityStats -> e2=ActivityStats)
+-- Sequence: e1=ActivityStats -> e2=ActivityStats
 -- - e1 represents the previous period
 -- - e2 represents the current period
--- - EVERY ensures continuous matching after each period
+-- - SEQUENCE automatically restarts after each match (continuous matching)
 --
 -- Output:
 --   prev_trades: trade count in previous 10-second period
@@ -149,8 +149,7 @@ SELECT
     e1.avg_price AS prev_price,
     e2.avg_price AS curr_price,
     ((e2.avg_price - e1.avg_price) / e1.avg_price) * 100.0 AS price_change_pct
-FROM ActivityStats
-PATTERN (EVERY(e1=ActivityStats -> e2=ActivityStats));
+FROM SEQUENCE (e1=ActivityStats -> e2=ActivityStats);
 ```
 
 ### 3. Create the Docker Compose file
@@ -176,7 +175,7 @@ services:
 docker compose up
 ```
 
-That's it! After ~20 seconds you'll see pattern-detected trend signals flowing.
+That's it! After ~20 seconds you'll see sequence-detected trend signals flowing.
 
 ## What You'll See
 
@@ -188,7 +187,7 @@ The demo outputs two types of data:
 [LOG] {"_timestamp":1703001244567,"symbol":"BTCUSDT","trades":523,"avg_price":43312.45}
 ```
 
-**Trend Signal (pattern-detected, after 2 periods):**
+**Trend Signal (sequence-detected, after 2 periods):**
 ```
 [LOG] {"_timestamp":1703001244567,"symbol":"BTCUSDT","prev_trades":456,"curr_trades":523,"activity_change":67,"prev_price":43256.78,"curr_price":43312.45,"price_change_pct":0.129}
 [LOG] {"_timestamp":1703001254567,"symbol":"BTCUSDT","prev_trades":523,"curr_trades":412,"activity_change":-111,"prev_price":43312.45,"curr_price":43298.12,"price_change_pct":-0.033}
@@ -228,10 +227,10 @@ The demo outputs two types of data:
 │  Real BTC/USDT  │     │            (with CAST for price averaging)           │     │  (every 10 sec)    │
 │     trades      │     │                                      │               │     │                    │
 │                 │     │                                      ↓               │     │  Trend Signal      │
-│                 │     │                           ┌──────────────────────┐   │     │  (pattern-based)   │
-│                 │     │                           │  PATTERN MATCHING    │   │     │                    │
+│                 │     │                           ┌──────────────────────┐   │     │  (sequence-based)  │
+│                 │     │                           │  SEQUENCE MATCHING   │   │     │                    │
 │                 │     │                           │                      │   │     │  activity_change   │
-│                 │     │                           │  EVERY(e1 -> e2)     │──────▶│  price_change      │
+│                 │     │                           │  (e1 -> e2)          │──────▶│  price_change      │
 │                 │     │                           │  Compare consecutive │   │     │                    │
 │                 │     │                           │  10-second periods   │   │     │                    │
 │                 │     │                           └──────────────────────┘   │     │                    │
@@ -245,17 +244,17 @@ The demo outputs two types of data:
 | **RawTrades** | Source | Receives real-time trades from Binance WebSocket |
 | **ActivityStats** | Internal | Aggregates trades into 10-second activity summaries with average price |
 | **ActivityPulse** | Sink | Outputs activity counts and average price per period |
-| **TrendSignal** | Sink | Pattern-detected trend comparisons (activity + price) |
+| **TrendSignal** | Sink | Sequence-detected trend comparisons (activity + price) |
 
 ### Query Pipeline
 
 1. **Query 1**: Aggregates raw trades into 10-second windows with `CAST(price AS DOUBLE)` for averaging → `ActivityStats`
 2. **Query 2**: Passes activity to direct output → `ActivityPulse`
-3. **Query 3**: **Pattern matching** on consecutive periods → `TrendSignal`
+3. **Query 3**: **Sequence matching** on consecutive periods → `TrendSignal`
 
-## Pattern Processing Explained
+## Sequence Processing Explained
 
-The core innovation in this demo is **pattern matching on consecutive events**:
+The core innovation in this demo is **sequence matching on consecutive events**:
 
 ```sql
 INSERT INTO TrendSignal
@@ -267,15 +266,14 @@ SELECT
     e1.avg_price AS prev_price,
     e2.avg_price AS curr_price,
     ((e2.avg_price - e1.avg_price) / e1.avg_price) * 100.0 AS price_change_pct
-FROM ActivityStats
-PATTERN (EVERY(e1=ActivityStats -> e2=ActivityStats));
+FROM SEQUENCE (e1=ActivityStats -> e2=ActivityStats);
 ```
 
 ### How it works:
 
-1. **Same-stream pattern**: `e1=ActivityStats -> e2=ActivityStats` matches two consecutive events from the same stream
-2. **Pattern aliases**: `e1` refers to the previous event, `e2` to the current one
-3. **EVERY modifier**: Ensures continuous matching - after each match, the pattern restarts
+1. **Same-stream sequence**: `e1=ActivityStats -> e2=ActivityStats` matches two consecutive events from the same stream
+2. **Sequence aliases**: `e1` refers to the previous event, `e2` to the current one
+3. **Continuous matching**: SEQUENCE automatically restarts after each match for continuous trend detection
 4. **Arithmetic expression**: `e2.trade_count - e1.trade_count` computes the activity trend
 5. **Percentage calculation**: `((e2.avg_price - e1.avg_price) / e1.avg_price) * 100.0` computes price change as a percentage
 
@@ -289,7 +287,7 @@ AVG(CAST(price AS DOUBLE)) AS avg_price
 
 This converts the VARCHAR price to DOUBLE for numeric averaging.
 
-### Pattern Semantics
+### Sequence Semantics
 
 ```
 Time:     T1           T2           T3           T4
@@ -334,7 +332,7 @@ docker compose up
 
 ### No output after 20 seconds
 
-- **Wait for 2 periods**: Pattern needs 2 consecutive events (first TrendSignal after ~20 seconds)
+- **Wait for 2 periods**: Sequence needs 2 consecutive events (first TrendSignal after ~20 seconds)
 - **Internet connectivity**: Ensure you can reach `stream.binance.com`
 - **Firewall**: Some corporate networks block WebSocket connections
 - **Region**: Binance may be restricted in some countries
@@ -357,9 +355,9 @@ chmod 644 query.eventflux
 
 ## What's Next?
 
-Now that you've seen EventFlux pattern processing in action:
+Now that you've seen EventFlux sequence processing in action:
 
-- **[Pattern Reference](/docs/sql-reference/patterns)** - Master pattern syntax and semantics
+- **[Sequence Reference](/docs/sql-reference/patterns)** - Master sequence and pattern syntax
 - **[Quick Start Guide](/docs/getting-started/quick-start)** - Learn the fundamentals
 - **[SQL Reference](/docs/sql-reference/queries)** - Full query language reference
 - **[WebSocket Connector](/docs/connectors/websocket)** - Build custom integrations
@@ -368,9 +366,9 @@ Now that you've seen EventFlux pattern processing in action:
 
 This demo showcases EventFlux's unique capabilities:
 
-1. **Real-time pattern matching** - Detect trends as they happen
-2. **Same-stream patterns** - Compare consecutive events
-3. **EVERY modifier** - Continuous pattern matching
+1. **Real-time sequence matching** - Detect trends as they happen
+2. **Same-stream sequences** - Compare consecutive events
+3. **Continuous matching** - Automatic restart after each match
 4. **CAST expression** - Type conversion for numeric operations
 5. **Pipeline processing** - Chain queries for complex analytics
 6. **Zero configuration** - No API keys, just copy-paste and run

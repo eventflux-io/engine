@@ -1,22 +1,22 @@
 ---
 sidebar_position: 1
 title: Introduction
-description: Get started with Eventflux, the Rust-native Complex Event Processing engine
+description: Get started with EventFlux, the Rust-native Complex Event Processing engine
 ---
 
-# Introduction to Eventflux
+# Introduction to EventFlux
 
-Eventflux is a **high-performance Complex Event Processing (CEP) engine** built from the ground up in Rust. It processes streaming data in real-time using familiar SQL syntax with powerful streaming extensions.
+EventFlux is a **high-performance Complex Event Processing (CEP) engine** built from the ground up in Rust. It processes streaming data in real-time using familiar SQL syntax with powerful streaming extensions.
 
-:::tip Why Eventflux?
-Eventflux delivers **over 1 million events per second** with zero garbage collection pauses, making it ideal for latency-sensitive applications like financial trading, IoT analytics, and real-time fraud detection.
+:::tip Why EventFlux?
+EventFlux delivers **over 1 million events per second** with zero garbage collection pauses, making it ideal for latency-sensitive applications like financial trading, IoT analytics, and real-time fraud detection.
 :::
 
 ## Key Features
 
 ### Proven & Tested
 
-Eventflux has **1,400+ passing tests** covering all core functionality:
+EventFlux has **1,400+ passing tests** covering all core functionality:
 
 | Feature | Status | Tests |
 |---------|--------|-------|
@@ -51,7 +51,7 @@ INSERT INTO Alerts;
 
 ### Comprehensive Window Support
 
-Eventflux supports **9 window types** for different streaming scenarios:
+EventFlux supports **9 window types** for different streaming scenarios:
 
 | Window Type | Description | Use Case |
 |-------------|-------------|----------|
@@ -126,7 +126,7 @@ import DocCardList from '@theme/DocCardList';
 <DocCardList />
 
 :::info Ready to dive in?
-- **[Installation](/docs/getting-started/installation)** - Set up Eventflux in your project
+- **[Installation](/docs/getting-started/installation)** - Set up EventFlux in your project
 - **[Quick Start](/docs/getting-started/quick-start)** - Build your first streaming application
 - **[SQL Reference](/docs/sql-reference/queries)** - Complete query language documentation
 :::
@@ -138,5 +138,5 @@ import DocCardList from '@theme/DocCardList';
 - **Discord**: Join our community chat
 
 :::caution Work in Progress
-Eventflux is under active development. APIs may change between releases. We recommend pinning to specific versions in production.
+EventFlux is under active development. APIs may change between releases. We recommend pinning to specific versions in production.
 :::

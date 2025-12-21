@@ -6,7 +6,7 @@ description: Enterprise-grade state management with checkpointing and recovery
 
 # State Management
 
-Eventflux provides enterprise-grade state management with incremental checkpointing, compression, and point-in-time recovery capabilities.
+EventFlux provides enterprise-grade state management with incremental checkpointing, compression, and point-in-time recovery capabilities.
 
 ## State Architecture
 
@@ -313,7 +313,7 @@ pub struct GroupAccumulators {
 
 ### Compression Ratio
 
-Eventflux achieves 90-95% compression on typical state data:
+EventFlux achieves 90-95% compression on typical state data:
 
 | State Type | Uncompressed | Compressed | Ratio |
 |------------|--------------|------------|-------|

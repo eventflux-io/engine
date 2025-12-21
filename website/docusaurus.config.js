@@ -3,9 +3,9 @@ import { themes as prismThemes } from 'prism-react-renderer';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Eventflux',
+  title: 'EventFlux',
   tagline: 'The Rust-native CEP Engine',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/logo.png',
 
   url: 'https://eventflux.io',
   baseUrl: '/',
@@ -20,6 +20,32 @@ const config = {
     defaultLocale: 'en',
     locales: ['en'],
   },
+
+  // Google Fonts for typography
+  headTags: [
+    {
+      tagName: 'link',
+      attributes: {
+        rel: 'preconnect',
+        href: 'https://fonts.googleapis.com',
+      },
+    },
+    {
+      tagName: 'link',
+      attributes: {
+        rel: 'preconnect',
+        href: 'https://fonts.gstatic.com',
+        crossorigin: 'anonymous',
+      },
+    },
+    {
+      tagName: 'link',
+      attributes: {
+        rel: 'stylesheet',
+        href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
+      },
+    },
+  ],
 
   presets: [
     [
@@ -55,9 +81,9 @@ const config = {
         respectPrefersColorScheme: true,
       },
       navbar: {
-        title: 'Eventflux',
+        title: 'EventFlux',
         logo: {
-          alt: 'Eventflux Logo',
+          alt: 'EventFlux Logo',
           src: 'img/logo.png',
           srcDark: 'img/logo.png',
           width: 32,
@@ -146,11 +172,11 @@ const config = {
             ],
           },
         ],
-        copyright: `Copyright © ${new Date().getFullYear()} Eventflux Project.`,
+        copyright: `Copyright © ${new Date().getFullYear()} EventFlux Project.`,
       },
       prism: {
         theme: prismThemes.github,
-        darkTheme: prismThemes.dracula,
+        darkTheme: prismThemes.nightOwl,
         additionalLanguages: ['rust', 'sql', 'toml', 'bash'],
       },
       algolia: {

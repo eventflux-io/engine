@@ -1,12 +1,12 @@
 ---
 sidebar_position: 3
 title: Aggregations
-description: Aggregate functions and GROUP BY in Eventflux
+description: Aggregate functions and GROUP BY in EventFlux
 ---
 
 # Aggregations
 
-Aggregations allow you to compute summary statistics over groups of events. Eventflux provides a comprehensive set of aggregate functions that work with windows and GROUP BY.
+Aggregations allow you to compute summary statistics over groups of events. EventFlux provides a comprehensive set of aggregate functions that work with windows and GROUP BY.
 
 ## Aggregate Functions
 

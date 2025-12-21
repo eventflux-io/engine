@@ -1,12 +1,12 @@
 ---
 sidebar_position: 3
 title: WebSocket Connector
-description: Connect Eventflux to WebSocket endpoints for real-time bidirectional streaming
+description: Connect EventFlux to WebSocket endpoints for real-time bidirectional streaming
 ---
 
 # WebSocket Connector
 
-The WebSocket connector enables Eventflux to consume real-time events from WebSocket endpoints and publish processed results to WebSocket servers. It supports JSON, text, and binary message formats with automatic serialization/deserialization.
+The WebSocket connector enables EventFlux to consume real-time events from WebSocket endpoints and publish processed results to WebSocket servers. It supports JSON, text, and binary message formats with automatic serialization/deserialization.
 
 ## Overview
 

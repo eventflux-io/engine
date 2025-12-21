@@ -1,12 +1,12 @@
 ---
 sidebar_position: 6
 title: Functions
-description: Built-in functions reference for Eventflux
+description: Built-in functions reference for EventFlux
 ---
 
 # Functions Reference
 
-Eventflux provides a comprehensive set of built-in functions for data transformation, mathematical operations, string manipulation, and more.
+EventFlux provides a comprehensive set of built-in functions for data transformation, mathematical operations, string manipulation, and more.
 
 ## Mathematical Functions
 

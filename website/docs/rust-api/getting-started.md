@@ -1,16 +1,16 @@
 ---
 sidebar_position: 1
 title: Rust API Getting Started
-description: Embed Eventflux in your Rust applications
+description: Embed EventFlux in your Rust applications
 ---
 
 # Rust API Getting Started
 
-This guide shows you how to embed Eventflux in your Rust applications for programmatic stream processing.
+This guide shows you how to embed EventFlux in your Rust applications for programmatic stream processing.
 
 ## Installation
 
-Add Eventflux to your `Cargo.toml`:
+Add EventFlux to your `Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -29,7 +29,7 @@ cargo build --release
 
 ### Creating an EventFlux Manager
 
-The `EventFluxManager` is the entry point for all Eventflux operations:
+The `EventFluxManager` is the entry point for all EventFlux operations:
 
 ```rust
 use eventflux::prelude::*;
@@ -171,7 +171,7 @@ runtime.advance_time(1699900005)?;  // 5 seconds later
 
 ## Error Handling
 
-Eventflux uses a custom error type for comprehensive error handling:
+EventFlux uses a custom error type for comprehensive error handling:
 
 ```rust
 use eventflux::error::EventFluxError;

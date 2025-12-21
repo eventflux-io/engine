@@ -31,7 +31,7 @@ function HeroSection() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
         >
-          Eventflux is a high-performance Complex Event Processing (CEP) engine
+          EventFlux is a high-performance Complex Event Processing (CEP) engine
           built from the ground up in Rust. Process millions of events per second
           with SQL-like queries, pattern matching, and real-time analytics.
         </motion.p>
@@ -212,7 +212,7 @@ FROM TradeInput WHERE volume > 1000;`,
             Real-World Event Processing
           </h2>
           <p className={styles.sectionSubtitle}>
-            See how Eventflux handles complex streaming scenarios with elegant SQL queries
+            See how EventFlux handles complex streaming scenarios with elegant SQL queries
           </p>
         </motion.div>
 
@@ -285,7 +285,7 @@ function FeaturesSection() {
           viewport={{ once: true, margin: '-100px' }}
           transition={{ duration: 0.6 }}
         >
-          <h2 className={styles.sectionTitle}>Why Eventflux?</h2>
+          <h2 className={styles.sectionTitle}>Why EventFlux?</h2>
           <p className={styles.sectionSubtitle}>
             Built for the demands of modern real-time data processing
           </p>
@@ -355,7 +355,7 @@ export default function Home() {
   return (
     <Layout
       title={`${siteConfig.title} - ${siteConfig.tagline}`}
-      description="Eventflux is a high-performance Complex Event Processing (CEP) engine built in Rust. Process millions of events per second with SQL-like queries."
+      description="EventFlux is a high-performance Complex Event Processing (CEP) engine built in Rust. Process millions of events per second with SQL-like queries."
     >
       <HeroSection />
       <main>

@@ -1,12 +1,12 @@
 ---
 sidebar_position: 2
 title: RabbitMQ Connector
-description: Connect Eventflux to RabbitMQ message broker for real-time event streaming
+description: Connect EventFlux to RabbitMQ message broker for real-time event streaming
 ---
 
 # RabbitMQ Connector
 
-The RabbitMQ connector enables Eventflux to consume events from RabbitMQ queues and publish processed results to RabbitMQ exchanges. It supports JSON, CSV, and bytes message formats with automatic serialization/deserialization.
+The RabbitMQ connector enables EventFlux to consume events from RabbitMQ queues and publish processed results to RabbitMQ exchanges. It supports JSON, CSV, and bytes message formats with automatic serialization/deserialization.
 
 ## Prerequisites
 
@@ -25,7 +25,7 @@ Access the management UI at [http://localhost:15672](http://localhost:15672) wit
 
 ### Creating Queues and Exchanges
 
-Before running Eventflux queries, create the required infrastructure:
+Before running EventFlux queries, create the required infrastructure:
 
 **Option 1: Via Management UI**
 
@@ -275,7 +275,7 @@ WHERE volume > 1000;
    - Queue: `trade-output-queue`
    - Bind with routing key: `processed`
 
-3. **Run Eventflux:**
+3. **Run EventFlux:**
    ```bash
    cargo run --bin run_eventflux your_query.eventflux
    ```
@@ -366,7 +366,7 @@ Error: Queue 'my-queue' does not exist
 ```
 
 **Solutions:**
-- Create the queue before starting Eventflux
+- Create the queue before starting EventFlux
 - Check queue name spelling in Management UI
 - Verify you're connecting to the correct vhost
 

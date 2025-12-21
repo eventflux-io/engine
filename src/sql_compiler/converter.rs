@@ -909,6 +909,11 @@ impl SqlConverter {
                 Ok(Expression::cast(inner_expr, target_type))
             }
 
+            SqlExpr::Nested(inner_expr) => {
+                // Parenthesized expression - simply unwrap and convert the inner expression
+                Self::convert_expression(inner_expr, catalog)
+            }
+
             _ => Err(ConverterError::UnsupportedFeature(format!(
                 "Expression type {:?}",
                 expr
