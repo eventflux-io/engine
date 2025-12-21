@@ -10,38 +10,30 @@ EventFlux provides enterprise-grade state management with incremental checkpoint
 
 ## State Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    State Management System                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                     StateHolder                            │  │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │  │
-│  │  │   Window     │  │   Pattern    │  │ Aggregation  │    │  │
-│  │  │    State     │  │    State     │  │    State     │    │  │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘    │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                              │                                   │
-│                              ▼                                   │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                 Checkpoint Manager                         │  │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────────────┐  │  │
-│  │  │   Delta    │  │   Compress │  │     Serialize      │  │  │
-│  │  │  Tracker   │  │   (90-95%) │  │                    │  │  │
-│  │  └────────────┘  └────────────┘  └────────────────────┘  │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                              │                                   │
-│                              ▼                                   │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                   Storage Backend                          │  │
-│  │       ┌─────────────┐         ┌─────────────┐            │  │
-│  │       │    Local    │         │    Redis    │            │  │
-│  │       │   Storage   │         │   Backend   │            │  │
-│  │       └─────────────┘         └─────────────┘            │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph System["State Management System"]
+        subgraph Holder["StateHolder"]
+            WindowState["Window<br/>State"]
+            PatternState["Pattern<br/>State"]
+            AggState["Aggregation<br/>State"]
+        end
+
+        subgraph Checkpoint["Checkpoint Manager"]
+            Delta["Delta<br/>Tracker"]
+            Compress["Compress<br/>(90-95%)"]
+            Serialize["Serialize"]
+            Delta --- Compress --- Serialize
+        end
+
+        subgraph Backend["Storage Backend"]
+            Local["Local<br/>Storage"]
+            Redis["Redis<br/>Backend"]
+        end
+
+        Holder --> Checkpoint
+        Checkpoint --> Backend
+    end
 ```
 
 ## StateHolder
