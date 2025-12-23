@@ -28,6 +28,9 @@ pub struct LengthBatchWindowStateHolder {
     /// Expired batch buffer
     expired: Arc<Mutex<Vec<StreamEvent>>>,
 
+    /// Reset event template - emitted between expired and current to clear aggregator state
+    reset_event: Arc<Mutex<Option<StreamEvent>>>,
+
     /// Component identifier
     component_id: String,
 
@@ -52,12 +55,14 @@ impl LengthBatchWindowStateHolder {
     pub fn new(
         buffer: Arc<Mutex<Vec<StreamEvent>>>,
         expired: Arc<Mutex<Vec<StreamEvent>>>,
+        reset_event: Arc<Mutex<Option<StreamEvent>>>,
         component_id: String,
         batch_length: usize,
     ) -> Self {
         Self {
             buffer,
             expired,
+            reset_event,
             component_id,
             batch_length,
             last_checkpoint_id: Arc::new(Mutex::new(None)),
@@ -81,7 +86,7 @@ impl LengthBatchWindowStateHolder {
         *self.total_events_processed.lock().unwrap() += 1;
     }
 
-    /// Record a batch flush for incremental checkpointing  
+    /// Record a batch flush for incremental checkpointing
     pub fn record_batch_flushed(
         &self,
         current_batch: &[StreamEvent],
@@ -93,6 +98,29 @@ impl LengthBatchWindowStateHolder {
         change_log.push(StateOperation::Delete {
             key: b"batch_flush_marker".to_vec(),
             old_value: self.serialize_batch_transition(current_batch, expired_batch),
+        });
+    }
+
+    /// Record reset event template change for incremental checkpointing
+    /// Called when the first event of a new batch is captured as the reset template
+    pub fn record_reset_event_set(&self, event: &StreamEvent) {
+        let mut change_log = self.change_log.lock().unwrap();
+        let event_data = self.serialize_event(event);
+
+        change_log.push(StateOperation::Insert {
+            key: b"reset_event".to_vec(),
+            value: event_data,
+        });
+    }
+
+    /// Record reset event template cleared for incremental checkpointing
+    /// Called when the reset event is consumed during batch flush
+    pub fn record_reset_event_cleared(&self) {
+        let mut change_log = self.change_log.lock().unwrap();
+
+        change_log.push(StateOperation::Delete {
+            key: b"reset_event".to_vec(),
+            old_value: Vec::new(), // We don't need the old value for delete
         });
     }
 
@@ -221,11 +249,28 @@ impl StateHolder for LengthBatchWindowStateHolder {
             serialized_events
         };
 
+        // Serialize reset event if present
+        let reset_event = {
+            let reset_guard = self.reset_event.lock().unwrap();
+            if let Some(ref event) = *reset_guard {
+                match self
+                    .serialization_service
+                    .serialize_event_with_strategy(event, storage_strategy.clone())
+                {
+                    Ok(data) => Some(data),
+                    Err(_e) => None, // Skip if serialization fails
+                }
+            } else {
+                None
+            }
+        };
+
         let state_data = LengthBatchWindowStateData {
             current_batch,
             expired_batch,
             batch_length: self.batch_length,
             total_events_processed: *self.total_events_processed.lock().unwrap(),
+            reset_event,
         };
 
         // Serialize to bytes
@@ -314,6 +359,19 @@ impl StateHolder for LengthBatchWindowStateHolder {
             }
         }
 
+        // Restore reset event template if present
+        {
+            let mut reset_guard = self.reset_event.lock().unwrap();
+            *reset_guard = if let Some(serialized_event) = state_data.reset_event {
+                match self.deserialize_event(&serialized_event) {
+                    Ok(event) => Some(event),
+                    Err(_e) => None, // Skip if deserialization fails
+                }
+            } else {
+                None
+            };
+        }
+
         // Restore metadata (batch_length is configuration and doesn't need to be restored)
         *self.total_events_processed.lock().unwrap() = state_data.total_events_processed;
 
@@ -352,6 +410,15 @@ impl StateHolder for LengthBatchWindowStateHolder {
         for operation in &changes.operations {
             match operation {
                 StateOperation::Insert { key, value } => {
+                    // Handle reset_event insert
+                    if key == b"reset_event" {
+                        if let Ok(event) = self.deserialize_event(value) {
+                            let mut reset_guard = self.reset_event.lock().unwrap();
+                            *reset_guard = Some(event);
+                        }
+                        continue;
+                    }
+
                     // Deserialize and insert event into appropriate buffer
                     match self.deserialize_event(value) {
                         Ok(event) => {
@@ -380,6 +447,10 @@ impl StateHolder for LengthBatchWindowStateHolder {
                         // Handle batch flush: move current to expired
                         expired.clear();
                         expired.extend(buffer.drain(..));
+                    } else if key == b"reset_event" {
+                        // Clear reset event template
+                        let mut reset_guard = self.reset_event.lock().unwrap();
+                        *reset_guard = None;
                     } else {
                         // Deserialize and remove the event
                         if let Ok(event_to_remove) = self.deserialize_event(old_value) {
@@ -419,9 +490,10 @@ impl StateHolder for LengthBatchWindowStateHolder {
                 }
 
                 StateOperation::Clear => {
-                    // Clear both buffers
+                    // Clear both buffers and reset event template
                     buffer.clear();
                     expired.clear();
+                    *self.reset_event.lock().unwrap() = None;
                 }
             }
         }
@@ -515,6 +587,10 @@ struct LengthBatchWindowStateData {
     expired_batch: Vec<Vec<u8>>,
     batch_length: usize,
     total_events_processed: u64,
+    /// Serialized reset event template (if present)
+    /// Uses serde(default) for backward compatibility with checkpoints created before this field existed
+    #[serde(default)]
+    reset_event: Option<Vec<u8>>,
 }
 
 #[cfg(test)]
@@ -528,9 +604,11 @@ mod tests {
     fn test_length_batch_window_state_holder_creation() {
         let buffer = Arc::new(Mutex::new(Vec::new()));
         let expired = Arc::new(Mutex::new(Vec::new()));
+        let reset_event = Arc::new(Mutex::new(None));
         let holder = LengthBatchWindowStateHolder::new(
             buffer,
             expired,
+            reset_event,
             "test_length_batch_window".to_string(),
             5, // batch size of 5
         );
@@ -571,9 +649,11 @@ mod tests {
             exp.push(event3);
         }
 
+        let reset_event = Arc::new(Mutex::new(None));
         let mut holder = LengthBatchWindowStateHolder::new(
             buffer,
             expired,
+            reset_event,
             "test_length_batch_window".to_string(),
             5,
         );
@@ -610,9 +690,11 @@ mod tests {
     fn test_change_log_tracking() {
         let buffer = Arc::new(Mutex::new(Vec::new()));
         let expired = Arc::new(Mutex::new(Vec::new()));
+        let reset_event = Arc::new(Mutex::new(None));
         let holder = LengthBatchWindowStateHolder::new(
             buffer,
             expired,
+            reset_event,
             "test_length_batch_window".to_string(),
             3,
         );
@@ -645,9 +727,11 @@ mod tests {
     fn test_size_estimation() {
         let buffer = Arc::new(Mutex::new(Vec::new()));
         let expired = Arc::new(Mutex::new(Vec::new()));
+        let reset_event = Arc::new(Mutex::new(None));
         let holder = LengthBatchWindowStateHolder::new(
             buffer.clone(),
             expired.clone(),
+            reset_event,
             "test_length_batch_window".to_string(),
             5, // batch size of 5
         );
@@ -703,9 +787,11 @@ mod tests {
             exp.push(event);
         }
 
+        let reset_event = Arc::new(Mutex::new(None));
         let holder = LengthBatchWindowStateHolder::new(
             buffer,
             expired,
+            reset_event,
             "test_length_batch_window".to_string(),
             5,
         );

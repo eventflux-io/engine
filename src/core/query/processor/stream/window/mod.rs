@@ -292,6 +292,10 @@ struct BatchFlushTask {
     duration_ms: i64,
     scheduler: Arc<Scheduler>,
     start_time: Arc<Mutex<Option<i64>>>,
+    /// Reset event template - emitted between expired and current to clear aggregator state
+    reset_event: Arc<Mutex<Option<StreamEvent>>>,
+    /// State holder for incremental checkpointing
+    state_holder: Option<TimeBatchWindowStateHolder>,
 }
 
 impl Schedulable for BatchFlushTask {
@@ -306,15 +310,31 @@ impl Schedulable for BatchFlushTask {
         };
 
         if expired_batch.is_empty() && current_batch.is_empty() {
-            *self.start_time.lock().unwrap() = Some(timestamp);
+            let old_start_time = {
+                let mut start_time = self.start_time.lock().unwrap();
+                let old = *start_time;
+                *start_time = Some(timestamp);
+                old
+            };
+            // Record start_time update for incremental checkpointing
+            if let Some(ref state_holder) = self.state_holder {
+                state_holder.record_start_time_updated(old_start_time, Some(timestamp));
+            }
             self.scheduler
                 .notify_at(timestamp + self.duration_ms, Arc::new(self.clone()));
             return;
         }
 
+        // Record batch flush for incremental checkpointing
+        // This must be done before processing to ensure recovery replays correctly
+        if let Some(ref state_holder) = self.state_holder {
+            state_holder.record_batch_flushed(&current_batch, &expired_batch, timestamp);
+        }
+
         let mut head: Option<Box<dyn ComplexEvent>> = None;
         let mut tail = &mut head;
 
+        // 1. Emit expired events first
         for mut e in expired_batch {
             e.set_event_type(ComplexEventType::Expired);
             e.set_timestamp(timestamp);
@@ -322,6 +342,26 @@ impl Schedulable for BatchFlushTask {
             tail = tail.as_mut().unwrap().mut_next_ref_option();
         }
 
+        // 2. Emit RESET event to clear aggregator state before processing new batch
+        // This follows Siddhi's pattern: EXPIRED → RESET → CURRENT
+        {
+            let mut reset_guard = self.reset_event.lock().unwrap();
+            if let Some(ref reset_template) = *reset_guard {
+                let mut reset_ev = reset_template.clone_without_next();
+                reset_ev.set_event_type(ComplexEventType::Reset);
+                reset_ev.set_timestamp(timestamp);
+                *tail = Some(Box::new(reset_ev));
+                tail = tail.as_mut().unwrap().mut_next_ref_option();
+            }
+            // Clear reset event after use (will be recreated from first event of next batch)
+            *reset_guard = None;
+            // Record reset event cleared for incremental checkpointing
+            if let Some(ref state_holder) = self.state_holder {
+                state_holder.record_reset_event_cleared();
+            }
+        }
+
+        // 3. Emit current events
         for e in &current_batch {
             *tail = Some(Box::new(e.clone_without_next()));
             tail = tail.as_mut().unwrap().mut_next_ref_option();
@@ -338,7 +378,16 @@ impl Schedulable for BatchFlushTask {
             }
         }
 
-        *self.start_time.lock().unwrap() = Some(timestamp);
+        let old_start_time = {
+            let mut start_time = self.start_time.lock().unwrap();
+            let old = *start_time;
+            *start_time = Some(timestamp);
+            old
+        };
+        // Record start_time update for incremental checkpointing
+        if let Some(ref state_holder) = self.state_holder {
+            state_holder.record_start_time_updated(old_start_time, Some(timestamp));
+        }
         self.scheduler
             .notify_at(timestamp + self.duration_ms, Arc::new(self.clone()));
     }
@@ -599,6 +648,8 @@ pub struct LengthBatchWindowProcessor {
     buffer: Arc<Mutex<Vec<StreamEvent>>>,
     expired: Arc<Mutex<Vec<StreamEvent>>>,
     state_holder: Option<LengthBatchWindowStateHolder>,
+    /// Reset event template - created from first event of batch, emitted between expired and current
+    reset_event: Arc<Mutex<Option<StreamEvent>>>,
 }
 
 impl LengthBatchWindowProcessor {
@@ -609,12 +660,14 @@ impl LengthBatchWindowProcessor {
     ) -> Self {
         let buffer = Arc::new(Mutex::new(Vec::new()));
         let expired = Arc::new(Mutex::new(Vec::new()));
+        let reset_event = Arc::new(Mutex::new(None));
 
         // Create enhanced StateHolder and register it
         let component_id = format!("length_batch_window_{}_{}", query_ctx.get_name(), length);
         let state_holder = LengthBatchWindowStateHolder::new(
             Arc::clone(&buffer),
             Arc::clone(&expired),
+            Arc::clone(&reset_event),
             component_id.clone(),
             length,
         );
@@ -634,6 +687,7 @@ impl LengthBatchWindowProcessor {
             buffer,
             expired,
             state_holder: Some(state_holder),
+            reset_event,
         }
     }
 
@@ -682,6 +736,7 @@ impl LengthBatchWindowProcessor {
             let mut head: Option<Box<dyn ComplexEvent>> = None;
             let mut tail = &mut head;
 
+            // 1. Emit expired events first
             for mut e in expired_batch {
                 e.set_event_type(ComplexEventType::Expired);
                 e.set_timestamp(timestamp);
@@ -689,6 +744,26 @@ impl LengthBatchWindowProcessor {
                 tail = tail.as_mut().unwrap().mut_next_ref_option();
             }
 
+            // 2. Emit RESET event to clear aggregator state before processing new batch
+            // This follows Siddhi's pattern: EXPIRED → RESET → CURRENT
+            {
+                let mut reset_guard = self.reset_event.lock().unwrap();
+                if let Some(ref reset_template) = *reset_guard {
+                    let mut reset_ev = reset_template.clone_without_next();
+                    reset_ev.set_event_type(ComplexEventType::Reset);
+                    reset_ev.set_timestamp(timestamp);
+                    *tail = Some(Box::new(reset_ev));
+                    tail = tail.as_mut().unwrap().mut_next_ref_option();
+                }
+                // Clear reset event after use (will be recreated from first event of next batch)
+                *reset_guard = None;
+                // Record reset event cleared for incremental checkpointing
+                if let Some(ref state_holder) = self.state_holder {
+                    state_holder.record_reset_event_cleared();
+                }
+            }
+
+            // 3. Emit current events
             for e in &current_batch {
                 *tail = Some(Box::new(e.clone_without_next()));
                 tail = tail.as_mut().unwrap().mut_next_ref_option();
@@ -723,6 +798,15 @@ impl Processor for LengthBatchWindowProcessor {
                     let last_ts = se.timestamp;
                     let should_flush = {
                         let mut buffer = self.buffer.lock().unwrap();
+                        // Capture first event of batch as reset template
+                        if buffer.is_empty() {
+                            let mut reset_guard = self.reset_event.lock().unwrap();
+                            *reset_guard = Some(se_clone.clone());
+                            // Record reset event set for incremental checkpointing
+                            if let Some(ref state_holder) = self.state_holder {
+                                state_holder.record_reset_event_set(&se_clone);
+                            }
+                        }
                         buffer.push(se_clone);
                         buffer.len() >= self.length
                     };
@@ -886,6 +970,9 @@ pub struct TimeBatchWindowProcessor {
     expired: Arc<Mutex<Vec<StreamEvent>>>,
     start_time: Arc<Mutex<Option<i64>>>,
     state_holder: Option<TimeBatchWindowStateHolder>,
+    /// Reset event template - created from first event, emitted between expired and current
+    /// to signal aggregators to clear state before processing new batch
+    reset_event: Arc<Mutex<Option<StreamEvent>>>,
 }
 
 impl TimeBatchWindowProcessor {
@@ -898,6 +985,7 @@ impl TimeBatchWindowProcessor {
         let buffer = Arc::new(Mutex::new(Vec::new()));
         let expired = Arc::new(Mutex::new(Vec::new()));
         let start_time = Arc::new(Mutex::new(None));
+        let reset_event = Arc::new(Mutex::new(None));
 
         // Create enhanced StateHolder
         let component_id = format!("time_batch_window_{}", uuid::Uuid::new_v4());
@@ -905,6 +993,7 @@ impl TimeBatchWindowProcessor {
             Arc::clone(&buffer),
             Arc::clone(&expired),
             Arc::clone(&start_time),
+            Arc::clone(&reset_event),
             component_id,
             duration_ms,
         );
@@ -917,6 +1006,7 @@ impl TimeBatchWindowProcessor {
             expired,
             start_time,
             state_holder: Some(state_holder),
+            reset_event,
         }
     }
 
@@ -965,6 +1055,7 @@ impl TimeBatchWindowProcessor {
             let mut head: Option<Box<dyn ComplexEvent>> = None;
             let mut tail = &mut head;
 
+            // 1. Emit expired events first
             for mut e in expired_batch {
                 e.set_event_type(ComplexEventType::Expired);
                 e.set_timestamp(timestamp);
@@ -972,6 +1063,26 @@ impl TimeBatchWindowProcessor {
                 tail = tail.as_mut().unwrap().mut_next_ref_option();
             }
 
+            // 2. Emit RESET event to clear aggregator state before processing new batch
+            // This follows Siddhi's pattern: EXPIRED → RESET → CURRENT
+            {
+                let mut reset_guard = self.reset_event.lock().unwrap();
+                if let Some(ref reset_template) = *reset_guard {
+                    let mut reset_ev = reset_template.clone_without_next();
+                    reset_ev.set_event_type(ComplexEventType::Reset);
+                    reset_ev.set_timestamp(timestamp);
+                    *tail = Some(Box::new(reset_ev));
+                    tail = tail.as_mut().unwrap().mut_next_ref_option();
+                }
+                // Clear reset event after use (will be recreated from first event of next batch)
+                *reset_guard = None;
+                // Record reset event cleared for incremental checkpointing
+                if let Some(ref state_holder) = self.state_holder {
+                    state_holder.record_reset_event_cleared();
+                }
+            }
+
+            // 3. Emit current events
             for e in &current_batch {
                 *tail = Some(Box::new(e.clone_without_next()));
                 tail = tail.as_mut().unwrap().mut_next_ref_option();
@@ -986,7 +1097,16 @@ impl TimeBatchWindowProcessor {
                 next.lock().unwrap().process(Some(chain));
             }
         }
-        *self.start_time.lock().unwrap() = Some(timestamp);
+        let old_start_time = {
+            let mut start_time = self.start_time.lock().unwrap();
+            let old = *start_time;
+            *start_time = Some(timestamp);
+            old
+        };
+        // Record start_time update for incremental checkpointing
+        if let Some(ref state_holder) = self.state_holder {
+            state_holder.record_start_time_updated(old_start_time, Some(timestamp));
+        }
         if let Some(ref scheduler) = self.scheduler {
             let task = BatchFlushTask {
                 buffer: Arc::clone(&self.buffer),
@@ -995,6 +1115,8 @@ impl TimeBatchWindowProcessor {
                 duration_ms: self.duration_ms,
                 scheduler: Arc::clone(scheduler),
                 start_time: Arc::clone(&self.start_time),
+                reset_event: Arc::clone(&self.reset_event),
+                state_holder: self.state_holder.clone(),
             };
             scheduler.notify_at(timestamp + self.duration_ms, Arc::new(task));
         }
@@ -1027,6 +1149,8 @@ impl Processor for TimeBatchWindowProcessor {
                                 duration_ms: self.duration_ms,
                                 scheduler: Arc::clone(scheduler),
                                 start_time: Arc::clone(&self.start_time),
+                                reset_event: Arc::clone(&self.reset_event),
+                                state_holder: self.state_holder.clone(),
                             };
                             scheduler.notify_at(se.timestamp + self.duration_ms, Arc::new(task));
                         }
@@ -1037,6 +1161,19 @@ impl Processor for TimeBatchWindowProcessor {
                     }
 
                     let se_clone = se.clone_without_next();
+
+                    // Create reset event from first event of each batch
+                    // This will be emitted between expired and current events to reset aggregators
+                    {
+                        let mut reset_guard = self.reset_event.lock().unwrap();
+                        if reset_guard.is_none() {
+                            *reset_guard = Some(se_clone.clone());
+                            // Record reset event set for incremental checkpointing
+                            if let Some(ref state_holder) = self.state_holder {
+                                state_holder.record_reset_event_set(&se_clone);
+                            }
+                        }
+                    }
 
                     // Record state change for incremental checkpointing
                     if let Some(ref state_holder) = self.state_holder {
@@ -1338,6 +1475,8 @@ pub struct ExternalTimeBatchWindowProcessor {
     buffer: Arc<Mutex<Vec<StreamEvent>>>,
     expired: Arc<Mutex<Vec<StreamEvent>>>,
     start_time: Arc<Mutex<Option<i64>>>,
+    /// Reset event template - emitted between expired and current to clear aggregator state
+    reset_event: Arc<Mutex<Option<StreamEvent>>>,
 }
 
 impl ExternalTimeBatchWindowProcessor {
@@ -1352,6 +1491,7 @@ impl ExternalTimeBatchWindowProcessor {
             buffer: Arc::new(Mutex::new(Vec::new())),
             expired: Arc::new(Mutex::new(Vec::new())),
             start_time: Arc::new(Mutex::new(None)),
+            reset_event: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -1399,6 +1539,7 @@ impl ExternalTimeBatchWindowProcessor {
             let mut head: Option<Box<dyn ComplexEvent>> = None;
             let mut tail = &mut head;
 
+            // 1. Emit expired events first
             for mut e in expired_batch {
                 e.set_event_type(ComplexEventType::Expired);
                 e.set_timestamp(timestamp);
@@ -1406,6 +1547,22 @@ impl ExternalTimeBatchWindowProcessor {
                 tail = tail.as_mut().unwrap().mut_next_ref_option();
             }
 
+            // 2. Emit RESET event to clear aggregator state before processing new batch
+            // This follows Siddhi's pattern: EXPIRED → RESET → CURRENT
+            {
+                let mut reset_guard = self.reset_event.lock().unwrap();
+                if let Some(ref reset_template) = *reset_guard {
+                    let mut reset_ev = reset_template.clone_without_next();
+                    reset_ev.set_event_type(ComplexEventType::Reset);
+                    reset_ev.set_timestamp(timestamp);
+                    *tail = Some(Box::new(reset_ev));
+                    tail = tail.as_mut().unwrap().mut_next_ref_option();
+                }
+                // Clear reset event after use (will be recreated from first event of next batch)
+                *reset_guard = None;
+            }
+
+            // 3. Emit current events
             for e in &current_batch {
                 *tail = Some(Box::new(e.clone_without_next()));
                 tail = tail.as_mut().unwrap().mut_next_ref_option();
@@ -1441,7 +1598,16 @@ impl Processor for ExternalTimeBatchWindowProcessor {
                         self.flush(flush_ts);
                         start = self.start_time.lock().unwrap();
                     }
-                    self.buffer.lock().unwrap().push(se.clone_without_next());
+                    let se_clone = se.clone_without_next();
+                    {
+                        let mut buffer = self.buffer.lock().unwrap();
+                        // Capture reset event template from first event of each batch
+                        if buffer.is_empty() {
+                            let mut reset_guard = self.reset_event.lock().unwrap();
+                            *reset_guard = Some(se_clone.clone());
+                        }
+                        buffer.push(se_clone);
+                    }
                 }
                 current_opt = ev.get_next();
             }

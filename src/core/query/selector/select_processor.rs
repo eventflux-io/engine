@@ -480,7 +480,11 @@ impl Processor for SelectProcessor {
                         continue;
                     }
                 }
-                group_map.insert(key, event_box);
+                // RESET events are consumed (processed by aggregators) but NOT output
+                // They only signal aggregators to clear state before new batch
+                if etype != ComplexEventType::Reset {
+                    group_map.insert(key, event_box);
+                }
             } else {
                 for oap in &self.output_attribute_processors {
                     out.push(oap.process(Some(event_box.as_ref())));
@@ -499,15 +503,19 @@ impl Processor for SelectProcessor {
                         continue;
                     }
                 }
-                if self.is_group_by {
-                    let key = self
-                        .group_by_key_generator
-                        .as_ref()
-                        .and_then(|g| g.construct_event_key(event_box.as_ref()))
-                        .unwrap_or_default();
-                    group_map.insert(key, event_box);
-                } else {
-                    collected.push(event_box);
+                // RESET events are consumed (processed by aggregators) but NOT output
+                // They only signal aggregators to clear state before new batch
+                if etype != ComplexEventType::Reset {
+                    if self.is_group_by {
+                        let key = self
+                            .group_by_key_generator
+                            .as_ref()
+                            .and_then(|g| g.construct_event_key(event_box.as_ref()))
+                            .unwrap_or_default();
+                        group_map.insert(key, event_box);
+                    } else {
+                        collected.push(event_box);
+                    }
                 }
             }
 
