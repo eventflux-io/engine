@@ -124,6 +124,18 @@ fn get_function_signature(name: &str) -> Option<&'static FunctionSignature> {
         }),
         FunctionSignature::new("min", 1, |args| Ok(args[0])),
         FunctionSignature::new("max", 1, |args| Ok(args[0])),
+        // distinctCount aggregator - counts unique values
+        FunctionSignature::new("distinctcount", 1, |_| Ok(AttributeType::LONG)),
+        // stdDev aggregator - standard deviation, always returns DOUBLE
+        FunctionSignature::new("stddev", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "STDDEV requires numeric argument".into(),
+                ))
+            }
+        }),
         // Math functions
         FunctionSignature::new("round", 1, |args| match args[0] {
             AttributeType::FLOAT | AttributeType::DOUBLE => Ok(AttributeType::DOUBLE),
@@ -170,6 +182,15 @@ fn get_function_signature(name: &str) -> Option<&'static FunctionSignature> {
             }
         }),
         FunctionSignature::new("concat", 0, |_| Ok(AttributeType::STRING)),
+        // Utility functions
+        // coalesce - returns first non-null value, type is first arg's type
+        FunctionSignature::new("coalesce", 1, |args| Ok(args[0])),
+        // uuid - generates a random UUID string
+        FunctionSignature::new("uuid", 0, |_| Ok(AttributeType::STRING)),
+        // eventTimestamp - returns event timestamp as LONG
+        FunctionSignature::new("eventtimestamp", 0, |_| Ok(AttributeType::LONG)),
+        // currentTimeMillis - alias for current time
+        FunctionSignature::new("currenttimemillis", 0, |_| Ok(AttributeType::LONG)),
     ];
 
     FUNCTIONS.iter().find(|f| f.name == name)

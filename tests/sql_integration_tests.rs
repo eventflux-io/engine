@@ -1024,10 +1024,7 @@ async fn test_tumbling_window_multi_batch_no_spurious_empty_events() {
                 );
             }
             other => {
-                panic!(
-                    "Event {} has unexpected trade_count type: {:?}",
-                    i, other
-                );
+                panic!("Event {} has unexpected trade_count type: {:?}", i, other);
             }
         }
 
@@ -1165,10 +1162,7 @@ async fn test_length_batch_window_multi_batch_no_spurious_empty_events() {
                 );
             }
             other => {
-                panic!(
-                    "Event {} has unexpected trade_count type: {:?}",
-                    i, other
-                );
+                panic!("Event {} has unexpected trade_count type: {:?}", i, other);
             }
         }
 
@@ -1330,10 +1324,7 @@ async fn test_external_time_batch_window_multi_batch_no_spurious_empty_events() 
                 );
             }
             other => {
-                panic!(
-                    "Event {} has unexpected trade_count type: {:?}",
-                    i, other
-                );
+                panic!("Event {} has unexpected trade_count type: {:?}", i, other);
             }
         }
 

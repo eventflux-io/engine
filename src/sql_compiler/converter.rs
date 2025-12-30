@@ -1035,20 +1035,30 @@ impl SqlConverter {
 
         // Map SQL function names to EventFlux function names
         let eventflux_func_name = match func_name.as_str() {
+            // Aggregations
             "count" => "count",
             "sum" => "sum",
             "avg" => "avg",
             "min" => "min",
             "max" => "max",
+            "distinctcount" => "distinctCount",
+            "stddev" => "stdDev",
+            // Math functions
             "round" => "round",
             "abs" => "abs",
             "ceil" => "ceil",
             "floor" => "floor",
             "sqrt" => "sqrt",
+            // String functions
             "upper" => "upper",
             "lower" => "lower",
             "length" => "length",
             "concat" => "concat",
+            // Utility functions
+            "coalesce" => "coalesce",
+            "uuid" => "uuid",
+            "eventtimestamp" => "eventTimestamp",
+            "currenttimemillis" => "currentTimestamp",
             _ => {
                 return Err(ConverterError::UnsupportedFeature(format!(
                     "Function '{}' not supported",
