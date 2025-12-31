@@ -13,10 +13,12 @@ Windows are fundamental to stream processing, allowing you to group events for a
 ```sql
 SELECT ...
 FROM StreamName
-WINDOW WindowType(parameters)
+WINDOW('windowType', parameters)
 GROUP BY column
 INSERT INTO Output;
 ```
+
+**Time Units:** Windows use readable time units: `MILLISECONDS`, `SECONDS`, `MINUTES`, `HOURS`, `DAYS`, `WEEKS`
 
 ## Window Types Overview
 
@@ -46,12 +48,10 @@ SELECT sensor_id,
        AVG(temperature) AS avg_temp,
        COUNT(*) AS reading_count
 FROM SensorReadings
-WINDOW TUMBLING(5 min)
+WINDOW('tumbling', 5 MINUTES)
 GROUP BY sensor_id
 INSERT INTO FiveMinuteStats;
 ```
-
-**Time Units:** `sec`, `min`, `hour`, `day`
 
 **Visual Representation:**
 ```
@@ -70,14 +70,14 @@ SELECT symbol,
        AVG(price) AS moving_avg,
        MAX(price) AS max_price
 FROM StockTrades
-WINDOW SLIDING(10 sec, 2 sec)
+WINDOW('sliding', 10 SECONDS, 2 SECONDS)
 GROUP BY symbol
 INSERT INTO MovingAverages;
 ```
 
 **Parameters:**
-- First: Window size
-- Second: Slide interval
+- First: Window size (with time unit)
+- Second: Slide interval (with time unit)
 
 **Visual Representation:**
 ```
@@ -99,7 +99,7 @@ SELECT user_id,
        MIN(timestamp) AS session_start,
        MAX(timestamp) AS session_end
 FROM ClickStream
-WINDOW SESSION(30 min)
+WINDOW('session', 30 MINUTES)
 GROUP BY user_id
 INSERT INTO UserSessions;
 ```
@@ -125,7 +125,7 @@ Continuous rolling window based on event time.
 SELECT sensor_id,
        AVG(value) AS rolling_avg
 FROM Readings
-WINDOW TIME(1 min)
+WINDOW('time', 1 MINUTE)
 GROUP BY sensor_id
 INSERT INTO RollingStats;
 ```
@@ -140,7 +140,7 @@ SELECT symbol,
        SUM(volume) AS total_volume,
        COUNT(*) AS trade_count
 FROM Trades
-WINDOW TIMEBATCH(10 sec)
+WINDOW('timeBatch', 10 SECONDS)
 GROUP BY symbol
 INSERT INTO BatchedStats;
 ```
@@ -154,14 +154,14 @@ Uses a timestamp attribute from the event for windowing (event time vs processin
 SELECT device_id,
        AVG(temperature) AS avg_temp
 FROM SensorData
-WINDOW EXTERNALTIME(event_time, 5 min)
+WINDOW('externalTime', event_time, 5 MINUTES)
 GROUP BY device_id
 INSERT INTO Stats;
 ```
 
 **Parameters:**
 - First: Timestamp attribute name
-- Second: Window duration
+- Second: Window duration (with time unit)
 
 ---
 
@@ -177,7 +177,7 @@ SELECT symbol,
        AVG(price) AS avg_price,
        STDDEV(price) AS price_stddev
 FROM StockTrades
-WINDOW LENGTH(100)
+WINDOW('length', 100)
 GROUP BY symbol
 INSERT INTO RecentStats;
 ```
@@ -200,7 +200,7 @@ SELECT symbol,
        AVG(price) AS batch_avg,
        SUM(volume) AS batch_volume
 FROM Trades
-WINDOW LENGTHBATCH(50)
+WINDOW('lengthBatch', 50)
 GROUP BY symbol
 INSERT INTO BatchResults;
 ```
@@ -224,7 +224,7 @@ Delays event emission by a specified duration. Useful for handling late arrivals
 -- Delay events by 30 seconds
 SELECT *
 FROM SensorReadings
-WINDOW DELAY(30 sec)
+WINDOW('delay', 30 SECONDS)
 INSERT INTO DelayedReadings;
 ```
 
@@ -242,7 +242,7 @@ SELECT
     MAX(latency) AS max_latency,
     COUNT(*) AS request_count
 FROM NetworkRequests
-WINDOW TUMBLING(1 min)
+WINDOW('tumbling', 1 MINUTE)
 GROUP BY region, device_type
 INSERT INTO RegionalStats;
 ```
@@ -256,7 +256,7 @@ SELECT symbol,
        AVG(price) AS avg_price,
        COUNT(*) AS trade_count
 FROM Trades
-WINDOW TUMBLING(5 min)
+WINDOW('tumbling', 5 MINUTES)
 GROUP BY symbol
 HAVING COUNT(*) > 10 AND AVG(price) > 100
 INSERT INTO ActiveHighValueStocks;

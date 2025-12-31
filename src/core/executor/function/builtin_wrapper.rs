@@ -179,6 +179,17 @@ fn build_coalesce(
     Ok(Box::new(CoalesceFunctionExecutor::new(args)?))
 }
 
+fn build_nullif(
+    mut args: Vec<Box<dyn ExpressionExecutor>>,
+) -> Result<Box<dyn ExpressionExecutor>, String> {
+    if args.len() != 2 {
+        return Err("nullif() requires exactly two arguments".to_string());
+    }
+    let second = args.remove(1);
+    let first = args.remove(0);
+    Ok(Box::new(NullIfFunctionExecutor::new(first, second)))
+}
+
 fn build_uuid(
     _args: Vec<Box<dyn ExpressionExecutor>>,
 ) -> Result<Box<dyn ExpressionExecutor>, String> {
@@ -231,14 +242,20 @@ fn build_date_add(
 }
 
 fn build_round(
-    args: Vec<Box<dyn ExpressionExecutor>>,
+    mut args: Vec<Box<dyn ExpressionExecutor>>,
 ) -> Result<Box<dyn ExpressionExecutor>, String> {
-    if args.len() != 1 {
-        return Err("round() requires one argument".to_string());
+    match args.len() {
+        1 => Ok(Box::new(RoundFunctionExecutor::new(args.remove(0))?)),
+        2 => {
+            let value_exec = args.remove(0);
+            let precision_exec = args.remove(0);
+            Ok(Box::new(RoundFunctionExecutor::new_with_precision(
+                value_exec,
+                precision_exec,
+            )?))
+        }
+        _ => Err("round() requires one or two arguments".to_string()),
     }
-    Ok(Box::new(RoundFunctionExecutor::new(
-        args.into_iter().next().unwrap(),
-    )?))
 }
 
 fn build_sqrt(
@@ -281,6 +298,117 @@ fn build_tan(
         return Err("tan() requires one argument".to_string());
     }
     Ok(Box::new(TanFunctionExecutor::new(
+        args.into_iter().next().unwrap(),
+    )?))
+}
+
+fn build_abs(
+    args: Vec<Box<dyn ExpressionExecutor>>,
+) -> Result<Box<dyn ExpressionExecutor>, String> {
+    if args.len() != 1 {
+        return Err("abs() requires one argument".to_string());
+    }
+    Ok(Box::new(AbsFunctionExecutor::new(
+        args.into_iter().next().unwrap(),
+    )?))
+}
+
+fn build_floor(
+    args: Vec<Box<dyn ExpressionExecutor>>,
+) -> Result<Box<dyn ExpressionExecutor>, String> {
+    if args.len() != 1 {
+        return Err("floor() requires one argument".to_string());
+    }
+    Ok(Box::new(FloorFunctionExecutor::new(
+        args.into_iter().next().unwrap(),
+    )?))
+}
+
+fn build_ceil(
+    args: Vec<Box<dyn ExpressionExecutor>>,
+) -> Result<Box<dyn ExpressionExecutor>, String> {
+    if args.len() != 1 {
+        return Err("ceil() requires one argument".to_string());
+    }
+    Ok(Box::new(CeilFunctionExecutor::new(
+        args.into_iter().next().unwrap(),
+    )?))
+}
+
+fn build_cos(
+    args: Vec<Box<dyn ExpressionExecutor>>,
+) -> Result<Box<dyn ExpressionExecutor>, String> {
+    if args.len() != 1 {
+        return Err("cos() requires one argument".to_string());
+    }
+    Ok(Box::new(CosFunctionExecutor::new(
+        args.into_iter().next().unwrap(),
+    )?))
+}
+
+fn build_exp(
+    args: Vec<Box<dyn ExpressionExecutor>>,
+) -> Result<Box<dyn ExpressionExecutor>, String> {
+    if args.len() != 1 {
+        return Err("exp() requires one argument".to_string());
+    }
+    Ok(Box::new(ExpFunctionExecutor::new(
+        args.into_iter().next().unwrap(),
+    )?))
+}
+
+fn build_power(
+    mut args: Vec<Box<dyn ExpressionExecutor>>,
+) -> Result<Box<dyn ExpressionExecutor>, String> {
+    if args.len() != 2 {
+        return Err("power() requires two arguments".to_string());
+    }
+    let exponent = args.remove(1);
+    let base = args.remove(0);
+    Ok(Box::new(PowerFunctionExecutor::new(base, exponent)?))
+}
+
+fn build_trim(
+    args: Vec<Box<dyn ExpressionExecutor>>,
+) -> Result<Box<dyn ExpressionExecutor>, String> {
+    if args.len() != 1 {
+        return Err("trim() requires one argument".to_string());
+    }
+    Ok(Box::new(TrimFunctionExecutor::new(
+        args.into_iter().next().unwrap(),
+    )?))
+}
+
+fn build_like(
+    mut args: Vec<Box<dyn ExpressionExecutor>>,
+) -> Result<Box<dyn ExpressionExecutor>, String> {
+    if args.len() != 2 {
+        return Err("like() requires two arguments (value, pattern)".to_string());
+    }
+    let pattern = args.remove(1);
+    let value = args.remove(0);
+    Ok(Box::new(LikeFunctionExecutor::new(value, pattern)?))
+}
+
+fn build_replace(
+    mut args: Vec<Box<dyn ExpressionExecutor>>,
+) -> Result<Box<dyn ExpressionExecutor>, String> {
+    if args.len() != 3 {
+        return Err("replace() requires three arguments (value, from, to)".to_string());
+    }
+    let to = args.remove(2);
+    let from = args.remove(1);
+    let value = args.remove(0);
+    Ok(Box::new(ReplaceFunctionExecutor::new(value, from, to)?))
+}
+
+fn build_log10(
+    args: Vec<Box<dyn ExpressionExecutor>>,
+) -> Result<Box<dyn ExpressionExecutor>, String> {
+    if args.len() != 1 {
+        return Err("log10() requires one argument".to_string());
+    }
+    Ok(Box::new(Log10FunctionExecutor::new(
         args.into_iter().next().unwrap(),
     )?))
 }
@@ -351,9 +479,22 @@ pub fn register_builtin_scalar_functions(
         "str:substring".to_string(),
         Box::new(BuiltinScalarFunction::new("str:substring", build_substring)),
     );
+    // substr is an alias for substring
+    ctx.add_scalar_function_factory(
+        "substr".to_string(),
+        Box::new(BuiltinScalarFunction::new("substr", build_substring)),
+    );
+    ctx.add_scalar_function_factory(
+        "str:substr".to_string(),
+        Box::new(BuiltinScalarFunction::new("str:substr", build_substring)),
+    );
     ctx.add_scalar_function_factory(
         "coalesce".to_string(),
         Box::new(BuiltinScalarFunction::new("coalesce", build_coalesce)),
+    );
+    ctx.add_scalar_function_factory(
+        "nullif".to_string(),
+        Box::new(BuiltinScalarFunction::new("nullif", build_nullif)),
     );
     ctx.add_scalar_function_factory(
         "uuid".to_string(),
@@ -449,5 +590,101 @@ pub fn register_builtin_scalar_functions(
             "eventTimestamp",
             build_event_timestamp,
         )),
+    );
+    ctx.add_scalar_function_factory(
+        "abs".to_string(),
+        Box::new(BuiltinScalarFunction::new("abs", build_abs)),
+    );
+    ctx.add_scalar_function_factory(
+        "math:abs".to_string(),
+        Box::new(BuiltinScalarFunction::new("math:abs", build_abs)),
+    );
+    ctx.add_scalar_function_factory(
+        "floor".to_string(),
+        Box::new(BuiltinScalarFunction::new("floor", build_floor)),
+    );
+    ctx.add_scalar_function_factory(
+        "math:floor".to_string(),
+        Box::new(BuiltinScalarFunction::new("math:floor", build_floor)),
+    );
+    ctx.add_scalar_function_factory(
+        "ceil".to_string(),
+        Box::new(BuiltinScalarFunction::new("ceil", build_ceil)),
+    );
+    ctx.add_scalar_function_factory(
+        "math:ceil".to_string(),
+        Box::new(BuiltinScalarFunction::new("math:ceil", build_ceil)),
+    );
+    ctx.add_scalar_function_factory(
+        "cos".to_string(),
+        Box::new(BuiltinScalarFunction::new("cos", build_cos)),
+    );
+    ctx.add_scalar_function_factory(
+        "math:cos".to_string(),
+        Box::new(BuiltinScalarFunction::new("math:cos", build_cos)),
+    );
+    ctx.add_scalar_function_factory(
+        "exp".to_string(),
+        Box::new(BuiltinScalarFunction::new("exp", build_exp)),
+    );
+    ctx.add_scalar_function_factory(
+        "math:exp".to_string(),
+        Box::new(BuiltinScalarFunction::new("math:exp", build_exp)),
+    );
+    ctx.add_scalar_function_factory(
+        "power".to_string(),
+        Box::new(BuiltinScalarFunction::new("power", build_power)),
+    );
+    ctx.add_scalar_function_factory(
+        "math:power".to_string(),
+        Box::new(BuiltinScalarFunction::new("math:power", build_power)),
+    );
+    ctx.add_scalar_function_factory(
+        "pow".to_string(),
+        Box::new(BuiltinScalarFunction::new("pow", build_power)),
+    );
+    ctx.add_scalar_function_factory(
+        "math:pow".to_string(),
+        Box::new(BuiltinScalarFunction::new("math:pow", build_power)),
+    );
+    ctx.add_scalar_function_factory(
+        "ln".to_string(),
+        Box::new(BuiltinScalarFunction::new("ln", build_log)),
+    );
+    ctx.add_scalar_function_factory(
+        "math:ln".to_string(),
+        Box::new(BuiltinScalarFunction::new("math:ln", build_log)),
+    );
+    ctx.add_scalar_function_factory(
+        "trim".to_string(),
+        Box::new(BuiltinScalarFunction::new("trim", build_trim)),
+    );
+    ctx.add_scalar_function_factory(
+        "str:trim".to_string(),
+        Box::new(BuiltinScalarFunction::new("str:trim", build_trim)),
+    );
+    ctx.add_scalar_function_factory(
+        "like".to_string(),
+        Box::new(BuiltinScalarFunction::new("like", build_like)),
+    );
+    ctx.add_scalar_function_factory(
+        "str:like".to_string(),
+        Box::new(BuiltinScalarFunction::new("str:like", build_like)),
+    );
+    ctx.add_scalar_function_factory(
+        "replace".to_string(),
+        Box::new(BuiltinScalarFunction::new("replace", build_replace)),
+    );
+    ctx.add_scalar_function_factory(
+        "str:replace".to_string(),
+        Box::new(BuiltinScalarFunction::new("str:replace", build_replace)),
+    );
+    ctx.add_scalar_function_factory(
+        "log10".to_string(),
+        Box::new(BuiltinScalarFunction::new("log10", build_log10)),
+    );
+    ctx.add_scalar_function_factory(
+        "math:log10".to_string(),
+        Box::new(BuiltinScalarFunction::new("math:log10", build_log10)),
     );
 }

@@ -78,7 +78,7 @@ async fn time_window_expiry() {
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW('time', 100);\n";
+        SELECT v FROM In WINDOW('time', 100 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send("In", vec![AttributeValue::Int(5)]);
     sleep(Duration::from_millis(150));
@@ -119,7 +119,7 @@ async fn time_batch_window() {
         CREATE STREAM In (v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW('timeBatch', 100);\n";
+        SELECT v FROM In WINDOW('timeBatch', 100 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send("In", vec![AttributeValue::Int(1)]);
     sleep(Duration::from_millis(120));
@@ -136,7 +136,7 @@ async fn external_time_window_basic() {
         CREATE STREAM In (ts BIGINT, v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW('externalTime', ts, 100);\n";
+        SELECT v FROM In WINDOW('externalTime', ts, 100 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send_with_ts(
         "In",
@@ -165,7 +165,7 @@ async fn external_time_batch_window() {
         CREATE STREAM In (ts BIGINT, v INT);\n\
         CREATE STREAM Out (v INT);\n\
         INSERT INTO Out\n\
-        SELECT v FROM In WINDOW('externalTimeBatch', ts, 100);\n";
+        SELECT v FROM In WINDOW('externalTimeBatch', ts, 100 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send_with_ts(
         "In",

@@ -52,7 +52,7 @@ EventFlux Pattern Grammar V1.2 balances **SQL familiarity** with **CEP concisene
 -- PATTERN: Relaxed matching with PARTITION BY
 FROM PATTERN (
     EVERY (e1=FailedLoginStream{3,5} -> e2=AccountLockedStream)
-    WITHIN 10 minutes
+    WITHIN 10 MINUTES
 )
 PARTITION BY userId
 SELECT e1[0].timestamp as firstAttempt,
@@ -404,7 +404,7 @@ absent_pattern ::= 'NOT' stream_reference for_duration
 for_duration ::= 'FOR' time_expression
 ```
 
-**Semantics**: `NOT A FOR 10 seconds` means "A does not occur for 10 seconds"
+**Semantics**: `NOT A FOR 10 SECONDS` means "A does not occur for 10 SECONDS"
 
 ### Every Patterns (Continuous Matching)
 
@@ -588,7 +588,7 @@ INSERT INTO Payments;
 **Example**:
 ```sql
 FROM PATTERN (
-    e1=Order -> NOT Shipping FOR 24 hours
+    e1=Order -> NOT Shipping FOR 24 HOURS
 )
 SELECT e1.orderId, e1.customerId
 INSERT INTO DelayedOrders;
@@ -600,7 +600,7 @@ NextStateElement(
     Order,
     AbsentStreamStateElement(
         Shipping,
-        waiting_time: Some(ExpressionConstant::Time(86400000)) // 24 hours in ms
+        waiting_time: Some(ExpressionConstant::Time(86400000)) // 24 HOURS in ms
     )
 )
 ```
@@ -641,8 +641,10 @@ FROM SEQUENCE (
 ### 6. WITHIN Constraint
 
 **Syntax**:
-- Time-based: `... WITHIN duration`
+- Time-based: `... WITHIN <value> <time_unit>` (e.g., `WITHIN 10 SECONDS`)
 - Event-count based: `... WITHIN n EVENTS`
+
+**Time Units**: Uses standard SQL `DateTimeField` - NANOSECONDS, MICROSECONDS, MILLISECONDS, SECONDS, MINUTES, HOURS, DAYS, WEEKS
 
 **Semantics**: Pattern must complete within time window or event count
 
@@ -651,7 +653,7 @@ FROM SEQUENCE (
 -- Time-based WITHIN
 FROM PATTERN (
     e1=Login{5,10} -> e2=AccountLocked
-    WITHIN 10 minutes
+    WITHIN 10 MINUTES
 )
 SELECT e1[0].userId, count(e1) as attempts
 INSERT INTO BruteForceAttempts;
@@ -682,7 +684,7 @@ INSERT INTO FastBruteForce;
 -- Separate pattern tracking per user
 FROM PATTERN (
     EVERY (e1=FailedLogin{3,5} -> e2=AccountLocked)
-    WITHIN 10 minutes
+    WITHIN 10 MINUTES
 )
 PARTITION BY userId
 SELECT userId, e1[0].timestamp, count(e1) as attempts
@@ -768,7 +770,7 @@ INSERT EXPIRED EVENTS INTO stream
 ```sql
 -- See both pattern matches and expirations (for debugging)
 FROM PATTERN (
-    e1=Login -> e2=DataAccess WITHIN 30 seconds
+    e1=Login -> e2=DataAccess WITHIN 30 SECONDS
 )
 SELECT e1.userId, e2.bytes,
        CASE WHEN eventType = 'EXPIRED'
@@ -811,7 +813,7 @@ INSERT INTO SessionLogs;
 -- Track EVERY occurrence of 3-5 failed logins
 FROM PATTERN (
     EVERY (e1=FailedLogin{3,5} -> e2=AccountLocked)
-    WITHIN 10 minutes
+    WITHIN 10 MINUTES
 )
 PARTITION BY userId
 SELECT e1[0].timestamp as firstAttempt,
@@ -880,9 +882,9 @@ INSERT INTO SuspiciousActivity;
 ### Example 6: Absent Patterns
 
 ```sql
--- Detect purchase without shipping for 24 hours
+-- Detect purchase without shipping for 24 HOURS
 FROM PATTERN (
-    e1=Purchase -> NOT Shipping FOR 24 hours
+    e1=Purchase -> NOT Shipping FOR 24 HOURS
 )
 PARTITION BY orderId
 SELECT e1.orderId, e1.customerId, e1.amount
@@ -899,7 +901,7 @@ INSERT INTO DelayedOrders;
 ```sql
 -- Track both matches and timeouts
 FROM PATTERN (
-    e1=Login -> e2=DataAccess WITHIN 30 seconds
+    e1=Login -> e2=DataAccess WITHIN 30 SECONDS
 )
 SELECT e1.userId, e2.bytes,
        eventType  -- CURRENT or EXPIRED
@@ -934,7 +936,7 @@ INSERT INTO TradingSignals;
 -- Aggregate over event collections
 FROM PATTERN (
     EVERY (e=SensorReading{50,100})
-    WITHIN 1 hour
+    WITHIN 1 HOUR
 )
 PARTITION BY sensorId
 SELECT e[0].timestamp as startTime,
@@ -958,10 +960,10 @@ INSERT INTO SensorBatches;
 FROM PATTERN (
     EVERY (
         e1=Login ->
-        NOT Logout FOR 30 minutes ->
+        NOT Logout FOR 30 MINUTES ->
         e2=DataAccess[bytes > 1000000]{3,10}
     )
-    WITHIN 1 hour
+    WITHIN 1 HOUR
 )
 PARTITION BY userId
 SELECT e1.userId, e1.timestamp as loginTime,
@@ -1107,8 +1109,8 @@ PARTITION BY userId
 
 **Example**:
 ```sql
--- Time-based: Pattern must complete in 10 minutes
-WITHIN 10 minutes
+-- Time-based: Pattern must complete in 10 MINUTES
+WITHIN 10 MINUTES
 
 -- Event-count: Pattern must complete within next 100 events
 WITHIN 100 EVENTS
@@ -1329,19 +1331,19 @@ fn validate_mode_restrictions(mode: &PatternMode, expr: &PatternExpression) -> R
 
 ```sql
 -- ❌ REJECTED: Absent with AND (ambiguous timing)
-FROM PATTERN ((A AND B) AND (NOT C FOR 10 seconds))
--- Error: When does the 10 seconds start? Unclear!
+FROM PATTERN ((A AND B) AND (NOT C FOR 10 SECONDS))
+-- Error: When does the 10 SECONDS start? Unclear!
 
 -- ❌ REJECTED: Absent on either side of AND/OR
-FROM PATTERN (A AND (NOT B FOR 5 seconds))
+FROM PATTERN (A AND (NOT B FOR 5 SECONDS))
 -- Error: Absent patterns cannot be used in logical combinations
 
 -- ✅ CORRECT: Absent in sequence
-FROM PATTERN ((A AND B) -> NOT C FOR 10 seconds)
--- Clear: 10 seconds starts when (A AND B) matches
+FROM PATTERN ((A AND B) -> NOT C FOR 10 SECONDS)
+-- Clear: 10 SECONDS starts when (A AND B) matches
 
 -- ✅ CORRECT: Absent at end of sequence
-FROM PATTERN (A -> B -> NOT C FOR 10 seconds)
+FROM PATTERN (A -> B -> NOT C FOR 10 SECONDS)
 ```
 
 **Validation**:
@@ -1569,7 +1571,7 @@ impl Parser<'_> {
 | OUTPUT event types | `INSERT ALL EVENTS INTO` | Both | No | ✅ Covered |
 | Logical combinations (A AND B) | `AND`, `OR` operators | PATTERN | No | ✅ Covered |
 | Absent patterns (NOT A FOR 10s) | `NOT ... FOR` syntax | PATTERN | No | ✅ Covered |
-| WITHIN time constraints | `WITHIN 10 minutes` | Both | No | ✅ Covered |
+| WITHIN time constraints | `WITHIN 10 MINUTES` | Both | No | ✅ Covered |
 | Cross-stream refs (e2[price > e1.price]) | Attribute references | Both | No | ✅ Covered |
 | Nested patterns | Parentheses grouping | Both | No | ✅ Covered |
 
@@ -1645,7 +1647,7 @@ impl Parser<'_> {
 | 2.6 | ✅ | Parse filter conditions: `[expression]` | `test_parse_pattern_with_filter`, `test_parse_pattern_with_complex_filter` |
 | 2.7 | ✅ | Parse logical operators: `AND`, `OR` | `test_parse_pattern_logical_and/or` |
 | 2.8 | ✅ | Parse EVERY keyword: `EVERY (pattern)` | `test_parse_pattern_every` |
-| 2.9 | ✅ | Parse WITHIN clause: `WITHIN INTERVAL` | `test_parse_pattern_within_interval`, `test_parse_pattern_within_interval_minute` |
+| 2.9 | ✅ | Parse WITHIN clause: `WITHIN 10 SECONDS` | `test_parse_pattern_within_seconds`, `test_parse_pattern_within_minutes` |
 | 2.10 | ✅ | Parse WITHIN events: `WITHIN 100 EVENTS` | `test_parse_pattern_within_events` |
 | 2.11 | ⬜ | Parse array access: `e[0]`, `e[last]` | `test_parse_array_access` |
 | 2.12 | ⬜ | Parse OUTPUT types in INSERT | `test_parse_output_event_types` |
@@ -1722,7 +1724,7 @@ impl Parser<'_> {
 
 #### 2025-12-06: Phase 2 Extended - Additional Features
 - Added filter condition parsing: `A[price > 100]`
-- Added time-based WITHIN parsing: `WITHIN INTERVAL '10' SECOND`
+- Added time-based WITHIN parsing: `WITHIN 10 SECONDS` (unified with window/trigger time units)
 - Fixed count-with-filter parsing: `A{2,3}[value > 0]`
 - Added cross-stream filter parsing: `e2=B[price > e1.price]`
 - **51 tests now passing** (26 AST + 25 parser tests)
@@ -1874,7 +1876,7 @@ FROM PATTERN (
 ```sql
 FROM PATTERN (
     e1=FailedLogin{5,10} -> e2=AccountLocked
-    WITHIN 10 minutes  -- Supported
+    WITHIN 10 MINUTES  -- Supported
 )
 ```
 

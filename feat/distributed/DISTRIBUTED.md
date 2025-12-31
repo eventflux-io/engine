@@ -430,10 +430,13 @@ Use these in `seed_nodes` configuration.
 ```rust
 use eventflux::EventFluxAppRuntimeBuilder;
 
-let app = "@app:name('SimpleApp')
-    define stream InputStream (id string, value double);
-    from InputStream[value > 100]
-    select * insert into OutputStream;";
+let app = "
+    CREATE STREAM InputStream (id STRING, value DOUBLE);
+
+    INSERT INTO OutputStream
+    SELECT *
+    FROM InputStream
+    WHERE value > 100;";
 
 let runtime = EventFluxAppRuntimeBuilder::new(app)
     .build()?;

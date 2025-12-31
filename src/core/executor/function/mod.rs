@@ -10,6 +10,7 @@ pub mod date_functions;
 pub mod event_timestamp_function_executor;
 pub mod instance_of_checkers;
 pub mod math_functions;
+pub mod nullif_function_executor;
 pub mod scalar_function_executor; // Added
 pub mod script_function_executor;
 pub mod string_functions;
@@ -28,14 +29,17 @@ pub use self::date_functions::{
 pub use self::event_timestamp_function_executor::EventTimestampFunctionExecutor;
 pub use self::instance_of_checkers::*;
 pub use self::math_functions::{
-    LogFunctionExecutor, RoundFunctionExecutor, SinFunctionExecutor, SqrtFunctionExecutor,
-    TanFunctionExecutor,
+    AbsFunctionExecutor, CeilFunctionExecutor, CosFunctionExecutor, ExpFunctionExecutor,
+    FloorFunctionExecutor, Log10FunctionExecutor, LogFunctionExecutor, PowerFunctionExecutor,
+    RoundFunctionExecutor, SinFunctionExecutor, SqrtFunctionExecutor, TanFunctionExecutor,
 };
+pub use self::nullif_function_executor::NullIfFunctionExecutor;
 pub use self::scalar_function_executor::ScalarFunctionExecutor; // Added
 pub use self::script_function_executor::ScriptFunctionExecutor;
 pub use self::string_functions::{
-    ConcatFunctionExecutor, LengthFunctionExecutor, LowerFunctionExecutor,
-    SubstringFunctionExecutor, UpperFunctionExecutor,
+    ConcatFunctionExecutor, LengthFunctionExecutor, LikeFunctionExecutor, LowerFunctionExecutor,
+    ReplaceFunctionExecutor, SubstringFunctionExecutor, TrimFunctionExecutor,
+    UpperFunctionExecutor,
 };
 pub use self::uuid_function_executor::UuidFunctionExecutor;
 

@@ -182,7 +182,7 @@ Semantics:
 
 ### 4.7 WITHIN Constraints
 
-Syntax: `... WITHIN 10 minutes`
+Syntax: `... WITHIN 10 MINUTES`
 
 Implementation:
 - `set_within_time()` on first processor

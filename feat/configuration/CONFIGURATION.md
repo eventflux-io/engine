@@ -3911,8 +3911,8 @@ impl Source for KafkaSource {
 The DLQ stream must be defined in the EventFlux application:
 
 ```sql
--- Define DLQ stream with error metadata schema (matches lines 1008-1014)
-DEFINE STREAM _dlq (
+-- Create DLQ stream with error metadata schema (matches lines 1008-1014)
+CREATE STREAM _dlq (
     originalEvent STRING,
     errorMessage STRING,
     errorType STRING,

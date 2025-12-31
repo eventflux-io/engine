@@ -114,7 +114,7 @@ SELECT
     AVG(CAST(price AS DOUBLE)) AS avg_price,
     MAX(trade_time) AS period_end
 FROM RawTrades
-WINDOW('tumbling', INTERVAL '10' SECOND)
+WINDOW('tumbling', 10 SECONDS)
 GROUP BY symbol;
 
 -- Query 2: Pass through to activity pulse sink

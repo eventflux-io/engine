@@ -75,10 +75,7 @@ async fn nested_percentage_calculation() {
     // ((110.0 - 100.0) / 100.0) * 100.0 = (10.0 / 100.0) * 100.0 = 0.1 * 100.0 = 10.0
     runner.send(
         "In",
-        vec![
-            AttributeValue::Double(100.0),
-            AttributeValue::Double(110.0),
-        ],
+        vec![AttributeValue::Double(100.0), AttributeValue::Double(110.0)],
     );
     let out = runner.shutdown();
     assert_eq!(out, vec![vec![AttributeValue::Double(10.0)]]);
@@ -178,7 +175,10 @@ async fn nested_in_where_clause() {
     let out = runner.shutdown();
     assert_eq!(
         out,
-        vec![vec![AttributeValue::Double(3.0), AttributeValue::Double(4.0)]]
+        vec![vec![
+            AttributeValue::Double(3.0),
+            AttributeValue::Double(4.0)
+        ]]
     );
 }
 
@@ -193,18 +193,12 @@ async fn nested_difference_in_where() {
     // Increasing: 110 - 100 = 10 > 0, pass
     runner.send(
         "In",
-        vec![
-            AttributeValue::Double(110.0),
-            AttributeValue::Double(100.0),
-        ],
+        vec![AttributeValue::Double(110.0), AttributeValue::Double(100.0)],
     );
     // Decreasing: 90 - 100 = -10 > 0 is false, filter
     runner.send(
         "In",
-        vec![
-            AttributeValue::Double(90.0),
-            AttributeValue::Double(100.0),
-        ],
+        vec![AttributeValue::Double(90.0), AttributeValue::Double(100.0)],
     );
     let out = runner.shutdown();
     assert_eq!(
@@ -245,10 +239,7 @@ async fn nested_in_cast_function() {
         CREATE STREAM Out (result DOUBLE);\n\
         INSERT INTO Out SELECT CAST((a + b) AS DOUBLE) AS result FROM In;\n";
     let runner = AppRunner::new(app, "Out").await;
-    runner.send(
-        "In",
-        vec![AttributeValue::Int(3), AttributeValue::Int(4)],
-    );
+    runner.send("In", vec![AttributeValue::Int(3), AttributeValue::Int(4)]);
     let out = runner.shutdown();
     assert_eq!(out, vec![vec![AttributeValue::Double(7.0)]]);
 }
@@ -292,19 +283,13 @@ async fn nested_avg_percentage() {
     // First: ((110 - 100) / 100) * 100 = 10%
     runner.send(
         "In",
-        vec![
-            AttributeValue::Double(100.0),
-            AttributeValue::Double(110.0),
-        ],
+        vec![AttributeValue::Double(100.0), AttributeValue::Double(110.0)],
     );
     // Second: ((120 - 100) / 100) * 100 = 20%
     // Avg: (10 + 20) / 2 = 15%
     runner.send(
         "In",
-        vec![
-            AttributeValue::Double(100.0),
-            AttributeValue::Double(120.0),
-        ],
+        vec![AttributeValue::Double(100.0), AttributeValue::Double(120.0)],
     );
     let out = runner.shutdown();
     assert!(!out.is_empty());
@@ -444,10 +429,7 @@ async fn nested_with_zero() {
     let runner = AppRunner::new(app, "Out").await;
     runner.send(
         "In",
-        vec![
-            AttributeValue::Double(100.0),
-            AttributeValue::Double(200.0),
-        ],
+        vec![AttributeValue::Double(100.0), AttributeValue::Double(200.0)],
     );
     let out = runner.shutdown();
     assert_eq!(out, vec![vec![AttributeValue::Double(0.0)]]);

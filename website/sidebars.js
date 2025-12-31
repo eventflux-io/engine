@@ -41,6 +41,7 @@ const sidebars = {
         'sql-reference/joins',
         'sql-reference/patterns',
         'sql-reference/functions',
+        'sql-reference/triggers',
       ],
     },
     {

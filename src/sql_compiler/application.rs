@@ -7,12 +7,35 @@
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
 
+use crate::query_api::definition::TriggerDefinition;
+use sqlparser::ast::{CreateStreamTrigger, StreamTriggerTiming};
+
 use super::catalog::{SqlApplication, SqlCatalog};
 use super::converter::SqlConverter;
 use super::error::ApplicationError;
 use super::normalization::normalize_stream_syntax;
 use super::type_mapping::sql_type_to_attribute_type;
 use super::with_clause::{extract_with_options, validate_with_clause};
+
+/// Convert a parsed EventFlux streaming trigger to a TriggerDefinition
+fn convert_stream_trigger(
+    trigger: &CreateStreamTrigger,
+) -> Result<TriggerDefinition, ApplicationError> {
+    let name = trigger.name.to_string();
+
+    match &trigger.timing {
+        StreamTriggerTiming::Start => {
+            Ok(TriggerDefinition::new(name).at("start".to_string()))
+        }
+        StreamTriggerTiming::Every { interval_ms } => {
+            // interval_ms is pre-computed at parse time using parse_streaming_time_duration_ms()
+            Ok(TriggerDefinition::new(name).at_every(*interval_ms as i64))
+        }
+        StreamTriggerTiming::Cron(expr) => {
+            Ok(TriggerDefinition::new(name).at(expr.clone()))
+        }
+    }
+}
 
 /// Parse a complete SQL application with multiple statements
 pub fn parse_sql_application(sql: &str) -> Result<SqlApplication, ApplicationError> {
@@ -122,6 +145,11 @@ pub fn parse_sql_application(sql: &str) -> Result<SqlApplication, ApplicationErr
                 execution_elements.push(crate::query_api::execution::ExecutionElement::Partition(
                     partition,
                 ));
+            }
+            sqlparser::ast::Statement::CreateStreamTrigger(stream_trigger) => {
+                // Convert EventFlux streaming trigger to TriggerDefinition
+                let trigger_def = convert_stream_trigger(&stream_trigger)?;
+                catalog.register_trigger(trigger_def);
             }
             _ => {
                 return Err(ApplicationError::Converter(

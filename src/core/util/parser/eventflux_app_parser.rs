@@ -356,6 +356,13 @@ impl EventFluxAppParser {
         builder: &mut EventFluxAppRuntimeBuilder,
         eventflux_app_context: &Arc<EventFluxAppContext>,
     ) -> Result<(), String> {
+        // Process triggers FIRST so their stream junctions exist when queries reference them
+        // This enables queries like: SELECT ... FROM TriggerName
+        for trig_def in api_eventflux_app.trigger_definition_map.values() {
+            let runtime = TriggerParser::parse(builder, trig_def, eventflux_app_context)?;
+            builder.add_trigger_runtime(Arc::new(runtime));
+        }
+
         // Parse Execution Elements (Queries, Partitions)
         // Use counters to provide deterministic indices for stable component IDs (needed for state recovery)
         let mut query_index = 0;
@@ -389,12 +396,6 @@ impl EventFluxAppParser {
                     partition_index += 1; // Increment for next partition
                 }
             }
-        }
-
-        // Process triggers
-        for trig_def in api_eventflux_app.trigger_definition_map.values() {
-            let runtime = TriggerParser::parse(builder, trig_def, eventflux_app_context)?;
-            builder.add_trigger_runtime(Arc::new(runtime));
         }
 
         Ok(())

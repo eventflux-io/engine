@@ -300,12 +300,12 @@ tungstenite = "0.24"
     websocket.url='wss://stream.binance.com:9443/ws/btcusdt@trade',
     @map(type='json')
 )
-define stream RawTrades (
-    e string,
-    s string,
-    p string,
-    q string,
-    T long
+CREATE STREAM RawTrades (
+    e STRING,
+    s STRING,
+    p STRING,
+    q STRING,
+    T BIGINT
 );
 ```
 
@@ -318,10 +318,10 @@ define stream RawTrades (
     websocket.message.type='text',
     @map(type='json')
 )
-define stream OutputEvents (
-    symbol string,
-    price double,
-    volume double
+CREATE STREAM OutputEvents (
+    symbol STRING,
+    price DOUBLE,
+    volume DOUBLE
 );
 ```
 

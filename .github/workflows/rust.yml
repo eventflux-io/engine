@@ -59,3 +59,7 @@ jobs:
 
     - name: Run tests
       run: cargo test --verbose
+
+    - name: Run vendor parser tests
+      run: cargo test --verbose
+      working-directory: vendor/datafusion-sqlparser-rs

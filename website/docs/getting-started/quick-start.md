@@ -162,7 +162,7 @@ let app = r#"
     -- Detect three consecutive price increases
     FROM StockTrades
     MATCH (e1=Trade -> e2=Trade -> e3=Trade)
-    WITHIN 1 min
+    WITHIN 1 MINUTE
     FILTER e1.symbol = e2.symbol
        AND e2.symbol = e3.symbol
        AND e2.price > e1.price

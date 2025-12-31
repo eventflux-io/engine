@@ -46,32 +46,20 @@ async fn cron_trigger_emits() {
     assert!(out.len() >= 2);
 }
 
-// TODO: NOT PART OF M1 - Trigger syntax parsing not in M1
-// This test uses "define trigger" syntax which is not part of M1.
-// M1 covers: Basic queries, Windows, Joins, GROUP BY, HAVING, ORDER BY, LIMIT
-// Trigger support via SQL syntax will be implemented in Phase 2.
-// NOTE: Tests using programmatic API (not parser) still work fine.
-// See feat/grammar/GRAMMAR_STATUS.md for M1 feature list.
+/// Periodic trigger using SQL syntax
 #[tokio::test]
-#[ignore = "Trigger syntax parsing not part of M1"]
 async fn parse_periodic_trigger_emits() {
-    let app = "define trigger PT at every 50 ms;";
+    let app = "CREATE TRIGGER PT AT EVERY 50 MILLISECONDS;";
     let runner = AppRunner::new(app, "PT").await;
     sleep(Duration::from_millis(130));
     let out = runner.shutdown();
     assert!(out.len() >= 2);
 }
 
-// TODO: NOT PART OF M1 - Trigger syntax parsing not in M1
-// This test uses "define trigger" syntax which is not part of M1.
-// M1 covers: Basic queries, Windows, Joins, GROUP BY, HAVING, ORDER BY, LIMIT
-// Trigger support via SQL syntax will be implemented in Phase 2.
-// NOTE: Tests using programmatic API (not parser) still work fine.
-// See feat/grammar/GRAMMAR_STATUS.md for M1 feature list.
+/// Cron trigger using SQL syntax
 #[tokio::test]
-#[ignore = "Trigger syntax parsing not part of M1"]
 async fn parse_cron_trigger_emits() {
-    let app = "define trigger CronStr at '*/1 * * * * *';";
+    let app = "CREATE TRIGGER CronStr AT CRON '*/1 * * * * *';";
     let runner = AppRunner::new(app, "CronStr").await;
     sleep(Duration::from_millis(2200));
     let out = runner.shutdown();

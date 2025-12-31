@@ -294,7 +294,7 @@ async fn test_sql_query_3_window_tumbling_avg() {
 
         SELECT symbol, AVG(price) as avg_price
         FROM StockStream
-        WINDOW('tumbling', INTERVAL '5' SECOND)
+        WINDOW('tumbling', 5 SECONDS)
         GROUP BY symbol;
     "#;
 
@@ -569,7 +569,7 @@ async fn test_sql_query_6_sum_having() {
 
         SELECT symbol, SUM(volume) AS total_volume
         FROM StockStream
-        WINDOW('tumbling', INTERVAL '5' SECOND)
+        WINDOW('tumbling', 5 SECONDS)
         GROUP BY symbol
         HAVING SUM(volume) > 1000;
     "#;
@@ -686,7 +686,7 @@ async fn test_sql_query_8_multiple_aggregations() {
             MIN(price) AS min_price,
             MAX(price) AS max_price
         FROM StockStream
-        WINDOW('tumbling', INTERVAL '5' SECOND)
+        WINDOW('tumbling', 5 SECONDS)
         GROUP BY symbol;
     "#;
 
@@ -927,7 +927,7 @@ async fn test_tumbling_window_multi_batch_no_spurious_empty_events() {
 
         SELECT symbol, COUNT(*) as trade_count, AVG(price) as avg_price
         FROM TradeStream
-        WINDOW('tumbling', INTERVAL '1' SECOND)
+        WINDOW('tumbling', 1 SECONDS)
         GROUP BY symbol;
     "#;
 
@@ -1024,10 +1024,7 @@ async fn test_tumbling_window_multi_batch_no_spurious_empty_events() {
                 );
             }
             other => {
-                panic!(
-                    "Event {} has unexpected trade_count type: {:?}",
-                    i, other
-                );
+                panic!("Event {} has unexpected trade_count type: {:?}", i, other);
             }
         }
 
@@ -1165,10 +1162,7 @@ async fn test_length_batch_window_multi_batch_no_spurious_empty_events() {
                 );
             }
             other => {
-                panic!(
-                    "Event {} has unexpected trade_count type: {:?}",
-                    i, other
-                );
+                panic!("Event {} has unexpected trade_count type: {:?}", i, other);
             }
         }
 
@@ -1209,7 +1203,7 @@ async fn test_external_time_batch_window_multi_batch_no_spurious_empty_events() 
         INSERT INTO OutStream
         SELECT symbol, COUNT(*) as trade_count, AVG(price) as avg_price
         FROM TradeStream
-        WINDOW('externalTimeBatch', trade_time, 1000)
+        WINDOW('externalTimeBatch', trade_time, 1000 MILLISECONDS)
         GROUP BY symbol;
     "#;
 
@@ -1330,10 +1324,7 @@ async fn test_external_time_batch_window_multi_batch_no_spurious_empty_events() 
                 );
             }
             other => {
-                panic!(
-                    "Event {} has unexpected trade_count type: {:?}",
-                    i, other
-                );
+                panic!("Event {} has unexpected trade_count type: {:?}", i, other);
             }
         }
 

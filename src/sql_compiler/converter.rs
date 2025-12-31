@@ -821,9 +821,7 @@ impl SqlConverter {
                     BinaryOperator::Minus => Ok(Expression::subtract(left_expr, right_expr)),
                     BinaryOperator::Multiply => Ok(Expression::multiply(left_expr, right_expr)),
                     BinaryOperator::Divide => Ok(Expression::divide(left_expr, right_expr)),
-                    BinaryOperator::Modulo => Err(ConverterError::UnsupportedFeature(
-                        "Modulo operator not yet supported".to_string(),
-                    )),
+                    BinaryOperator::Modulo => Ok(Expression::modulus(left_expr, right_expr)),
 
                     _ => Err(ConverterError::UnsupportedFeature(format!(
                         "Binary operator {:?}",
@@ -837,6 +835,12 @@ impl SqlConverter {
 
                 match op {
                     UnaryOperator::Not => Ok(Expression::not(inner_expr)),
+                    // Convert -x to 0 - x
+                    UnaryOperator::Minus => {
+                        Ok(Expression::subtract(Expression::value_long(0), inner_expr))
+                    }
+                    // Convert +x to just x (unary plus is a no-op)
+                    UnaryOperator::Plus => Ok(inner_expr),
                     _ => Err(ConverterError::UnsupportedFeature(format!(
                         "Unary operator {:?}",
                         op
@@ -912,6 +916,179 @@ impl SqlConverter {
             SqlExpr::Nested(inner_expr) => {
                 // Parenthesized expression - simply unwrap and convert the inner expression
                 Self::convert_expression(inner_expr, catalog)
+            }
+
+            // Handle FLOOR(x) and CEIL(x) expressions
+            SqlExpr::Floor { expr, field } => {
+                let inner_expr = Self::convert_expression(expr, catalog)?;
+                match field {
+                    sqlparser::ast::CeilFloorKind::DateTimeField(
+                        sqlparser::ast::DateTimeField::NoDateTime,
+                    ) => {
+                        // Numeric floor function
+                        Ok(Expression::function_no_ns(
+                            "floor".to_string(),
+                            vec![inner_expr],
+                        ))
+                    }
+                    _ => Err(ConverterError::UnsupportedFeature(
+                        "FLOOR TO datetime field not yet supported".to_string(),
+                    )),
+                }
+            }
+
+            SqlExpr::Ceil { expr, field } => {
+                let inner_expr = Self::convert_expression(expr, catalog)?;
+                match field {
+                    sqlparser::ast::CeilFloorKind::DateTimeField(
+                        sqlparser::ast::DateTimeField::NoDateTime,
+                    ) => {
+                        // Numeric ceil function
+                        Ok(Expression::function_no_ns(
+                            "ceil".to_string(),
+                            vec![inner_expr],
+                        ))
+                    }
+                    _ => Err(ConverterError::UnsupportedFeature(
+                        "CEIL TO datetime field not yet supported".to_string(),
+                    )),
+                }
+            }
+
+            // Handle IS NULL and IS NOT NULL expressions
+            SqlExpr::IsNull(expr) => {
+                let inner_expr = Self::convert_expression(expr, catalog)?;
+                Ok(Expression::is_null(inner_expr))
+            }
+
+            SqlExpr::IsNotNull(expr) => {
+                let inner_expr = Self::convert_expression(expr, catalog)?;
+                Ok(Expression::not(Expression::is_null(inner_expr)))
+            }
+
+            // Handle IN and NOT IN expressions
+            // Convert x IN (a, b, c) to x = a OR x = b OR x = c
+            SqlExpr::InList {
+                expr,
+                list,
+                negated,
+            } => {
+                if list.is_empty() {
+                    // Empty list: IN () is always false, NOT IN () is always true
+                    return Ok(Expression::value_bool(*negated));
+                }
+
+                let value_expr = Self::convert_expression(expr, catalog)?;
+
+                // Build OR chain of equality comparisons
+                let mut result: Option<Expression> = None;
+                for item in list {
+                    let item_expr = Self::convert_expression(item, catalog)?;
+                    let eq_expr =
+                        Expression::compare(value_expr.clone(), CompareOperator::Equal, item_expr);
+
+                    result = Some(match result {
+                        None => eq_expr,
+                        Some(prev) => Expression::or(prev, eq_expr),
+                    });
+                }
+
+                let in_expr = result.unwrap(); // Safe because we checked list is not empty
+
+                if *negated {
+                    Ok(Expression::not(in_expr))
+                } else {
+                    Ok(in_expr)
+                }
+            }
+
+            // Handle BETWEEN expressions
+            SqlExpr::Between {
+                expr,
+                negated,
+                low,
+                high,
+            } => {
+                let value_expr = Self::convert_expression(expr, catalog)?;
+                let low_expr = Self::convert_expression(low, catalog)?;
+                let high_expr = Self::convert_expression(high, catalog)?;
+
+                // x BETWEEN low AND high => x >= low AND x <= high
+                let between_expr = Expression::and(
+                    Expression::compare(
+                        value_expr.clone(),
+                        CompareOperator::GreaterThanEqual,
+                        low_expr,
+                    ),
+                    Expression::compare(value_expr, CompareOperator::LessThanEqual, high_expr),
+                );
+
+                if *negated {
+                    Ok(Expression::not(between_expr))
+                } else {
+                    Ok(between_expr)
+                }
+            }
+
+            // Handle LIKE expressions
+            // Convert LIKE to a str:matches function call
+            SqlExpr::Like {
+                negated,
+                expr,
+                pattern,
+                escape_char: _,
+                any: _,
+            } => {
+                let value_expr = Self::convert_expression(expr, catalog)?;
+                let pattern_expr = Self::convert_expression(pattern, catalog)?;
+                // Use str:matches function for LIKE pattern matching
+                let like_expr =
+                    Expression::function_no_ns("like".to_string(), vec![value_expr, pattern_expr]);
+                if *negated {
+                    Ok(Expression::not(like_expr))
+                } else {
+                    Ok(like_expr)
+                }
+            }
+
+            // Handle SUBSTRING expressions
+            SqlExpr::Substring {
+                expr,
+                substring_from,
+                substring_for,
+                special: _,
+                shorthand: _,
+            } => {
+                let str_expr = Self::convert_expression(expr, catalog)?;
+                let mut args = vec![str_expr];
+
+                // SQL uses 1-based indexing, convert to 0-based for internal use
+                if let Some(from_expr) = substring_from {
+                    let from_expr_converted = Self::convert_expression(from_expr, catalog)?;
+                    // Subtract 1 from the start position: SQL's 1 becomes internal 0
+                    let zero_based_start =
+                        Expression::subtract(from_expr_converted, Expression::value_int(1));
+                    args.push(zero_based_start);
+                }
+                if let Some(for_expr) = substring_for {
+                    args.push(Self::convert_expression(for_expr, catalog)?);
+                }
+
+                Ok(Expression::function_no_ns("substring".to_string(), args))
+            }
+
+            // Handle TRIM expressions
+            SqlExpr::Trim {
+                expr,
+                trim_where: _,
+                trim_what: _,
+                trim_characters: _,
+            } => {
+                let str_expr = Self::convert_expression(expr, catalog)?;
+                Ok(Expression::function_no_ns(
+                    "trim".to_string(),
+                    vec![str_expr],
+                ))
             }
 
             _ => Err(ConverterError::UnsupportedFeature(format!(
@@ -996,7 +1173,12 @@ impl SqlConverter {
         func: &sqlparser::ast::Function,
         catalog: &SqlCatalog,
     ) -> Result<Expression, ConverterError> {
-        let func_name = func.name.to_string().to_lowercase();
+        // Get function name and strip backticks if present (for namespace-prefixed functions like `math:sin`)
+        let raw_name = func.name.to_string();
+        let func_name = raw_name
+            .trim_start_matches('`')
+            .trim_end_matches('`')
+            .to_lowercase();
 
         // Extract function argument list
         let arg_list = match &func.args {
@@ -1035,20 +1217,74 @@ impl SqlConverter {
 
         // Map SQL function names to EventFlux function names
         let eventflux_func_name = match func_name.as_str() {
+            // Aggregations
             "count" => "count",
             "sum" => "sum",
             "avg" => "avg",
             "min" => "min",
             "max" => "max",
+            "distinctcount" => "distinctCount",
+            "stddev" => "stdDev",
+            // Math functions
             "round" => "round",
             "abs" => "abs",
             "ceil" => "ceil",
             "floor" => "floor",
             "sqrt" => "sqrt",
+            "sin" => "sin",
+            "cos" => "cos",
+            "tan" => "tan",
+            "exp" => "exp",
+            "power" => "power",
+            "pow" => "power",
+            "ln" => "ln",
+            "log" => "log",
+            "log10" => "log10",
+            // Namespace-prefixed math functions
+            "math:sin" => "math:sin",
+            "math:cos" => "math:cos",
+            "math:tan" => "math:tan",
+            "math:log" => "math:log",
+            "math:log10" => "math:log10",
+            "math:exp" => "math:exp",
+            "math:sqrt" => "math:sqrt",
+            "math:abs" => "math:abs",
+            "math:ceil" => "math:ceil",
+            "math:floor" => "math:floor",
+            "math:round" => "math:round",
+            "math:power" => "math:power",
+            // String functions
             "upper" => "upper",
             "lower" => "lower",
             "length" => "length",
             "concat" => "concat",
+            "replace" => "replace",
+            "trim" => "trim",
+            // Note: substr/substring as function calls need 1-based to 0-based conversion
+            // This is handled specially below before the match
+            "substr" | "substring" => {
+                // Apply 1-based to 0-based indexing conversion for start position
+                if args.len() >= 2 {
+                    let str_arg = args.remove(0);
+                    let start_arg = args.remove(0);
+                    let zero_based_start =
+                        Expression::subtract(start_arg, Expression::value_int(1));
+                    let mut new_args = vec![str_arg, zero_based_start];
+                    new_args.extend(args);
+                    return Ok(Expression::function_no_ns(
+                        "substring".to_string(),
+                        new_args,
+                    ));
+                }
+                "substring"
+            }
+            // Utility functions
+            "coalesce" => "coalesce",
+            "ifnull" => "coalesce", // IFNULL is an alias for COALESCE with 2 args
+            "nullif" => "nullif",
+            "uuid" => "uuid",
+            "eventtimestamp" => "eventTimestamp",
+            "currenttimemillis" => "currentTimestamp",
             _ => {
                 return Err(ConverterError::UnsupportedFeature(format!(
                     "Function '{}' not supported",

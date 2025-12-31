@@ -124,6 +124,18 @@ fn get_function_signature(name: &str) -> Option<&'static FunctionSignature> {
         }),
         FunctionSignature::new("min", 1, |args| Ok(args[0])),
         FunctionSignature::new("max", 1, |args| Ok(args[0])),
+        // distinctCount aggregator - counts unique values
+        FunctionSignature::new("distinctcount", 1, |_| Ok(AttributeType::LONG)),
+        // stdDev aggregator - standard deviation, always returns DOUBLE
+        FunctionSignature::new("stddev", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "STDDEV requires numeric argument".into(),
+                ))
+            }
+        }),
         // Math functions
         FunctionSignature::new("round", 1, |args| match args[0] {
             AttributeType::FLOAT | AttributeType::DOUBLE => Ok(AttributeType::DOUBLE),
@@ -170,6 +182,152 @@ fn get_function_signature(name: &str) -> Option<&'static FunctionSignature> {
             }
         }),
         FunctionSignature::new("concat", 0, |_| Ok(AttributeType::STRING)),
+        // Utility functions
+        // coalesce - returns first non-null value, type is first arg's type
+        FunctionSignature::new("coalesce", 1, |args| Ok(args[0])),
+        // nullif - returns NULL if args are equal, otherwise first arg
+        FunctionSignature::new("nullif", 2, |args| Ok(args[0])),
+        // uuid - generates a random UUID string
+        FunctionSignature::new("uuid", 0, |_| Ok(AttributeType::STRING)),
+        // eventTimestamp - returns event timestamp as LONG
+        FunctionSignature::new("eventtimestamp", 0, |_| Ok(AttributeType::LONG)),
+        // currentTimeMillis - alias for current time
+        FunctionSignature::new("currenttimemillis", 0, |_| Ok(AttributeType::LONG)),
+        // Additional math functions
+        FunctionSignature::new("floor", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "FLOOR requires numeric argument".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("ceil", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "CEIL requires numeric argument".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("sqrt", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "SQRT requires numeric argument".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("sin", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "SIN requires numeric argument".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("cos", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "COS requires numeric argument".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("tan", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "TAN requires numeric argument".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("exp", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "EXP requires numeric argument".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("power", 2, |args| {
+            if is_numeric(args[0]) && is_numeric(args[1]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "POWER requires numeric arguments".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("log", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "LOG requires numeric argument".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("ln", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "LN requires numeric argument".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("log10", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "LOG10 requires numeric argument".into(),
+                ))
+            }
+        }),
+        // Additional string functions
+        FunctionSignature::new("trim", 1, |args| {
+            if args[0] == AttributeType::STRING {
+                Ok(AttributeType::STRING)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "TRIM requires STRING argument".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("replace", 3, |args| {
+            if args[0] == AttributeType::STRING
+                && args[1] == AttributeType::STRING
+                && args[2] == AttributeType::STRING
+            {
+                Ok(AttributeType::STRING)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "REPLACE requires STRING arguments".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("substring", 1, |_| Ok(AttributeType::STRING)),
+        // substr is an alias for substring
+        FunctionSignature::new("substr", 1, |_| Ok(AttributeType::STRING)),
+        // LIKE function - returns BOOL for pattern matching
+        FunctionSignature::new("like", 2, |args| {
+            if args[0] == AttributeType::STRING && args[1] == AttributeType::STRING {
+                Ok(AttributeType::BOOL)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "LIKE requires STRING arguments".into(),
+                ))
+            }
+        }),
     ];
 
     FUNCTIONS.iter().find(|f| f.name == name)
