@@ -431,9 +431,7 @@ async fn pattern_test8_cross_stream_no_match() {
 
 /// Every pattern - matches multiple times
 /// Reference: EveryPatternTestCase.java
-/// Note: EVERY syntax differs between implementations - needs investigation
 #[tokio::test]
-#[ignore = "EVERY pattern syntax differs - needs investigation"]
 async fn pattern_test_every() {
     let app = "\
         CREATE STREAM Stream1 (symbol STRING, price FLOAT);\n\
@@ -1136,7 +1134,6 @@ async fn pattern_test_five_event_chain() {
 
 /// Pattern with string contains check using LIKE
 #[tokio::test]
-#[ignore = "LIKE operator in pattern WHERE clause not yet supported"]
 async fn pattern_test_string_like() {
     let app = "\
         CREATE STREAM Event (id INT, name STRING);\n\
@@ -2500,7 +2497,6 @@ async fn pattern_test_long_timestamp() {
 
 /// Pattern with BOOL field
 #[tokio::test]
-#[ignore = "BOOL type not yet supported in SQL parser"]
 async fn pattern_test_bool_field() {
     let app = "\
         CREATE STREAM statusStream (id STRING, active BOOL);\n\

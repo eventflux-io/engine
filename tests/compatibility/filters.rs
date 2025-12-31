@@ -1151,7 +1151,6 @@ async fn filter_test88_float_lt_float_literal() {
 /// Filter test - IS NULL operator
 /// Reference: FilterTestCase2.java
 #[tokio::test]
-#[ignore = "IS NULL operator not yet supported in SQL converter"]
 async fn filter_test_is_null() {
     let app = "\
         CREATE STREAM inputStream (symbol STRING, price FLOAT);\n\
@@ -1189,7 +1188,6 @@ async fn filter_test_is_null() {
 /// Filter test - IS NOT NULL operator
 /// Reference: FilterTestCase2.java
 #[tokio::test]
-#[ignore = "IS NOT NULL operator not yet supported in SQL converter"]
 async fn filter_test_is_not_null() {
     let app = "\
         CREATE STREAM inputStream (symbol STRING, price FLOAT);\n\
@@ -1226,7 +1224,6 @@ async fn filter_test_is_not_null() {
 /// Filter test - Combined IS NULL with AND
 /// Reference: FilterTestCase2.java
 #[tokio::test]
-#[ignore = "IS NULL operator not yet supported in SQL converter"]
 async fn filter_test_is_null_combined() {
     let app = "\
         CREATE STREAM inputStream (symbol STRING, price FLOAT, active BOOLEAN);\n\
@@ -1272,7 +1269,6 @@ async fn filter_test_is_null_combined() {
 /// Filter test - IN operator with string list
 /// Reference: FilterTestCase2.java
 #[tokio::test]
-#[ignore = "IN operator not yet supported in SQL converter"]
 async fn filter_test_in_string_list() {
     let app = "\
         CREATE STREAM inputStream (symbol STRING, price FLOAT);\n\
@@ -1302,14 +1298,13 @@ async fn filter_test_in_string_list() {
         ],
     );
     let out = runner.shutdown();
-    // IBM and GOOG are in the list
-    assert_eq!(out.len(), 2);
+    // All three (IBM, MSFT, GOOG) are in the list
+    assert_eq!(out.len(), 3);
 }
 
 /// Filter test - NOT IN operator
 /// Reference: FilterTestCase2.java
 #[tokio::test]
-#[ignore = "NOT IN operator not yet supported in SQL converter"]
 async fn filter_test_not_in() {
     let app = "\
         CREATE STREAM inputStream (symbol STRING, price FLOAT);\n\
@@ -1346,7 +1341,6 @@ async fn filter_test_not_in() {
 /// Filter test - IN operator with integer list
 /// Reference: FilterTestCase2.java
 #[tokio::test]
-#[ignore = "IN operator not yet supported in SQL converter"]
 async fn filter_test_in_int_list() {
     let app = "\
         CREATE STREAM inputStream (id INT, value FLOAT);\n\
@@ -1383,7 +1377,6 @@ async fn filter_test_in_int_list() {
 /// Filter test - BETWEEN operator
 /// Reference: FilterTestCase2.java
 #[tokio::test]
-#[ignore = "BETWEEN operator not yet supported in SQL converter"]
 async fn filter_test_between() {
     let app = "\
         CREATE STREAM inputStream (symbol STRING, price FLOAT);\n\
@@ -1427,7 +1420,6 @@ async fn filter_test_between() {
 /// Filter test - NOT BETWEEN operator
 /// Reference: FilterTestCase2.java
 #[tokio::test]
-#[ignore = "NOT BETWEEN operator not yet supported in SQL converter"]
 async fn filter_test_not_between() {
     let app = "\
         CREATE STREAM inputStream (symbol STRING, price FLOAT);\n\
@@ -1469,7 +1461,6 @@ async fn filter_test_not_between() {
 /// Filter test - LIKE operator for string patterns
 /// Reference: FilterTestCase2.java
 #[tokio::test]
-#[ignore = "LIKE operator not yet supported in SQL converter"]
 async fn filter_test_like_prefix() {
     let app = "\
         CREATE STREAM inputStream (name STRING, value INT);\n\
@@ -1505,7 +1496,6 @@ async fn filter_test_like_prefix() {
 
 /// Filter test - LIKE operator with suffix pattern
 #[tokio::test]
-#[ignore = "LIKE operator not yet supported in SQL converter"]
 async fn filter_test_like_suffix() {
     let app = "\
         CREATE STREAM inputStream (name STRING, value INT);\n\
@@ -2382,7 +2372,6 @@ async fn filter_test_negative_numbers() {
 /// Negative to negative comparison
 /// Note: Unary minus in WHERE clause not yet supported
 #[tokio::test]
-#[ignore = "Unary minus operator in WHERE clause not yet supported"]
 async fn filter_test_negative_to_negative() {
     let app = "\
         CREATE STREAM tempStream (location STRING, temperature FLOAT);\n\
@@ -2485,7 +2474,6 @@ async fn filter_test_multiple_or_conditions() {
 
 /// Filter with IN expression
 #[tokio::test]
-#[ignore = "IN expression not yet supported in WHERE clause"]
 async fn filter_test_in_expression() {
     let app = "\
         CREATE STREAM orderStream (orderId INT, status STRING);\n\
@@ -2522,7 +2510,6 @@ async fn filter_test_in_expression() {
 
 /// Filter with NOT IN expression
 #[tokio::test]
-#[ignore = "NOT IN expression not yet supported in WHERE clause"]
 async fn filter_test_not_in_expression() {
     let app = "\
         CREATE STREAM orderStream (orderId INT, status STRING);\n\
@@ -2559,7 +2546,6 @@ async fn filter_test_not_in_expression() {
 
 /// Filter with BETWEEN expression
 #[tokio::test]
-#[ignore = "BETWEEN expression not yet supported in WHERE clause"]
 async fn filter_test_between_expression() {
     let app = "\
         CREATE STREAM scoreStream (studentId INT, score INT);\n\
@@ -2591,7 +2577,6 @@ async fn filter_test_between_expression() {
 
 /// Filter with modulo operator
 #[tokio::test]
-#[ignore = "Modulo operator not yet supported in WHERE clause"]
 async fn filter_test_modulo_operator() {
     let app = "\
         CREATE STREAM numberStream (value INT);\n\
@@ -2759,7 +2744,6 @@ async fn filter_test_parentheses_precedence() {
 
 /// Filter with LIKE pattern - starts with
 #[tokio::test]
-#[ignore = "LIKE pattern matching not yet supported"]
 async fn filter_test_like_starts_with() {
     let app = "\
         CREATE STREAM userStream (userId INT, email STRING);\n\
@@ -2794,7 +2778,6 @@ async fn filter_test_like_starts_with() {
 
 /// Filter with LIKE pattern - ends with
 #[tokio::test]
-#[ignore = "LIKE pattern matching not yet supported"]
 async fn filter_test_like_ends_with() {
     let app = "\
         CREATE STREAM userStream (userId INT, email STRING);\n\
@@ -2822,7 +2805,6 @@ async fn filter_test_like_ends_with() {
 
 /// Filter with IS NULL for multiple matches
 #[tokio::test]
-#[ignore = "IS NULL expression not yet supported in WHERE clause"]
 async fn filter_test_null_multiple() {
     let app = "\
         CREATE STREAM dataStream (id INT, value INT);\n\
@@ -2850,7 +2832,6 @@ async fn filter_test_null_multiple() {
 
 /// Filter with IS NOT NULL for multiple matches
 #[tokio::test]
-#[ignore = "IS NOT NULL expression not yet supported in WHERE clause"]
 async fn filter_test_not_null_multiple() {
     let app = "\
         CREATE STREAM dataStream (id INT, value INT);\n\
@@ -3362,7 +3343,6 @@ async fn filter_test_concat_in_where() {
 
 /// Modulo operator
 #[tokio::test]
-#[ignore = "Modulo operator not yet supported in WHERE clause"]
 async fn filter_test_modulo() {
     let app = "\
         CREATE STREAM numberStream (id INT, value INT);\n\
@@ -3796,7 +3776,6 @@ async fn filter_test_double_comparison() {
 
 /// Filter with IN operator (multiple values)
 #[tokio::test]
-#[ignore = "IN operator not yet supported"]
 async fn filter_test_in_operator() {
     let app = "\
         CREATE STREAM logStream (id INT, level STRING);\n\
@@ -3825,7 +3804,6 @@ async fn filter_test_in_operator() {
 
 /// Filter with BETWEEN operator (range check)
 #[tokio::test]
-#[ignore = "BETWEEN operator not yet supported"]
 async fn filter_test_between_range() {
     let app = "\
         CREATE STREAM dataStream (id INT, value INT);\n\
@@ -3902,7 +3880,6 @@ async fn filter_test_negative_value() {
 
 /// Filter with modulo divisibility check
 #[tokio::test]
-#[ignore = "Modulo operator not yet supported"]
 async fn filter_test_modulo_divisibility() {
     let app = "\
         CREATE STREAM numStream (id INT, value INT);\n\
@@ -4628,7 +4605,6 @@ async fn filter_test_division_in_select() {
 
 /// Filter with NOT condition
 #[tokio::test]
-#[ignore = "BOOL type not yet supported"]
 async fn filter_test_not_condition() {
     let app = "\
         CREATE STREAM flagStream (id INT, active BOOL);\n\

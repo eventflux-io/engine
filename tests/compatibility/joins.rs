@@ -518,7 +518,6 @@ async fn join_test15_stream_table() {
 
 /// Join with inequality condition (non-equi join)
 #[tokio::test]
-#[ignore = "Non-equi join (inequality in ON clause) not yet supported"]
 async fn join_test16_non_equi_join() {
     let app = "\
         CREATE STREAM Sales (productId INT, amount FLOAT);\n\
@@ -2000,7 +1999,6 @@ async fn join_test_length_both() {
 
 /// Join with modulo operation in SELECT
 #[tokio::test]
-#[ignore = "Modulo operator not yet supported"]
 async fn join_test_modulo() {
     let app = "\
         CREATE STREAM stream1 (id INT, num1 INT);\n\
@@ -2608,7 +2606,6 @@ async fn join_test_with_length() {
 
 /// Join with modulo operator
 #[tokio::test]
-#[ignore = "modulo operator not yet supported"]
 async fn join_test_modulo_result() {
     let app = "\
         CREATE STREAM stream1 (id INT, value INT);\n\

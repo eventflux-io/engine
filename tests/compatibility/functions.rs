@@ -151,9 +151,8 @@ async fn function_test_current_timestamp() {
 
 /// Math function - abs
 /// Reference: FunctionTestCase.java
-/// Note: abs function executor not yet registered
+/// Note: abs function executor registered
 #[tokio::test]
-#[ignore = "abs function executor not yet registered in EventFlux"]
 async fn function_test_abs() {
     let app = "\
         CREATE STREAM inputStream (value INT);\n\
@@ -291,7 +290,6 @@ async fn function_test_length() {
 /// String function: substring
 /// Reference: String function tests
 #[tokio::test]
-#[ignore = "substring function not yet implemented in SQL converter"]
 async fn function_test_substring() {
     let app = "\
         CREATE STREAM inputStream (text STRING);\n\
@@ -446,7 +444,6 @@ async fn arithmetic_test_complex_expression() {
 /// Math function - log (natural logarithm)
 /// Reference: Math function tests
 #[tokio::test]
-#[ignore = "log function not yet supported in SQL converter"]
 async fn function_test_log() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -471,7 +468,6 @@ async fn function_test_log() {
 /// Math function - sin
 /// Reference: Math function tests
 #[tokio::test]
-#[ignore = "sin function not yet supported in SQL converter"]
 async fn function_test_sin() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -498,7 +494,6 @@ async fn function_test_sin() {
 /// Math function - cos
 /// Reference: Math function tests
 #[tokio::test]
-#[ignore = "cos function not yet supported in SQL converter"]
 async fn function_test_cos() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -518,7 +513,6 @@ async fn function_test_cos() {
 /// Math function - tan
 /// Reference: Math function tests
 #[tokio::test]
-#[ignore = "tan function not yet supported in SQL converter"]
 async fn function_test_tan() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -545,7 +539,6 @@ async fn function_test_tan() {
 /// Math function - power
 /// Reference: Math function tests
 #[tokio::test]
-#[ignore = "power function not yet supported in SQL converter"]
 async fn function_test_power() {
     let app = "\
         CREATE STREAM inputStream (base DOUBLE, exp DOUBLE);\n\
@@ -566,7 +559,6 @@ async fn function_test_power() {
 /// Math function - floor
 /// Reference: Math function tests
 #[tokio::test]
-#[ignore = "floor function not yet supported in SQL converter"]
 async fn function_test_floor() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -585,7 +577,6 @@ async fn function_test_floor() {
 /// Math function - ceil
 /// Reference: Math function tests
 #[tokio::test]
-#[ignore = "ceil function not yet supported in SQL converter"]
 async fn function_test_ceil() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -608,7 +599,6 @@ async fn function_test_ceil() {
 /// String function - trim
 /// Reference: String function tests
 #[tokio::test]
-#[ignore = "trim function not yet supported in SQL converter"]
 async fn function_test_trim() {
     let app = "\
         CREATE STREAM inputStream (text STRING);\n\
@@ -628,7 +618,6 @@ async fn function_test_trim() {
 /// String function - replace
 /// Reference: String function tests
 #[tokio::test]
-#[ignore = "replace function not yet supported in SQL converter"]
 async fn function_test_replace() {
     let app = "\
         CREATE STREAM inputStream (text STRING);\n\
@@ -652,7 +641,6 @@ async fn function_test_replace() {
 /// ifnull function - returns first non-null value
 /// Reference: Function tests
 #[tokio::test]
-#[ignore = "ifnull function not yet supported in SQL converter"]
 async fn function_test_ifnull() {
     let app = "\
         CREATE STREAM inputStream (value FLOAT, fallback FLOAT);\n\
@@ -677,7 +665,6 @@ async fn function_test_ifnull() {
 /// nullif function - returns NULL if values are equal
 /// Reference: Function tests
 #[tokio::test]
-#[ignore = "nullif function not yet supported in SQL converter"]
 async fn function_test_nullif() {
     let app = "\
         CREATE STREAM inputStream (a INT, b INT);\n\
@@ -830,9 +817,7 @@ async fn function_test_mixed_functions() {
 }
 
 /// Nested function calls
-/// Note: round(sqrt(...)) type inference not yet supported
 #[tokio::test]
-#[ignore = "Nested function calls round(sqrt()) type inference not yet supported"]
 async fn function_test_nested_calls() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1195,7 +1180,6 @@ async fn function_test_sqrt_one() {
 
 /// abs function with positive number
 #[tokio::test]
-#[ignore = "abs function not yet supported"]
 async fn function_test_abs_positive() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1211,7 +1195,6 @@ async fn function_test_abs_positive() {
 
 /// abs function with negative number
 #[tokio::test]
-#[ignore = "abs function not yet supported"]
 async fn function_test_abs_negative() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1227,7 +1210,6 @@ async fn function_test_abs_negative() {
 
 /// abs function with zero
 #[tokio::test]
-#[ignore = "abs function not yet supported"]
 async fn function_test_abs_zero() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1243,7 +1225,6 @@ async fn function_test_abs_zero() {
 
 /// floor function edge case - positive
 #[tokio::test]
-#[ignore = "floor function not yet supported"]
 async fn function_test_floor_positive() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1259,7 +1240,6 @@ async fn function_test_floor_positive() {
 
 /// floor function with negative number
 #[tokio::test]
-#[ignore = "floor function not yet supported"]
 async fn function_test_floor_negative() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1275,7 +1255,6 @@ async fn function_test_floor_negative() {
 
 /// ceil function edge case - positive
 #[tokio::test]
-#[ignore = "ceil function not yet supported"]
 async fn function_test_ceil_positive() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1291,7 +1270,6 @@ async fn function_test_ceil_positive() {
 
 /// ceil function with negative number
 #[tokio::test]
-#[ignore = "ceil function not yet supported"]
 async fn function_test_ceil_negative() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1355,7 +1333,6 @@ async fn function_test_length_empty_string() {
 
 /// trim function edge case - basic
 #[tokio::test]
-#[ignore = "trim function not yet supported"]
 async fn function_test_trim_basic() {
     let app = "\
         CREATE STREAM inputStream (text STRING);\n\
@@ -1374,7 +1351,6 @@ async fn function_test_trim_basic() {
 
 /// replace function edge case - basic
 #[tokio::test]
-#[ignore = "replace function not yet supported"]
 async fn function_test_replace_basic() {
     let app = "\
         CREATE STREAM inputStream (text STRING);\n\
@@ -1393,7 +1369,6 @@ async fn function_test_replace_basic() {
 
 /// substring function edge case - basic
 #[tokio::test]
-#[ignore = "substr function not yet supported"]
 async fn function_test_substring_basic() {
     let app = "\
         CREATE STREAM inputStream (text STRING);\n\
@@ -1412,7 +1387,6 @@ async fn function_test_substring_basic() {
 
 /// power function edge case - two to three
 #[tokio::test]
-#[ignore = "power function not yet supported"]
 async fn function_test_power_two_three() {
     let app = "\
         CREATE STREAM inputStream (base DOUBLE, exp DOUBLE);\n\
@@ -1431,7 +1405,6 @@ async fn function_test_power_two_three() {
 
 /// log function edge case - natural log of e
 #[tokio::test]
-#[ignore = "ln function not yet supported"]
 async fn function_test_ln_of_e() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1453,7 +1426,6 @@ async fn function_test_ln_of_e() {
 
 /// log10 function
 #[tokio::test]
-#[ignore = "log10 function not yet supported"]
 async fn function_test_log10() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1469,7 +1441,6 @@ async fn function_test_log10() {
 
 /// exp function
 #[tokio::test]
-#[ignore = "exp function not yet supported"]
 async fn function_test_exp() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1485,7 +1456,6 @@ async fn function_test_exp() {
 
 /// sin function edge case - sin of zero
 #[tokio::test]
-#[ignore = "sin function not yet supported"]
 async fn function_test_sin_of_zero() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1501,7 +1471,6 @@ async fn function_test_sin_of_zero() {
 
 /// cos function edge case - cos of zero
 #[tokio::test]
-#[ignore = "cos function not yet supported"]
 async fn function_test_cos_of_zero() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1517,7 +1486,6 @@ async fn function_test_cos_of_zero() {
 
 /// tan function edge case - tan of zero
 #[tokio::test]
-#[ignore = "tan function not yet supported"]
 async fn function_test_tan_of_zero() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1533,7 +1501,6 @@ async fn function_test_tan_of_zero() {
 
 /// currentTimeMillis function
 #[tokio::test]
-#[ignore = "currentTimeMillis function not yet supported"]
 async fn function_test_current_time_millis() {
     let app = "\
         CREATE STREAM inputStream (id INT);\n\
@@ -1550,15 +1517,14 @@ async fn function_test_current_time_millis() {
     }
 }
 
-/// ifThenElse function
+/// Conditional expression using CASE WHEN
 #[tokio::test]
-#[ignore = "ifThenElse function not yet supported"]
-async fn function_test_if_then_else() {
+async fn function_test_case_conditional() {
     let app = "\
         CREATE STREAM inputStream (value INT);\n\
         CREATE STREAM outputStream (result STRING);\n\
         INSERT INTO outputStream\n\
-        SELECT ifThenElse(value > 10, 'HIGH', 'LOW') AS result FROM inputStream;\n";
+        SELECT CASE WHEN value > 10 THEN 'HIGH' ELSE 'LOW' END AS result FROM inputStream;\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send("inputStream", vec![AttributeValue::Int(15)]);
     runner.send("inputStream", vec![AttributeValue::Int(5)]);
@@ -1606,7 +1572,6 @@ async fn function_test_coalesce_non_null_first() {
 
 /// Multiple functions in SELECT
 #[tokio::test]
-#[ignore = "floor/ceil/round functions not yet supported"]
 async fn function_test_multiple_functions() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1858,7 +1823,6 @@ async fn function_test_concat_with_cast() {
 
 /// substring function with start and length indices
 #[tokio::test]
-#[ignore = "substring function not yet supported"]
 async fn function_test_substring_indices() {
     let app = "\
         CREATE STREAM inputStream (text STRING);\n\
@@ -1877,7 +1841,6 @@ async fn function_test_substring_indices() {
 
 /// trim function to remove surrounding whitespace
 #[tokio::test]
-#[ignore = "trim function not yet supported"]
 async fn function_test_trim_whitespace() {
     let app = "\
         CREATE STREAM inputStream (text STRING);\n\
@@ -1896,7 +1859,6 @@ async fn function_test_trim_whitespace() {
 
 /// abs function for absolute value with multiple inputs
 #[tokio::test]
-#[ignore = "abs function not yet supported"]
 async fn function_test_abs_multi_input() {
     let app = "\
         CREATE STREAM inputStream (value INT);\n\
@@ -1914,7 +1876,6 @@ async fn function_test_abs_multi_input() {
 
 /// abs function for double
 #[tokio::test]
-#[ignore = "abs function not yet supported"]
 async fn function_test_abs_double() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1960,7 +1921,6 @@ async fn function_test_round_up_down() {
 
 /// floor function with positive and negative values
 #[tokio::test]
-#[ignore = "floor function not yet supported"]
 async fn function_test_floor_multi_input() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -1986,7 +1946,6 @@ async fn function_test_floor_multi_input() {
 
 /// ceil function with positive and negative values
 #[tokio::test]
-#[ignore = "ceil function not yet supported"]
 async fn function_test_ceil_multi_input() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -2037,7 +1996,6 @@ async fn function_test_sqrt_multi_input() {
 
 /// power function with base and exponent
 #[tokio::test]
-#[ignore = "power function not yet supported"]
 async fn function_test_power_base_exp() {
     let app = "\
         CREATE STREAM inputStream (base DOUBLE, exp DOUBLE);\n\
@@ -2060,7 +2018,6 @@ async fn function_test_power_base_exp() {
 
 /// log function (natural log) with e as input
 #[tokio::test]
-#[ignore = "ln function not yet supported"]
 async fn function_test_ln_of_e_value() {
     let app = "\
         CREATE STREAM inputStream (value DOUBLE);\n\
@@ -2166,7 +2123,6 @@ async fn function_test_length_empty_zero() {
 
 /// abs function with negative double
 #[tokio::test]
-#[ignore = "abs function not yet supported"]
 async fn function_test_abs_negative_double() {
     let app = "\
         CREATE STREAM numStream (value DOUBLE);\n\
@@ -2226,7 +2182,6 @@ async fn function_test_uuid_unique_consecutive() {
 
 /// floor function with positive decimal value
 #[tokio::test]
-#[ignore = "floor function not yet supported"]
 async fn function_test_floor_positive_decimal() {
     let app = "\
         CREATE STREAM numStream (value DOUBLE);\n\
@@ -2249,7 +2204,6 @@ async fn function_test_floor_positive_decimal() {
 
 /// ceil function with positive decimal value
 #[tokio::test]
-#[ignore = "ceil function not yet supported"]
 async fn function_test_ceil_positive_decimal() {
     let app = "\
         CREATE STREAM numStream (value DOUBLE);\n\
@@ -2394,7 +2348,6 @@ async fn function_test_lower_alternating_case() {
 
 /// abs with zero value (stays zero)
 #[tokio::test]
-#[ignore = "abs function not yet supported"]
 async fn function_test_abs_zero_stays_zero() {
     let app = "\
         CREATE STREAM numStream (value INT);\n\
@@ -2415,7 +2368,6 @@ async fn function_test_abs_zero_stays_zero() {
 
 /// abs with positive value (stays same)
 #[tokio::test]
-#[ignore = "abs function not yet supported"]
 async fn function_test_abs_positive_unchanged() {
     let app = "\
         CREATE STREAM numStream (value INT);\n\
@@ -2495,7 +2447,6 @@ async fn function_test_sqrt_zero_returns_zero() {
 }
 
 /// power with zero exponent returns 1
-#[ignore = "power function not yet supported"]
 #[tokio::test]
 async fn function_test_power_zero_exponent() {
     let app = "\
@@ -2579,7 +2530,6 @@ async fn function_test_length_of_concat() {
 }
 
 /// abs of double negative returns positive double
-#[ignore = "abs function not available - need to use math:abs"]
 #[tokio::test]
 async fn function_test_abs_large_negative() {
     let app = "\
@@ -2595,7 +2545,6 @@ async fn function_test_abs_large_negative() {
 }
 
 /// round with precision 2
-#[ignore = "round() does not yet support precision argument"]
 #[tokio::test]
 async fn function_test_round_precision_two() {
     let app = "\
@@ -2611,7 +2560,6 @@ async fn function_test_round_precision_two() {
 }
 
 /// floor of negative decimal
-#[ignore = "floor() parsed as DateTimeField expression, not math function"]
 #[tokio::test]
 async fn function_test_floor_negative_decimal() {
     let app = "\
@@ -2627,7 +2575,6 @@ async fn function_test_floor_negative_decimal() {
 }
 
 /// ceil of negative decimal
-#[ignore = "ceil() parsed as DateTimeField expression, not math function"]
 #[tokio::test]
 async fn function_test_ceil_negative_decimal() {
     let app = "\
@@ -2673,7 +2620,6 @@ async fn function_test_sqrt_one_identity() {
 }
 
 /// sin of zero returns zero (using math:sin namespace)
-#[ignore = "math:sin function not yet supported in SQL parser"]
 #[tokio::test]
 async fn function_test_math_sin_zero() {
     let app = "\
@@ -2689,7 +2635,6 @@ async fn function_test_math_sin_zero() {
 }
 
 /// tan of zero returns zero (using math:tan namespace)
-#[ignore = "math:tan function not yet supported in SQL parser"]
 #[tokio::test]
 async fn function_test_math_tan_zero() {
     let app = "\
@@ -2705,7 +2650,6 @@ async fn function_test_math_tan_zero() {
 }
 
 /// log of 1 returns 0 (using math:log namespace)
-#[ignore = "math:log function not yet supported in SQL parser"]
 #[tokio::test]
 async fn function_test_math_log_one() {
     let app = "\
@@ -2752,7 +2696,6 @@ async fn function_test_round_two_point_five() {
 }
 
 /// substring with start and end
-#[ignore = "substring function not yet supported in SQL converter"]
 #[tokio::test]
 async fn function_test_substring_start_end() {
     let app = "\

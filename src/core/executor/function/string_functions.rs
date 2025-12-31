@@ -209,7 +209,9 @@ impl ExpressionExecutor for SubstringFunctionExecutor {
         };
 
         let start_val = self.start_executor.execute(event)?;
-        let start = to_i32(&start_val)? as usize;
+        let start_idx = to_i32(&start_val)?;
+        // Use 0-based indexing (Rust native) - SQL 1-based conversion happens at converter level
+        let start = if start_idx < 0 { 0 } else { start_idx as usize };
 
         let substr = if let Some(le) = &self.length_executor {
             let len_val = le.execute(event)?;
@@ -238,6 +240,162 @@ impl ExpressionExecutor for SubstringFunctionExecutor {
             value_executor: self.value_executor.clone_executor(ctx),
             start_executor: self.start_executor.clone_executor(ctx),
             length_executor: self.length_executor.as_ref().map(|e| e.clone_executor(ctx)),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct TrimFunctionExecutor {
+    expr: Box<dyn ExpressionExecutor>,
+}
+
+impl TrimFunctionExecutor {
+    pub fn new(expr: Box<dyn ExpressionExecutor>) -> Result<Self, String> {
+        Ok(Self { expr })
+    }
+}
+
+impl ExpressionExecutor for TrimFunctionExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        match self.expr.execute(event)? {
+            AttributeValue::String(s) => Some(AttributeValue::String(s.trim().to_string())),
+            AttributeValue::Null => Some(AttributeValue::Null),
+            _ => None,
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        ApiAttributeType::STRING
+    }
+
+    fn clone_executor(&self, ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(TrimFunctionExecutor {
+            expr: self.expr.clone_executor(ctx),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct LikeFunctionExecutor {
+    value_executor: Box<dyn ExpressionExecutor>,
+    pattern_executor: Box<dyn ExpressionExecutor>,
+}
+
+impl LikeFunctionExecutor {
+    pub fn new(
+        value_executor: Box<dyn ExpressionExecutor>,
+        pattern_executor: Box<dyn ExpressionExecutor>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            value_executor,
+            pattern_executor,
+        })
+    }
+
+    /// Convert SQL LIKE pattern to regex pattern
+    /// % matches any sequence of characters
+    /// _ matches any single character
+    fn like_to_regex(pattern: &str) -> String {
+        let mut regex = String::from("^");
+        let mut chars = pattern.chars().peekable();
+
+        while let Some(c) = chars.next() {
+            match c {
+                '%' => regex.push_str(".*"),
+                '_' => regex.push('.'),
+                '\\' => {
+                    // Escape next character
+                    if let Some(&next) = chars.peek() {
+                        chars.next();
+                        regex.push_str(&regex::escape(&next.to_string()));
+                    }
+                }
+                _ => regex.push_str(&regex::escape(&c.to_string())),
+            }
+        }
+
+        regex.push('$');
+        regex
+    }
+}
+
+impl ExpressionExecutor for LikeFunctionExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        let value = self.value_executor.execute(event)?;
+        let pattern = self.pattern_executor.execute(event)?;
+
+        match (&value, &pattern) {
+            (AttributeValue::Null, _) | (_, AttributeValue::Null) => Some(AttributeValue::Null),
+            (AttributeValue::String(s), AttributeValue::String(p)) => {
+                let regex_pattern = Self::like_to_regex(p);
+                match regex::Regex::new(&regex_pattern) {
+                    Ok(re) => Some(AttributeValue::Bool(re.is_match(s))),
+                    Err(_) => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        ApiAttributeType::BOOL
+    }
+
+    fn clone_executor(&self, ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(LikeFunctionExecutor {
+            value_executor: self.value_executor.clone_executor(ctx),
+            pattern_executor: self.pattern_executor.clone_executor(ctx),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct ReplaceFunctionExecutor {
+    value_executor: Box<dyn ExpressionExecutor>,
+    from_executor: Box<dyn ExpressionExecutor>,
+    to_executor: Box<dyn ExpressionExecutor>,
+}
+
+impl ReplaceFunctionExecutor {
+    pub fn new(
+        value_executor: Box<dyn ExpressionExecutor>,
+        from_executor: Box<dyn ExpressionExecutor>,
+        to_executor: Box<dyn ExpressionExecutor>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            value_executor,
+            from_executor,
+            to_executor,
+        })
+    }
+}
+
+impl ExpressionExecutor for ReplaceFunctionExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        let value = self.value_executor.execute(event)?;
+        let from = self.from_executor.execute(event)?;
+        let to = self.to_executor.execute(event)?;
+
+        match (&value, &from, &to) {
+            (AttributeValue::Null, _, _)
+            | (_, AttributeValue::Null, _)
+            | (_, _, AttributeValue::Null) => Some(AttributeValue::Null),
+            (AttributeValue::String(s), AttributeValue::String(f), AttributeValue::String(t)) => {
+                Some(AttributeValue::String(s.replace(f.as_str(), t.as_str())))
+            }
+            _ => None,
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        ApiAttributeType::STRING
+    }
+
+    fn clone_executor(&self, ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(ReplaceFunctionExecutor {
+            value_executor: self.value_executor.clone_executor(ctx),
+            from_executor: self.from_executor.clone_executor(ctx),
+            to_executor: self.to_executor.clone_executor(ctx),
         })
     }
 }

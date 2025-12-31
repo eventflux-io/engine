@@ -32,7 +32,7 @@ pub fn sql_type_to_attribute_type(sql_type: &DataType) -> Result<AttributeType, 
         DataType::Double(_) | DataType::DoublePrecision => Ok(AttributeType::DOUBLE),
 
         // Boolean types
-        DataType::Boolean => Ok(AttributeType::BOOL),
+        DataType::Boolean | DataType::Bool => Ok(AttributeType::BOOL),
 
         // Decimal types (precision loss warning)
         DataType::Decimal(_) | DataType::Numeric(_) => {
@@ -59,6 +59,15 @@ pub fn sql_type_to_attribute_type(sql_type: &DataType) -> Result<AttributeType, 
         DataType::Binary(_) | DataType::Varbinary(_) | DataType::Blob(_) => Err(
             TypeError::UnsupportedType("Binary types not supported".to_string()),
         ),
+
+        // Handle custom types (like LONG which is not standard SQL)
+        DataType::Custom(name, _) => {
+            let type_name = name.to_string().to_uppercase();
+            match type_name.as_str() {
+                "LONG" => Ok(AttributeType::LONG),
+                _ => Err(TypeError::UnsupportedType(format!("{:?}", sql_type))),
+            }
+        }
 
         // Catch-all for other types
         other => Err(TypeError::UnsupportedType(format!("{:?}", other))),
