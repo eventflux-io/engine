@@ -710,7 +710,7 @@ async fn partition_test19_time_window() {
         BEGIN\n\
             INSERT INTO outputStream\n\
             SELECT userId, sum(count) AS total\n\
-            FROM eventStream WINDOW('time', 5000);\n\
+            FROM eventStream WINDOW('time', 5000 MILLISECONDS);\n\
         END;\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(

@@ -207,7 +207,7 @@ async fn time_window_test1_basic() {
         CREATE STREAM cseEventStream (symbol STRING, price FLOAT, volume INT);\n\
         CREATE STREAM outputStream (symbol STRING, price FLOAT, volume INT);\n\
         INSERT INTO outputStream\n\
-        SELECT symbol, price, volume FROM cseEventStream WINDOW('time', 500);\n";
+        SELECT symbol, price, volume FROM cseEventStream WINDOW('time', 500 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "cseEventStream",
@@ -238,7 +238,7 @@ async fn time_window_test2_multiple_intervals() {
         CREATE STREAM cseEventStream (symbol STRING, price FLOAT, volume INT);\n\
         CREATE STREAM outputStream (symbol STRING, price FLOAT, volume INT);\n\
         INSERT INTO outputStream\n\
-        SELECT symbol, price, volume FROM cseEventStream WINDOW('time', 300);\n";
+        SELECT symbol, price, volume FROM cseEventStream WINDOW('time', 300 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "cseEventStream",
@@ -467,7 +467,7 @@ async fn time_batch_window_test1_basic() {
         CREATE STREAM cseEventStream (symbol STRING, price FLOAT, volume INT);\n\
         CREATE STREAM outputStream (symbol STRING, price FLOAT, volume INT);\n\
         INSERT INTO outputStream\n\
-        SELECT symbol, price, volume FROM cseEventStream WINDOW('timeBatch', 200);\n";
+        SELECT symbol, price, volume FROM cseEventStream WINDOW('timeBatch', 200 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "cseEventStream",
@@ -497,7 +497,7 @@ async fn time_batch_window_test2_multiple_batches() {
         CREATE STREAM cseEventStream (symbol STRING, price FLOAT, volume INT);\n\
         CREATE STREAM outputStream (symbol STRING, price FLOAT, volume INT);\n\
         INSERT INTO outputStream\n\
-        SELECT symbol, price, volume FROM cseEventStream WINDOW('timeBatch', 100);\n";
+        SELECT symbol, price, volume FROM cseEventStream WINDOW('timeBatch', 100 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "cseEventStream",
@@ -529,7 +529,7 @@ async fn time_batch_window_test3_count_aggregation() {
         CREATE STREAM stockStream (symbol STRING, price FLOAT);\n\
         CREATE STREAM outputStream (symbol STRING, cnt BIGINT);\n\
         INSERT INTO outputStream\n\
-        SELECT symbol, count() AS cnt FROM stockStream WINDOW('timeBatch', 200);\n";
+        SELECT symbol, count() AS cnt FROM stockStream WINDOW('timeBatch', 200 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "stockStream",
@@ -574,7 +574,7 @@ async fn external_time_window_test1_basic() {
         CREATE STREAM cseEventStream (ts BIGINT, symbol STRING, price FLOAT);\n\
         CREATE STREAM outputStream (symbol STRING, price FLOAT);\n\
         INSERT INTO outputStream\n\
-        SELECT symbol, price FROM cseEventStream WINDOW('externalTime', ts, 500);\n";
+        SELECT symbol, price FROM cseEventStream WINDOW('externalTime', ts, 500 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send_with_ts(
         "cseEventStream",
@@ -615,7 +615,7 @@ async fn external_time_batch_window_test1_basic() {
         CREATE STREAM cseEventStream (ts BIGINT, symbol STRING, price FLOAT);\n\
         CREATE STREAM outputStream (symbol STRING, price FLOAT);\n\
         INSERT INTO outputStream\n\
-        SELECT symbol, price FROM cseEventStream WINDOW('externalTimeBatch', ts, 500);\n";
+        SELECT symbol, price FROM cseEventStream WINDOW('externalTimeBatch', ts, 500 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send_with_ts(
         "cseEventStream",
@@ -786,7 +786,7 @@ async fn session_window_test1_basic() {
         CREATE STREAM stockStream (symbol STRING, price FLOAT);\n\
         CREATE STREAM outputStream (symbol STRING, total DOUBLE);\n\
         INSERT INTO outputStream\n\
-        SELECT symbol, sum(price) AS total FROM stockStream WINDOW('session', 100);\n";
+        SELECT symbol, sum(price) AS total FROM stockStream WINDOW('session', 100 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "stockStream",
@@ -816,7 +816,7 @@ async fn session_window_test2_with_partition() {
         CREATE STREAM stockStream (symbol STRING, price FLOAT);\n\
         CREATE STREAM outputStream (symbol STRING, total DOUBLE);\n\
         INSERT INTO outputStream\n\
-        SELECT symbol, sum(price) AS total FROM stockStream WINDOW('session', 100, symbol);\n";
+        SELECT symbol, sum(price) AS total FROM stockStream WINDOW('session', 100 MILLISECONDS, symbol);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "stockStream",
@@ -1041,7 +1041,7 @@ async fn time_window_test3_sum_aggregation() {
         CREATE STREAM stockStream (symbol STRING, price FLOAT);\n\
         CREATE STREAM outputStream (total DOUBLE);\n\
         INSERT INTO outputStream\n\
-        SELECT sum(price) AS total FROM stockStream WINDOW('time', 2000);\n";
+        SELECT sum(price) AS total FROM stockStream WINDOW('time', 2000 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "stockStream",
@@ -1078,7 +1078,7 @@ async fn time_window_test4_avg_aggregation() {
         CREATE STREAM stockStream (symbol STRING, price FLOAT);\n\
         CREATE STREAM outputStream (avgPrice DOUBLE);\n\
         INSERT INTO outputStream\n\
-        SELECT avg(price) AS avgPrice FROM stockStream WINDOW('time', 2000);\n";
+        SELECT avg(price) AS avgPrice FROM stockStream WINDOW('time', 2000 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "stockStream",
@@ -1334,7 +1334,7 @@ async fn time_window_test5_short_duration() {
         CREATE STREAM stockStream (symbol STRING, price FLOAT);\n\
         CREATE STREAM outputStream (symbol STRING, price FLOAT);\n\
         INSERT INTO outputStream\n\
-        SELECT symbol, price FROM stockStream WINDOW('time', 50);\n";
+        SELECT symbol, price FROM stockStream WINDOW('time', 50 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "stockStream",
@@ -1363,7 +1363,7 @@ async fn time_window_test6_multiple_aggregates() {
         CREATE STREAM outputStream (sumPrice DOUBLE, avgPrice DOUBLE, maxVol INT, cnt BIGINT);\n\
         INSERT INTO outputStream\n\
         SELECT sum(price) AS sumPrice, avg(price) AS avgPrice, max(volume) AS maxVol, count() AS cnt\n\
-        FROM stockStream WINDOW('time', 2000);\n";
+        FROM stockStream WINDOW('time', 2000 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "stockStream",
@@ -1514,7 +1514,7 @@ async fn external_time_window_test2_out_of_order() {
         CREATE STREAM stockStream (ts BIGINT, symbol STRING, price FLOAT);\n\
         CREATE STREAM outputStream (symbol STRING, price FLOAT);\n\
         INSERT INTO outputStream\n\
-        SELECT symbol, price FROM stockStream WINDOW('externalTime', ts, 500);\n";
+        SELECT symbol, price FROM stockStream WINDOW('externalTime', ts, 500 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     // Send events out of order
     runner.send_with_ts(
@@ -1556,7 +1556,7 @@ async fn external_time_window_test3_with_aggregation() {
         CREATE STREAM stockStream (ts BIGINT, symbol STRING, price FLOAT);\n\
         CREATE STREAM outputStream (total DOUBLE);\n\
         INSERT INTO outputStream\n\
-        SELECT sum(price) AS total FROM stockStream WINDOW('externalTime', ts, 500);\n";
+        SELECT sum(price) AS total FROM stockStream WINDOW('externalTime', ts, 500 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send_with_ts(
         "stockStream",
@@ -1709,7 +1709,7 @@ async fn time_window_test7_expiring_sum() {
         CREATE STREAM stockStream (symbol STRING, price FLOAT);\n\
         CREATE STREAM outputStream (total DOUBLE);\n\
         INSERT INTO outputStream\n\
-        SELECT sum(price) AS total FROM stockStream WINDOW('time', 100);\n";
+        SELECT sum(price) AS total FROM stockStream WINDOW('time', 100 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "stockStream",
@@ -1922,7 +1922,7 @@ async fn time_batch_window_test3_count() {
         CREATE STREAM outputStream (eventCount BIGINT);\n\
         INSERT INTO outputStream\n\
         SELECT count() AS eventCount\n\
-        FROM eventStream WINDOW('timeBatch', 200);\n";
+        FROM eventStream WINDOW('timeBatch', 200 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "eventStream",
@@ -1950,7 +1950,7 @@ async fn time_batch_window_test4_min_max() {
         CREATE STREAM outputStream (minTemp FLOAT, maxTemp FLOAT);\n\
         INSERT INTO outputStream\n\
         SELECT min(temp) AS minTemp, max(temp) AS maxTemp\n\
-        FROM sensorStream WINDOW('timeBatch', 200);\n";
+        FROM sensorStream WINDOW('timeBatch', 200 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "sensorStream",
@@ -1981,7 +1981,7 @@ async fn external_time_window_test4_count() {
         CREATE STREAM outputStream (eventCount BIGINT);\n\
         INSERT INTO outputStream\n\
         SELECT count() AS eventCount\n\
-        FROM eventStream WINDOW('externalTime', eventTime, 1000);\n";
+        FROM eventStream WINDOW('externalTime', eventTime, 1000 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     let base_time = 1000000000i64;
     runner.send(
@@ -2016,7 +2016,7 @@ async fn external_time_window_test5_expiry() {
         CREATE STREAM outputStream (total BIGINT);\n\
         INSERT INTO outputStream\n\
         SELECT sum(value) AS total\n\
-        FROM eventStream WINDOW('externalTime', eventTime, 500);\n";
+        FROM eventStream WINDOW('externalTime', eventTime, 500 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     let base_time = 1000000000i64;
     runner.send(
@@ -2054,7 +2054,7 @@ async fn session_window_test3_sum() {
         CREATE STREAM outputStream (totalClicks BIGINT);\n\
         INSERT INTO outputStream\n\
         SELECT count() AS totalClicks\n\
-        FROM clickStream WINDOW('session', 500);\n";
+        FROM clickStream WINDOW('session', 500 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "clickStream",
@@ -2526,7 +2526,7 @@ async fn external_time_window_test_sum() {
         CREATE STREAM outputStream (totalPrice DOUBLE);\n\
         INSERT INTO outputStream\n\
         SELECT sum(price) AS totalPrice\n\
-        FROM stockStream WINDOW('externalTime', timestamp, 1000);\n";
+        FROM stockStream WINDOW('externalTime', timestamp, 1000 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "stockStream",
@@ -2556,7 +2556,7 @@ async fn time_window_test_distinct_count() {
         CREATE STREAM outputStream (uniqueSymbols BIGINT);\n\
         INSERT INTO outputStream\n\
         SELECT distinctCount(symbol) AS uniqueSymbols\n\
-        FROM stockStream WINDOW('time', 2000);\n";
+        FROM stockStream WINDOW('time', 2000 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "stockStream",
@@ -2678,7 +2678,7 @@ async fn time_batch_window_test_multi_group() {
         CREATE STREAM outputStream (symbol STRING, region STRING, totalPrice DOUBLE);\n\
         INSERT INTO outputStream\n\
         SELECT symbol, region, sum(price) AS totalPrice\n\
-        FROM stockStream WINDOW('timeBatch', 2000)\n\
+        FROM stockStream WINDOW('timeBatch', 2000 MILLISECONDS)\n\
         GROUP BY symbol, region;\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
@@ -3043,7 +3043,7 @@ async fn time_batch_window_test_with_filter() {
         CREATE STREAM outputStream (symbol STRING, total INT);\n\
         INSERT INTO outputStream\n\
         SELECT symbol, sum(price) AS total\n\
-        FROM tradeStream WINDOW('timeBatch', 200)\n\
+        FROM tradeStream WINDOW('timeBatch', 200 MILLISECONDS)\n\
         WHERE price > 100\n\
         GROUP BY symbol;\n";
     let runner = AppRunner::new(app, "outputStream").await;
@@ -3180,7 +3180,7 @@ async fn time_window_test_large_interval() {
         CREATE STREAM outputStream (total INT);\n\
         INSERT INTO outputStream\n\
         SELECT count(*) AS total\n\
-        FROM eventStream WINDOW('time', 60000);\n";
+        FROM eventStream WINDOW('time', 60000 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send("eventStream", vec![AttributeValue::Int(1)]);
     runner.send("eventStream", vec![AttributeValue::Int(2)]);
@@ -3308,7 +3308,7 @@ async fn time_batch_window_test_avg() {
         CREATE STREAM outputStream (location STRING, avgTemp DOUBLE);\n\
         INSERT INTO outputStream\n\
         SELECT location, avg(temperature) AS avgTemp\n\
-        FROM tempStream WINDOW('timeBatch', 200)\n\
+        FROM tempStream WINDOW('timeBatch', 200 MILLISECONDS)\n\
         GROUP BY location;\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(

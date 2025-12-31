@@ -41,13 +41,20 @@ SELECT currentTimeMillis() AS timestamp FROM HeartbeatTrigger;
 
 ### Time Unit Support
 
+Uses standard SQL `DateTimeField` for time units. All fixed-duration units are supported:
+
 | Unit | Aliases | Multiplier (to ms) | Example |
 |------|---------|-------------------|---------|
+| NANOSECOND | NANOSECONDS | 1/1,000,000 | `AT EVERY 1000000 NANOSECONDS` |
+| MICROSECOND | MICROSECONDS | 1/1,000 | `AT EVERY 1000 MICROSECONDS` |
 | MILLISECOND | MILLISECONDS | 1 | `AT EVERY 50 MILLISECONDS` |
 | SECOND | SECONDS | 1,000 | `AT EVERY 5 SECONDS` |
 | MINUTE | MINUTES | 60,000 | `AT EVERY 1 MINUTE` |
 | HOUR | HOURS | 3,600,000 | `AT EVERY 2 HOURS` |
 | DAY | DAYS | 86,400,000 | `AT EVERY 1 DAY` |
+| WEEK | WEEKS | 604,800,000 | `AT EVERY 1 WEEK` |
+
+**Note:** Variable-length units (YEAR, MONTH) are not supported for triggers as they cannot be converted to fixed milliseconds.
 
 ---
 
@@ -65,7 +72,8 @@ SQL Input: "CREATE TRIGGER T AT EVERY 5 SECONDS;"
 │ vendor/datafusion-sqlparser-rs/src/parser/     │
 │   parse_create_trigger()                        │
 │   └── parse_stream_trigger_timing()            │
-│       └── parse_stream_trigger_time_unit()     │
+│       └── parse_streaming_time_duration_ms()   │
+│           └── parse_date_time_field()          │
 └─────────────────────────────────────────────────┘
     │
     ▼
@@ -105,10 +113,11 @@ SQL Input: "CREATE TRIGGER T AT EVERY 5 SECONDS;"
 | File | Changes |
 |------|---------|
 | `vendor/datafusion-sqlparser-rs/src/keywords.rs` | Added `CRON` keyword |
-| `vendor/datafusion-sqlparser-rs/src/ast/ddl.rs` | Added `StreamTriggerTiming`, `StreamTriggerTimeUnit`, `CreateStreamTrigger` |
+| `vendor/datafusion-sqlparser-rs/src/ast/ddl.rs` | Added `StreamTriggerTiming`, `CreateStreamTrigger` |
+| `vendor/datafusion-sqlparser-rs/src/ast/value.rs` | Added `to_millis()` method to standard `DateTimeField` |
 | `vendor/datafusion-sqlparser-rs/src/ast/mod.rs` | Added exports and `Statement::CreateStreamTrigger` |
 | `vendor/datafusion-sqlparser-rs/src/ast/spans.rs` | Added span handling |
-| `vendor/datafusion-sqlparser-rs/src/parser/mod.rs` | Added `parse_stream_trigger_timing()`, `parse_stream_trigger_time_unit()` |
+| `vendor/datafusion-sqlparser-rs/src/parser/mod.rs` | Added `parse_stream_trigger_timing()`, uses `parse_streaming_time_duration_ms()` |
 | `src/sql_compiler/application.rs` | Added `convert_stream_trigger()` |
 | `src/sql_compiler/catalog.rs` | Added `triggers` field, `register_trigger()` |
 | `src/core/util/parser/eventflux_app_parser.rs` | Fixed trigger processing order |
@@ -120,32 +129,10 @@ SQL Input: "CREATE TRIGGER T AT EVERY 5 SECONDS;"
 pub enum StreamTriggerTiming {
     /// Fires once at application start
     Start,
-    /// Fires at regular intervals
-    Every { value: u64, unit: StreamTriggerTimeUnit },
+    /// Fires at regular intervals (interval pre-computed to milliseconds at parse time)
+    Every { interval_ms: u64 },
     /// Fires according to a cron schedule
     Cron(String),
-}
-
-/// Time units for trigger intervals
-pub enum StreamTriggerTimeUnit {
-    Milliseconds,
-    Seconds,
-    Minutes,
-    Hours,
-    Days,
-}
-
-impl StreamTriggerTimeUnit {
-    /// Convert value with this unit to milliseconds
-    pub fn to_millis(&self, value: u64) -> u64 {
-        match self {
-            StreamTriggerTimeUnit::Milliseconds => value,
-            StreamTriggerTimeUnit::Seconds => value * 1_000,
-            StreamTriggerTimeUnit::Minutes => value * 60_000,
-            StreamTriggerTimeUnit::Hours => value * 3_600_000,
-            StreamTriggerTimeUnit::Days => value * 86_400_000,
-        }
-    }
 }
 
 /// EventFlux streaming trigger definition
@@ -154,6 +141,10 @@ pub struct CreateStreamTrigger {
     pub timing: StreamTriggerTiming,
 }
 ```
+
+**Note:** The `interval_ms` is computed at parse time using `parse_streaming_time_duration_ms()`,
+which is the same function used by windows and WITHIN clauses. This ensures consistent time
+parsing across the entire grammar.
 
 ### Internal Mapping
 
@@ -184,11 +175,10 @@ duration
     ::= numeric_literal time_unit
 
 time_unit
-    ::= MILLISECOND | MILLISECONDS
-      | SECOND | SECONDS
-      | MINUTE | MINUTES
-      | HOUR | HOURS
-      | DAY | DAYS
+    ::= <standard SQL DateTimeField>
+    -- Includes: NANOSECOND(S), MICROSECOND(S), MILLISECOND(S),
+    --           SECOND(S), MINUTE(S), HOUR(S), DAY(S), WEEK(S)
+    -- Note: YEAR, MONTH not allowed (variable-length)
 ```
 
 ---
@@ -246,6 +236,17 @@ Triggers are registered both as triggers and as streams, allowing them to be use
 
 ### 4. Processing Order
 Triggers are processed BEFORE queries in the parser, ensuring their stream junctions exist when queries reference them.
+
+### 5. Unified Time Parsing
+All time-based parameters (triggers, windows, WITHIN clauses) use the same parsing mechanism:
+1. `parse_streaming_time_duration_ms()` - Core function that parses `<value> <time_unit>` and returns milliseconds
+2. Uses standard SQL `DateTimeField` for time unit keywords
+3. Converts to milliseconds at parse time for consistent runtime behavior
+
+This ensures:
+- Same syntax everywhere: `5 SECONDS`, `10 MINUTES`, etc.
+- Same time units supported: NANOSECONDS, MICROSECONDS, MILLISECONDS, SECONDS, MINUTES, HOURS, DAYS, WEEKS
+- Same validation: Variable-length units (YEAR, MONTH) are rejected at parse time
 
 ---
 

@@ -351,8 +351,8 @@ async fn join_test12_with_time_window() {
         INSERT INTO outputStream\n\
         SELECT stockStream.symbol AS symbol, stockStream.price AS price, \
                newsStream.headline AS headline\n\
-        FROM stockStream WINDOW('time', 500)\n\
-        JOIN newsStream WINDOW('time', 500)\n\
+        FROM stockStream WINDOW('time', 500 MILLISECONDS)\n\
+        JOIN newsStream WINDOW('time', 500 MILLISECONDS)\n\
         ON stockStream.symbol = newsStream.symbol;\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
@@ -1204,7 +1204,7 @@ async fn join_test_mixed_windows() {
         INSERT INTO Out\n\
         SELECT L.id AS id, L.value * R.factor AS result\n\
         FROM L WINDOW('length', 5)\n\
-        JOIN R WINDOW('time', 5000)\n\
+        JOIN R WINDOW('time', 5000 MILLISECONDS)\n\
         ON L.id = R.id;\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send("L", vec![AttributeValue::Int(1), AttributeValue::Int(100)]);

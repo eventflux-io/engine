@@ -512,7 +512,7 @@ INSERT INTO Alerts;
 ```sql
 FROM PATTERN (
     EVERY (e1=Login -> e2=Logout)
-    WITHIN 1 hour
+    WITHIN 1 HOUR
 )
 SELECT e1.userId
 INSERT INTO Sessions;
@@ -1389,7 +1389,7 @@ INSERT INTO Sessions;
 ```sql
 FROM PATTERN (
     EVERY (e1=FailedLogin{3,5} -> e2=AccountLocked)
-    WITHIN 10 minutes
+    WITHIN 10 MINUTES
 )
 PARTITION BY userId
 SELECT userId, count(e1)
@@ -1597,7 +1597,7 @@ INSERT INTO FastBruteForce;
 ```sql
 FROM PATTERN (
     e1=Login{5,} -> e2=AccountLocked
-    WITHIN 30 seconds
+    WITHIN 30 SECONDS
 )
 SELECT e1[0].userId
 INSERT INTO Alerts;
@@ -1616,7 +1616,7 @@ INSERT INTO Alerts;
 ```sql
 FROM PATTERN (
     e1=Login -> e2=DataAccess
-    WITHIN 10 minutes
+    WITHIN 10 MINUTES
 )
 SELECT e1.userId
 INSERT INTO Sessions;
@@ -1634,7 +1634,7 @@ INSERT INTO Sessions;
 ```sql
 FROM PATTERN (
     e1=OrderPlaced -> e2=OrderShipped
-    WITHIN 24 hours
+    WITHIN 24 HOURS
 )
 SELECT e1.orderId
 INSERT INTO OnTimeOrders;
@@ -1652,7 +1652,7 @@ INSERT INTO OnTimeOrders;
 ```sql
 FROM PATTERN (
     e1=Request -> e2=Response
-    WITHIN 500 milliseconds
+    WITHIN 500 MILLISECONDS
 )
 SELECT e1.requestId, e2.timestamp - e1.timestamp as latency
 INSERT INTO FastResponses;
@@ -1744,7 +1744,7 @@ INSERT INTO Results;
 ```sql
 FROM PATTERN (
     EVERY (e1=Login -> e2=Logout)
-    WITHIN 1 hour
+    WITHIN 1 HOUR
 )
 SELECT e1.userId, e2.timestamp - e1.timestamp as sessionDuration
 INSERT INTO Sessions;
@@ -1762,7 +1762,7 @@ INSERT INTO Sessions;
 ```sql
 FROM PATTERN (
     e1=A -> e2=B
-    WITHIN 10 seconds
+    WITHIN 10 SECONDS
     WITHIN 100 EVENTS
 )
 SELECT *
@@ -1781,7 +1781,7 @@ INSERT INTO Results;
 FROM PATTERN (
     e1=Login -> e2=Logout
 )
-WITHIN 30 minutes
+WITHIN 30 MINUTES
 SELECT e1.userId
 INSERT INTO Sessions;
 ```
@@ -1793,7 +1793,7 @@ So WITHIN is INSIDE parentheses:
 ```sql
 FROM PATTERN (
     e1=Login -> e2=Logout
-    WITHIN 30 minutes
+    WITHIN 30 MINUTES
 )
 ```
 
@@ -1855,7 +1855,7 @@ INSERT CURRENT EVENTS INTO Sessions;
 ```sql
 FROM PATTERN (
     e1=Login -> e2=DataAccess
-    WITHIN 30 seconds
+    WITHIN 30 SECONDS
 )
 SELECT e1.userId, 'Pattern timed out' as status
 INSERT EXPIRED EVENTS INTO PatternTimeouts;
@@ -1874,7 +1874,7 @@ INSERT EXPIRED EVENTS INTO PatternTimeouts;
 ```sql
 FROM PATTERN (
     e1=Login -> e2=DataAccess
-    WITHIN 30 seconds
+    WITHIN 30 SECONDS
 )
 SELECT e1.userId,
        CASE WHEN eventType = 'EXPIRED'
@@ -3148,7 +3148,7 @@ FROM PATTERN (
         e3=DataAccess[bytes > 1000000]{3,5} ->
         NOT Logout FOR 30 minutes
     )
-    WITHIN 1 hour
+    WITHIN 1 HOUR
 )
 PARTITION BY userId
 SELECT e1.userId,
@@ -3201,7 +3201,7 @@ INSERT INTO Results;
 ```sql
 FROM PATTERN (
     EVERY (e1=FailedLogin{3,5} -> e2=AccountLocked)
-    WITHIN 10 minutes
+    WITHIN 10 MINUTES
 )
 PARTITION BY userId, deviceId
 SELECT userId, deviceId, count(e1)
@@ -3556,7 +3556,7 @@ INSERT INTO Results;
 
 **Simplified valid version**:
 ```sql
-WITHIN 180045500 milliseconds
+WITHIN 180045500 MILLISECONDS
 ```
 
 **What it tests**: Time expression parsing
@@ -3578,7 +3578,7 @@ FROM PATTERN (
         ) ->
         (e8=H OR e9=I OR e10=J)
     )
-    WITHIN 2 hours
+    WITHIN 2 HOURS
 )
 PARTITION BY userId, sessionId, deviceId
 SELECT e1[0].timestamp as startTime,

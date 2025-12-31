@@ -64,13 +64,20 @@ CREATE TRIGGER DailyTrigger AT EVERY 1 DAY;
 
 ### Time Units
 
+Uses standard SQL `DateTimeField` for time units:
+
 | Unit | Aliases | Example |
 |------|---------|---------|
+| `NANOSECONDS` | `NANOSECOND` | `AT EVERY 1000000 NANOSECONDS` |
+| `MICROSECONDS` | `MICROSECOND` | `AT EVERY 1000 MICROSECONDS` |
 | `MILLISECONDS` | `MILLISECOND` | `AT EVERY 50 MILLISECONDS` |
 | `SECONDS` | `SECOND` | `AT EVERY 5 SECONDS` |
 | `MINUTES` | `MINUTE` | `AT EVERY 1 MINUTE` |
 | `HOURS` | `HOUR` | `AT EVERY 2 HOURS` |
 | `DAYS` | `DAY` | `AT EVERY 1 DAY` |
+| `WEEKS` | `WEEK` | `AT EVERY 1 WEEK` |
+
+**Note:** Variable-length units (YEAR, MONTH) are not supported as they cannot be converted to fixed milliseconds.
 
 ---
 
@@ -165,7 +172,7 @@ CREATE STREAM BatchResults (sensor_id STRING, avg_temp DOUBLE);
 INSERT INTO BatchResults
 SELECT sensor_id, AVG(temperature) AS avg_temp
 FROM SensorData
-WINDOW TIMEBATCH(10 sec)
+WINDOW('timeBatch', 10 SECONDS)
 GROUP BY sensor_id;
 ```
 

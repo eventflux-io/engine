@@ -414,11 +414,12 @@ coordinator.wait_for_consensus().await?;
 use eventflux::EventFluxAppRuntimeBuilder;
 use eventflux::persistence::FileBackend;
 
-let app = "@app:name('StatefulApp')
-    define stream InputStream (id string, value double);
-    from InputStream#length(100)
-    select id, value
-    insert into OutputStream;";
+let app = "
+    CREATE STREAM InputStream (id STRING, value DOUBLE);
+
+    INSERT INTO OutputStream
+    SELECT id, value
+    FROM InputStream WINDOW('length', 100);";
 
 let backend = FileBackend::new("/data/checkpoints")?;
 

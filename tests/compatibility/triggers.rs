@@ -150,7 +150,7 @@ async fn trigger_test10_batch_processing() {
         CREATE TRIGGER BatchTrigger AT EVERY 100 MILLISECONDS;\n\
         CREATE STREAM outputStream (total BIGINT);\n\
         INSERT INTO outputStream\n\
-        SELECT SUM(value) AS total FROM inputStream WINDOW('time', 100);\n";
+        SELECT SUM(value) AS total FROM inputStream WINDOW('time', 100 MILLISECONDS);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     sleep(Duration::from_millis(50));
     let out = runner.shutdown();

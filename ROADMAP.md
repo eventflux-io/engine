@@ -363,7 +363,7 @@ FROM TUMBLE(TABLE StockStream, DESCRIPTOR(ts), INTERVAL '5' SECOND)
 
 **After** (EventFlux - intuitive):
 ```sql
-FROM StockStream WINDOW('tumbling', INTERVAL '5' SECOND)
+FROM StockStream WINDOW('tumbling', 5 SECONDS)
 ```
 
 **Impact**:
@@ -373,15 +373,15 @@ FROM StockStream WINDOW('tumbling', INTERVAL '5' SECOND)
 - ✅ Clean, modern syntax with no legacy baggage
 
 **Supported Window Types**:
-- `WINDOW('tumbling', INTERVAL '5' MINUTE)` - Fixed non-overlapping windows
-- `WINDOW('sliding', size=INTERVAL '1' HOUR, slide=INTERVAL '15' MINUTE)` - Overlapping windows
-- `WINDOW('session', gap=INTERVAL '30' SECOND)` - Gap-based sessions
+- `WINDOW('tumbling', 5 MINUTES)` - Fixed non-overlapping windows
+- `WINDOW('sliding', 1 HOUR, 15 MINUTES)` - Overlapping windows (size, slide)
+- `WINDOW('session', 30 SECONDS)` - Gap-based sessions
 - `WINDOW('length', 100)` - Count-based windows
 - `WINDOW('lengthBatch', 50)` - Count-based batch windows
-- `WINDOW('time', 100)` - Time-based sliding windows
-- `WINDOW('timeBatch', 100)` - Time-based batch windows
-- `WINDOW('externalTime', ts, 100)` - External timestamp windows
-- `WINDOW('externalTimeBatch', ts, 100)` - External timestamp batch windows
+- `WINDOW('time', 100 MILLISECONDS)` - Time-based sliding windows
+- `WINDOW('timeBatch', 1 SECOND)` - Time-based batch windows
+- `WINDOW('externalTime', ts, 5 MINUTES)` - External timestamp windows
+- `WINDOW('externalTimeBatch', ts, 10 SECONDS)` - External timestamp batch windows
 
 #### **Native Parser Migration** 🏗️ **COMPLETED** (2025-10-08)
 

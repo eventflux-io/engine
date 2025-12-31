@@ -203,25 +203,19 @@ FROM StockStream;
 
 #### 3. Windows
 
-**New Syntax** (Recommended): `WINDOW('type', params)`
+**Syntax**: `WINDOW('type', params)` with readable time units
 
 ```sql
 -- TUMBLING window (time-based batches)
 SELECT symbol, AVG(price) AS avg_price
 FROM StockStream
-WINDOW('tumbling', INTERVAL '5' MINUTE)
+WINDOW('tumbling', 5 MINUTES)
 GROUP BY symbol;
 
 -- SLIDING window (moving average)
 SELECT symbol, AVG(price) AS moving_avg
 FROM StockStream
-WINDOW('sliding', size=INTERVAL '10' MINUTE, slide=INTERVAL '1' MINUTE)
-GROUP BY symbol;
-
--- Alternative: positional parameters
-SELECT symbol, AVG(price) AS moving_avg
-FROM StockStream
-WINDOW('sliding', INTERVAL '10' MINUTE, INTERVAL '1' MINUTE)
+WINDOW('sliding', 10 MINUTES, 1 MINUTE)
 GROUP BY symbol;
 
 -- LENGTH window (last N events)
@@ -233,7 +227,7 @@ GROUP BY symbol;
 -- SESSION window (gap-based sessions)
 SELECT user_id, COUNT(*) AS click_count
 FROM ClickStream
-WINDOW('session', INTERVAL '30' MINUTE)
+WINDOW('session', 30 MINUTES)
 GROUP BY user_id;
 ```
 
@@ -243,15 +237,7 @@ GROUP BY user_id;
 - `'session'` - Gap-based session windows
 - `'length'` - Count-based windows
 
-**Parameter Styles**:
-- **Positional**: `WINDOW('tumbling', INTERVAL '5' MINUTE)`
-- **Named**: `WINDOW('tumbling', size=INTERVAL '5' MINUTE)` (recommended for clarity)
-
-**Old Syntax** (Deprecated, still works):
-```sql
--- Old: WINDOW('tumbling', INTERVAL '5' MINUTE)
--- New: WINDOW('tumbling', INTERVAL '5' MINUTE)
-```
+**Time Units**: `MILLISECONDS`, `SECONDS`, `MINUTES`, `HOURS`, `DAYS`, `WEEKS`
 
 See [WINDOW_SYNTAX_EXAMPLES.md](../../WINDOW_SYNTAX_EXAMPLES.md) for comprehensive examples and best practices.
 
@@ -267,7 +253,7 @@ SELECT
     MIN(price) AS min_price,
     MAX(price) AS max_price
 FROM StockStream
-WINDOW('tumbling', INTERVAL '5' SECOND)
+WINDOW('tumbling', 5 SECONDS)
 GROUP BY symbol;
 ```
 
@@ -312,7 +298,7 @@ FULL OUTER JOIN News ON Trades.symbol = News.symbol;
 -- GROUP BY with HAVING (post-aggregation filter)
 SELECT symbol, AVG(price) AS avg_price
 FROM StockStream
-WINDOW('tumbling', INTERVAL '1' MINUTE)
+WINDOW('tumbling', 1 MINUTE)
 WHERE volume > 1000          -- Pre-aggregation filter
 GROUP BY symbol
 HAVING AVG(price) > 50;      -- Post-aggregation filter
@@ -374,29 +360,24 @@ FROM <stream_or_join>
 ### Window Specifications
 
 ```sql
--- Tumbling window (new syntax)
-WINDOW('tumbling', INTERVAL '<n>' <SECOND|MINUTE|HOUR>)
+-- Time-based windows use: <value> <UNIT>
+-- Units: MILLISECONDS, SECONDS, MINUTES, HOURS, DAYS, WEEKS
 
--- Sliding window (new syntax)
-WINDOW('sliding', size=INTERVAL '<size>' <unit>, slide=INTERVAL '<slide>' <unit>)
--- or positional:
-WINDOW('sliding', INTERVAL '<size>' <unit>, INTERVAL '<slide>' <unit>)
+-- Tumbling window
+WINDOW('tumbling', <n> <UNIT>)
+-- Example: WINDOW('tumbling', 5 MINUTES)
 
--- Length window
-WINDOW('length', <count>)
--- or named:
-WINDOW('length', count=<count>)
+-- Sliding window
+WINDOW('sliding', <size> <UNIT>, <slide> <UNIT>)
+-- Example: WINDOW('sliding', 10 MINUTES, 1 MINUTE)
 
 -- Session window
-WINDOW('session', INTERVAL '<gap>' <unit>)
--- or named:
-WINDOW('session', gap=INTERVAL '<gap>' <unit>)
+WINDOW('session', <gap> <UNIT>)
+-- Example: WINDOW('session', 30 SECONDS)
 
--- Old syntax (deprecated but still works):
--- WINDOW('tumbling', INTERVAL '5' MINUTE)
--- WINDOW SLIDING(INTERVAL '10' MINUTE, INTERVAL '1' MINUTE)
--- WINDOW('length', 100)
--- WINDOW SESSION(INTERVAL '30' SECOND)
+-- Length window (count-based, no time unit)
+WINDOW('length', <count>)
+-- Example: WINDOW('length', 100)
 ```
 
 ### Expression Syntax
@@ -665,7 +646,7 @@ SELECT * FROM UndefinedStream;  -- Error
 SELECT symbol, AVG(price) AS avg_price
 FROM StockStream
 WHERE volume > 1000          -- ① Pre-aggregation filter
-WINDOW('tumbling', INTERVAL '5' MINUTE)
+WINDOW('tumbling', 5 MINUTES)
 GROUP BY symbol
 HAVING AVG(price) > 100;     -- ② Post-aggregation filter
 ```
@@ -695,7 +676,7 @@ HAVING AVG(price) > 100;     -- ② Post-aggregation filter
 -- Original SQL
 SELECT symbol, AVG(price)
 FROM StockStream
-WINDOW('tumbling', INTERVAL '5' MINUTE)
+WINDOW('tumbling', 5 MINUTES)
 GROUP BY symbol;
 
 -- After preprocessing
@@ -776,7 +757,7 @@ PARTITION WITH (symbol OF StockStream)
 BEGIN
     SELECT symbol, AVG(price) AS avg_price
     FROM StockStream
-    WINDOW('tumbling', INTERVAL '1' MINUTE)
+    WINDOW('tumbling', 1 MINUTE)
     GROUP BY symbol;
 END;
 ```
@@ -852,7 +833,7 @@ SELECT symbol FROM Orders;
 WITH HighPriceStocks AS (
     SELECT symbol, AVG(price) AS avg_price
     FROM StockStream
-    WINDOW('tumbling', INTERVAL '5' MINUTE)
+    WINDOW('tumbling', 5 MINUTES)
     GROUP BY symbol
     HAVING AVG(price) > 100
 )

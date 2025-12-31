@@ -767,7 +767,7 @@ async fn rate_limit_test1_snapshot() {
         CREATE STREAM outputStream (total DOUBLE);\n\
         INSERT INTO outputStream\n\
         SELECT sum(price) AS total\n\
-        FROM stockStream WINDOW('time', 1000)\n\
+        FROM stockStream WINDOW('time', 1000 MILLISECONDS)\n\
         OUTPUT SNAPSHOT EVERY 500 MILLISECONDS;\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(

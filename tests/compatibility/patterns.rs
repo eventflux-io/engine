@@ -329,7 +329,7 @@ async fn pattern_test_within_clause() {
         CREATE STREAM outputStream (symbol1 STRING, symbol2 STRING);\n\
         INSERT INTO outputStream\n\
         SELECT e1.symbol AS symbol1, e2.symbol AS symbol2\n\
-        FROM PATTERN (e1=Stream1 -> e2=Stream2) WITHIN 1000;\n";
+        FROM PATTERN (e1=Stream1 -> e2=Stream2) WITHIN 1 SECOND;\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(
         "Stream1",
@@ -793,7 +793,7 @@ async fn pattern_test_within_and_filter() {
         CREATE STREAM Out (sym1 STRING, sym2 STRING);\n\
         INSERT INTO Out\n\
         SELECT e1.symbol AS sym1, e2.symbol AS sym2\n\
-        FROM PATTERN (e1=Stock -> e2=Stock) WITHIN 1000\n\
+        FROM PATTERN (e1=Stock -> e2=Stock) WITHIN 1 SECOND\n\
         WHERE e1.price < e2.price;\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send(
@@ -882,7 +882,7 @@ async fn pattern_test_within_timeout() {
         CREATE STREAM Out (a INT, b INT);\n\
         INSERT INTO Out\n\
         SELECT e1.id AS a, e2.id AS b\n\
-        FROM PATTERN (e1=S -> e2=S) WITHIN 50;\n";
+        FROM PATTERN (e1=S -> e2=S) WITHIN 50 MILLISECONDS;\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send("S", vec![AttributeValue::Int(1)]);
     // Wait longer than WITHIN timeout
@@ -901,7 +901,7 @@ async fn pattern_test_within_success() {
         CREATE STREAM Out (a INT, b INT);\n\
         INSERT INTO Out\n\
         SELECT e1.id AS a, e2.id AS b\n\
-        FROM PATTERN (e1=S -> e2=S) WITHIN 500;\n";
+        FROM PATTERN (e1=S -> e2=S) WITHIN 500 MILLISECONDS;\n";
     let runner = AppRunner::new(app, "Out").await;
     runner.send("S", vec![AttributeValue::Int(1)]);
     // Wait less than WITHIN timeout
@@ -1519,7 +1519,7 @@ async fn pattern_test_within_and_multiple_filters() {
         CREATE STREAM outputStream (symbol1 STRING, symbol2 STRING);\n\
         INSERT INTO outputStream\n\
         SELECT e1.symbol AS symbol1, e2.symbol AS symbol2\n\
-        FROM PATTERN (e1=stockStream -> e2=stockStream) WITHIN 5000\n\
+        FROM PATTERN (e1=stockStream -> e2=stockStream) WITHIN 5 SECONDS\n\
         WHERE e1.price > 50.0 AND e2.price > 50.0;\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(

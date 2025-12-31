@@ -244,7 +244,7 @@ async fn test_async_with_sql_query() {
 
         INSERT INTO OutputStream
         SELECT symbol, AVG(price) as avgPrice
-        FROM InputStream WINDOW('time', 10000)
+        FROM InputStream WINDOW('time', 10000 MILLISECONDS)
         GROUP BY symbol;
     "#;
 

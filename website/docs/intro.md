@@ -73,7 +73,7 @@ Detect complex event sequences with temporal constraints:
 -- Detect temperature spike pattern
 FROM SensorReadings
 MATCH (e1=TempReading -> e2=TempReading -> e3=TempReading)
-WITHIN 5 min
+WITHIN 5 MINUTES
 FILTER e2.temperature > e1.temperature
    AND e3.temperature > e2.temperature
 SELECT e1.sensor_id, e1.temperature AS start_temp, e3.temperature AS end_temp

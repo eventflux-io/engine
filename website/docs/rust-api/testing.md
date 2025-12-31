@@ -178,7 +178,7 @@ fn test_sequence_pattern() {
 
         FROM Events
         MATCH (e1=Event -> e2=Event)
-        WITHIN 1 min
+        WITHIN 1 MINUTE
         FILTER e1.event_type = 'START' AND e2.event_type = 'END'
         SELECT e1.value AS start_value, e2.value AS end_value
         INSERT INTO Sequences;

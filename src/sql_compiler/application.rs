@@ -27,9 +27,9 @@ fn convert_stream_trigger(
         StreamTriggerTiming::Start => {
             Ok(TriggerDefinition::new(name).at("start".to_string()))
         }
-        StreamTriggerTiming::Every { value, unit } => {
-            let millis = unit.to_millis(*value) as i64;
-            Ok(TriggerDefinition::new(name).at_every(millis))
+        StreamTriggerTiming::Every { interval_ms } => {
+            // interval_ms is pre-computed at parse time using parse_streaming_time_duration_ms()
+            Ok(TriggerDefinition::new(name).at_every(*interval_ms as i64))
         }
         StreamTriggerTiming::Cron(expr) => {
             Ok(TriggerDefinition::new(name).at(expr.clone()))

@@ -397,11 +397,12 @@ fn test_window_basic() {
 ```rust
 #[test]
 fn test_window_integration() {
-    let app = "@app:name('Test')
-        define stream In (id string, val double);
-        from In#window.length(3)
-        select id, val
-        insert into Out;";
+    let app = "
+        CREATE STREAM In (id STRING, val DOUBLE);
+
+        INSERT INTO Out
+        SELECT id, val
+        FROM In WINDOW('length', 3);";
 
     let runner = AppRunner::new(app, "Out");
     runner.send("In", vec![("1", 10.0), ("2", 20.0)]);
@@ -497,7 +498,7 @@ fn test_async_annotation_with_parameters() {
     let mut manager = EventFluxManager::new();
     let eventflux_app_string = r#"
         @Async(buffer_size='1024', workers='2', batch_size_max='10')
-        define stream TestStream (id int, value string);
+        CREATE STREAM TestStream (id INT, value STRING);
     "#;
 
     let result = manager.create_eventflux_app_runtime_from_string(eventflux_app_string);
