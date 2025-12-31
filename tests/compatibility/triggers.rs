@@ -94,14 +94,13 @@ async fn trigger_test5_long_interval() {
 }
 
 // ============================================================================
-// SQL-BASED TRIGGER TESTS (Not Yet Supported)
+// SQL-BASED TRIGGER TESTS
 // ============================================================================
 
 /// SQL-based start trigger
 #[tokio::test]
-#[ignore = "SQL trigger syntax not yet supported"]
 async fn trigger_test6_sql_start() {
-    let app = "define trigger StartTrigger at start;";
+    let app = "CREATE TRIGGER StartTrigger AT START;";
     let runner = AppRunner::new(app, "StartTrigger").await;
     sleep(Duration::from_millis(50));
     let out = runner.shutdown();
@@ -110,9 +109,8 @@ async fn trigger_test6_sql_start() {
 
 /// SQL-based periodic trigger
 #[tokio::test]
-#[ignore = "SQL trigger syntax not yet supported"]
 async fn trigger_test7_sql_periodic() {
-    let app = "define trigger PeriodicTrigger at every 50 ms;";
+    let app = "CREATE TRIGGER PeriodicTrigger AT EVERY 50 MILLISECONDS;";
     let runner = AppRunner::new(app, "PeriodicTrigger").await;
     sleep(Duration::from_millis(130));
     let out = runner.shutdown();
@@ -121,9 +119,8 @@ async fn trigger_test7_sql_periodic() {
 
 /// SQL-based cron trigger
 #[tokio::test]
-#[ignore = "SQL trigger syntax not yet supported"]
 async fn trigger_test8_sql_cron() {
-    let app = "define trigger CronTrigger at '*/1 * * * * *';";
+    let app = "CREATE TRIGGER CronTrigger AT CRON '*/1 * * * * *';";
     let runner = AppRunner::new(app, "CronTrigger").await;
     sleep(Duration::from_millis(2200));
     let out = runner.shutdown();
@@ -131,12 +128,12 @@ async fn trigger_test8_sql_cron() {
 }
 
 /// Trigger with query that processes trigger events
+/// Tests "SELECT FROM TriggerName" pattern where trigger events flow through the query pipeline.
 #[tokio::test]
-#[ignore = "SQL trigger syntax not yet supported"]
 async fn trigger_test9_with_query() {
     let app = "\
-        define trigger HeartbeatTrigger at every 50 ms;\n\
-        CREATE STREAM outputStream (timestamp LONG);\n\
+        CREATE TRIGGER HeartbeatTrigger AT EVERY 50 MILLISECONDS;\n\
+        CREATE STREAM outputStream (timestamp BIGINT);\n\
         INSERT INTO outputStream\n\
         SELECT currentTimeMillis() AS timestamp FROM HeartbeatTrigger;\n";
     let runner = AppRunner::new(app, "outputStream").await;
@@ -147,11 +144,10 @@ async fn trigger_test9_with_query() {
 
 /// Trigger for batch processing
 #[tokio::test]
-#[ignore = "SQL trigger syntax not yet supported"]
 async fn trigger_test10_batch_processing() {
     let app = "\
         CREATE STREAM inputStream (value INT);\n\
-        define trigger BatchTrigger at every 100 ms;\n\
+        CREATE TRIGGER BatchTrigger AT EVERY 100 MILLISECONDS;\n\
         CREATE STREAM outputStream (total BIGINT);\n\
         INSERT INTO outputStream\n\
         SELECT SUM(value) AS total FROM inputStream WINDOW('time', 100);\n";

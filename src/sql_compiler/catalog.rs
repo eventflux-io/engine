@@ -6,7 +6,7 @@
 
 use crate::query_api::definition::abstract_definition::AbstractDefinition;
 use crate::query_api::definition::attribute::{Attribute, Type as AttributeType};
-use crate::query_api::definition::{StreamDefinition, TableDefinition};
+use crate::query_api::definition::{StreamDefinition, TableDefinition, TriggerDefinition};
 use crate::query_api::eventflux_app::EventFluxApp;
 use crate::query_api::execution::ExecutionElement;
 use crate::query_api::expression::Expression;
@@ -92,11 +92,12 @@ pub struct CreateStreamInfo {
     pub columns: Vec<ColumnDef>,
 }
 
-/// SQL Catalog manages stream and table schemas
+/// SQL Catalog manages stream, table, and trigger schemas
 #[derive(Debug, Clone)]
 pub struct SqlCatalog {
     streams: HashMap<String, Arc<StreamDefinition>>,
     tables: HashMap<String, Arc<TableDefinition>>,
+    triggers: HashMap<String, Arc<TriggerDefinition>>,
     aliases: HashMap<String, String>,
 }
 
@@ -106,8 +107,38 @@ impl SqlCatalog {
         SqlCatalog {
             streams: HashMap::new(),
             tables: HashMap::new(),
+            triggers: HashMap::new(),
             aliases: HashMap::new(),
         }
+    }
+
+    /// Register a trigger definition
+    ///
+    /// Triggers are also registered as streams so they can be queried in FROM clauses.
+    /// Trigger streams have no schema (they emit empty events) but can be joined or
+    /// used to generate derived events using functions like currentTimeMillis().
+    pub fn register_trigger(&mut self, trigger: TriggerDefinition) {
+        let trigger_name = trigger.id.clone();
+
+        // Register the trigger itself
+        self.triggers
+            .insert(trigger_name.clone(), Arc::new(trigger));
+
+        // Also register as a stream so queries can SELECT FROM trigger_name
+        // The stream has no attributes (trigger events are empty)
+        let stream_def = StreamDefinition::new(trigger_name.clone());
+        self.streams
+            .insert(trigger_name, Arc::new(stream_def));
+    }
+
+    /// Get a trigger definition by name
+    pub fn get_trigger(&self, name: &str) -> Option<Arc<TriggerDefinition>> {
+        self.triggers.get(name).map(Arc::clone)
+    }
+
+    /// Get all trigger names
+    pub fn get_trigger_names(&self) -> Vec<String> {
+        self.triggers.keys().cloned().collect()
     }
 
     /// Register a stream definition
@@ -264,7 +295,7 @@ impl SqlCatalog {
 
     /// Check if catalog is empty
     pub fn is_empty(&self) -> bool {
-        self.streams.is_empty() && self.tables.is_empty()
+        self.streams.is_empty() && self.tables.is_empty() && self.triggers.is_empty()
     }
 }
 
@@ -501,6 +532,11 @@ impl SqlApplication {
 
         for (table_name, table_def) in self.catalog.tables {
             app.table_definition_map.insert(table_name, table_def);
+        }
+
+        // Move triggers into app
+        for (trigger_name, trigger_def) in self.catalog.triggers {
+            app.trigger_definition_map.insert(trigger_name, trigger_def);
         }
 
         // Add all execution elements
