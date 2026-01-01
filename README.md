@@ -1,313 +1,109 @@
 # EventFlux
 
-**Lightweight** SQL streaming for teams that don't need Flink.
+[![Build](https://github.com/eventflux-io/engine/actions/workflows/ci.yml/badge.svg)](https://github.com/eventflux-io/engine/actions/workflows/ci.yml)
+[![GHCR](https://img.shields.io/badge/ghcr.io-eventflux--io%2Fengine-blue)](https://ghcr.io/eventflux-io/engine)
+[![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](LICENSE-APACHE)
 
-EventFlux is a lightweight CEP (Complex Event Processing) engine that processes 100k+ events/sec in a single Docker container. No JVM, no Kubernetes, no ops team required.
-
-**Lightweight means**:
-- 50-100MB binary (vs 4GB+ JVM)
-- Starts in milliseconds (vs 30+ seconds)
-- Runs on a $50/month VPS
-- Zero external dependencies
-
-## The Problem
-
-You need to:
-- Detect patterns in event streams
-- Aggregate metrics in real-time
-- Join streams with reference data
-- React to conditions within time windows
-
-Your options are:
-- **Flink**: Requires Kubernetes, 4GB+ JVM heap, ops expertise
-- **Kafka Streams**: Needs Kafka cluster, Java expertise
-- **Build it yourself**: 6+ months of work
-
-For 100k events/sec, these are overkill.
-
-## The Solution
-
-EventFlux runs as a single binary:
-
-```bash
-docker run -v ./app.sql:/app.sql eventflux/engine /app.sql
-```
-
-That's it. No cluster management, no JVM tuning, no YAML manifests.
-
-```
-Event Sources (100k+ eps)
-         |
-    EventFlux
-    - Pattern detection
-    - Windows & aggregations
-    - Stream-table joins
-         |
-    Sinks (Kafka, HTTP, DB)
-```
+Stream processing engine built in Rust. Write SQL, process events, skip the infrastructure headache.
 
 ## Why EventFlux
 
-**Truly Lightweight**
-- Single 50-100MB binary (not a 4GB JVM)
-- Runs on a $50/month VPS (not a Kubernetes cluster)
-- Starts in milliseconds (not 30+ seconds)
-- Zero runtime dependencies
+You need to detect patterns in event streams, aggregate metrics, or react to conditions in real-time.
 
-**SQL Interface**
-- Standard SQL with streaming extensions
-- No Java/Scala required
-- Every developer knows SQL
+Your options today:
 
-**Predictable Performance**
-- No GC pauses ever
-- Deterministic memory usage
-- Sub-millisecond latency for pattern detection
+- **Flink** — needs Kubernetes, 4GB+ JVM heap, dedicated ops
+- **Kafka Streams** — needs a Kafka cluster plus Java expertise
+- **Build it yourself** — months of work
 
-**Right-Sized for Most Use Cases**
-- 100k+ events/sec on single node
-- Perfect for IoT, analytics, telemetry
-- Graduate to Flink when you actually need it
+For 100k events/sec, that's overkill.
 
-## Quick Example
+EventFlux runs as a single binary. No cluster. No JVM. No YAML manifests. Just SQL.
 
-```sql
--- Define input stream
-CREATE STREAM StockTrades (
-    symbol STRING,
-    price DOUBLE,
-    quantity INT,
-    timestamp BIGINT
-) WITH (
-    'type' = 'source',
-    'extension' = 'kafka',
-    'kafka.brokers' = 'localhost:9092',
-    'kafka.topic' = 'trades',
-    'format' = 'json'
-);
-
--- Detect price spikes: >5% increase within 1 minute
-CREATE STREAM PriceSpikes AS
-SELECT
-    symbol,
-    first(price) as start_price,
-    last(price) as end_price,
-    ((last(price) - first(price)) / first(price)) * 100 as percent_change
-FROM StockTrades
-    WINDOW TUMBLING (SIZE 1 MINUTE)
-GROUP BY symbol
-HAVING ((last(price) - first(price)) / first(price)) > 0.05;
-
--- Output to alert system
-INSERT INTO Alerts
-SELECT symbol, percent_change, 'PRICE_SPIKE' as alert_type
-FROM PriceSpikes;
-```
-
-Compare to Flink:
-
-```java
-DataStream<Event> result = events
-    .keyBy(e -> e.getSymbol())
-    .window(TumblingEventTimeWindows.of(Time.minutes(1)))
-    .aggregate(new PriceSpikeAggregator())
-    .filter(spike -> spike.getPercentChange() > 0.05);
-```
-
-## When to Use EventFlux
-
-**Good fit:**
-- IoT backends (10-50k eps)
-- E-commerce event tracking
-- Internal analytics pipelines
-- SaaS telemetry
-- Prototyping before Flink
-
-**Not a fit:**
-- >500k eps sustained (consider Flink)
-- Existing JVM/Kafka infrastructure
-- Need 100+ connectors
-- Require battle-tested at massive scale
-
-## Capabilities
-
-### Stream Processing
-
-- **Windows**: tumbling, sliding, session, length, time-based
-- **Joins**: stream-stream, stream-table, inner/outer
-- **Aggregations**: sum, avg, count, min, max, stddev with group by
-- **Partitioning**: parallel processing by key
-
-### Pattern Detection
-
-- Sequence matching with temporal constraints
-- Logical operators (and, or, not)
-- Count quantifiers (A{3}, A{2,5})
-
-### State Management
-
-- Incremental checkpointing with WAL
-- Point-in-time recovery
-- Redis backend for persistence
-- 90-95% compression for snapshots
-
-### Connectivity
-
-- **Sources**: Kafka, HTTP, file
-- **Sinks**: Kafka, HTTP, database
-- **Tables**: PostgreSQL, MySQL, in-memory cache
-
-### Performance
-
-- Throughput: 100k-1M events/sec (single node)
-- Latency: <10ms for pattern detection
-- Memory: Lock-free crossbeam pipeline
-- Startup: <100ms
-
-## Getting Started
-
-### Prerequisites
-
-- Rust 1.85+ (or use Docker)
-- Protocol Buffer Compiler (for gRPC features)
-
-MSRV is enforced via `Cargo.toml` (`package.rust-version`) and CI; if you need to avoid installing Rust locally, use the
-official Docker image instead.
-
-### Docker (Recommended)
+## Quick Start
 
 ```bash
-# Pull and run
-docker run -v ./app.sql:/app.sql eventflux/engine /app.sql
+# Docker
+docker run -v ./app.sql:/app.sql ghcr.io/eventflux-io/engine /app.sql
 
-# With configuration
-docker run \
-  -v ./app.sql:/app.sql \
-  -v ./config.toml:/config.toml \
-  eventflux/engine /app.sql --config /config.toml
-```
-
-### Build from Source
-
-```bash
+# Or build from source
 git clone https://github.com/eventflux-io/engine.git
 cd engine
 cargo build --release
-
-# Run
 ./target/release/run_eventflux app.sql
 ```
 
-### Configuration
+### Prerequisites (for building)
 
-EventFlux uses TOML configuration files and SQL WITH clauses:
+- Rust 1.85+
+- Protocol Buffer compiler (for gRPC features)
 
-```toml
-# config.toml
-[eventflux.application]
-name = "my-app"
-
-[eventflux.state]
-backend = "redis"
-redis_url = "redis://localhost:6379"
-```
+## Example
 
 ```sql
--- SQL WITH for stream-level config
-CREATE STREAM Input (id INT, value STRING) WITH (
-    'type' = 'source',
-    'extension' = 'kafka',
-    'kafka.brokers' = 'localhost:9092'
-);
+CREATE
+STREAM Trades (symbol STRING, price DOUBLE, volume INT);
+
+SELECT symbol, AVG(price), SUM(volume)
+FROM Trades WINDOW TUMBLING(1 min)
+GROUP BY symbol
+INSERT
+INTO Summaries;
 ```
+
+That's it. No boilerplate. No config files. Just SQL.
+
+## How It Compares
+
+|               | EventFlux     | Flink              | Kafka Streams |
+|---------------|---------------|--------------------|---------------|
+| Deployment    | Single binary | Kubernetes cluster | Kafka cluster |
+| Memory        | 50-100MB      | 4GB+ JVM           | 1GB+ JVM      |
+| Language      | SQL           | Java/SQL           | Java          |
+| Setup time    | Minutes       | Hours/days         | Hours         |
+| Scale ceiling | ~500k eps     | Millions+          | Millions+     |
+
+**Choose EventFlux** when you want simple deployment and SQL-first development.
+
+**Choose Flink** when you need massive scale or batch+stream processing.
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [DEV_GUIDE.md](DEV_GUIDE.md) | Building, testing, contributing |
-| [ROADMAP.md](ROADMAP.md) | Implementation priorities |
-| [MILESTONES.md](MILESTONES.md) | Release timeline |
-| [feat/configuration/](feat/configuration/) | Configuration reference |
+Full docs at **[eventflux.io](https://eventflux.io)**:
 
-## Current Status
+- [Getting Started](https://eventflux.io/docs/getting-started/installation) — install and run your first query
+- [SQL Reference](https://eventflux.io/docs/sql-reference/queries) — windows, joins, patterns, aggregations
+- [Connectors](https://eventflux.io/docs/connectors/overview) — Kafka, RabbitMQ, WebSocket, HTTP
+- [Examples](https://eventflux.io/docs/demo/crypto-trading) — real-world use cases
+- [Architecture](https://eventflux.io/docs/architecture/overview) — how it works under the hood
 
-EventFlux is in active development. Core CEP functionality is implemented with 1,400+ passing tests.
+## Performance
 
-**Implemented:**
-- Lightweight single-binary deployment
-- SQL parser with streaming extensions
-- Window processors (9 types)
-- Join processors (stream-stream, stream-table)
-- Pattern and sequence matching
-- Aggregations with group by
-- State persistence with Redis
-- TOML configuration system
+- 1M+ events/sec on a single node
+- Sub-millisecond latency
+- Zero GC pauses
+- Starts in milliseconds
 
-**In Progress:**
-- Source/sink connectors (Kafka, HTTP)
-- Developer experience improvements
-- Production hardening
+## When to Use
 
-**Planned:**
-- CASE expressions
-- Prometheus metrics
-- Additional connectors
+**Good fit:** IoT backends, e-commerce tracking, analytics pipelines, SaaS telemetry, fraud detection.
 
-See [ROADMAP.md](ROADMAP.md) for detailed status.
+**Not a fit:** You need 100+ connectors, or you're already running Flink at scale.
 
-## Comparison with Alternatives
+## Status
 
-| Feature | EventFlux | Flink | Kafka Streams |
-|---------|-----------|-------|---------------|
-| Deployment | Single binary | Kubernetes cluster | Kafka cluster |
-| Memory | 50-100MB | 4GB+ JVM | 1GB+ JVM |
-| Language | SQL | Java/SQL | Java |
-| Setup time | 5 minutes | Hours/days | Hours |
-| Scale ceiling | ~500k eps | Millions+ | Millions+ |
-| Connectors | Growing | 100+ | Kafka ecosystem |
-
-**Choose EventFlux when**: Simple deployment, small-medium scale, SQL preference
-
-**Choose Flink when**: Massive scale, batch+stream, existing JVM infra
-
-**Choose Kafka Streams when**: Already using Kafka, Java team
-
-## Project Structure
-
-```
-eventflux-engine/
-├── src/
-│   ├── core/           # Runtime engine
-│   ├── query_api/      # AST and query structures
-│   └── sql_compiler/   # SQL parser
-├── tests/              # Integration tests (1,400+)
-├── examples/           # Example SQL files
-└── feat/               # Feature documentation
-```
+Active development. Core CEP works. 1,400+ tests passing. See [ROADMAP.md](ROADMAP.md) for details.
 
 ## Contributing
 
-See [DEV_GUIDE.md](DEV_GUIDE.md) for development setup.
+```bash
+cargo test        # run tests
+cargo clippy      # lint
+cargo fmt         # format
+```
 
-1. Fork the repository
-2. Create a feature branch
-3. Run tests: `cargo test`
-4. Submit pull request
-
-## Community
-
-- Issues: [GitHub Issues](https://github.com/eventflux-io/engine/issues)
-- Discussions: [GitHub Discussions](https://github.com/eventflux-io/engine/discussions)
+See [DEV_GUIDE.md](DEV_GUIDE.md) for setup.
 
 ## License
 
-Licensed under either of:
-- MIT license ([LICENSE-MIT](LICENSE-MIT))
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-
-at your option.
-
-## Acknowledgments
-
-EventFlux is inspired by [Apache Siddhi](https://siddhi.io/), reimagined in Rust for simplicity and performance.
+[Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT).

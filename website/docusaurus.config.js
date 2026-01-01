@@ -80,6 +80,14 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
+      announcementBar: {
+        id: 'star_us',
+        content:
+          'If you find EventFlux useful, give us a <a target="_blank" rel="noopener noreferrer" href="https://github.com/eventflux-io/engine">star on GitHub</a>!',
+        backgroundColor: '#C97C5D',
+        textColor: '#FFFFFF',
+        isCloseable: true,
+      },
       image: 'img/eventflux-social-card.png',
       colorMode: {
         defaultMode: 'dark',
