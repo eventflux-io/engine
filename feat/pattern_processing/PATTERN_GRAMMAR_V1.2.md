@@ -644,7 +644,7 @@ FROM SEQUENCE (
 - Time-based: `... WITHIN <value> <time_unit>` (e.g., `WITHIN 10 SECONDS`)
 - Event-count based: `... WITHIN n EVENTS`
 
-**Time Units**: Uses standard SQL `DateTimeField` - NANOSECONDS, MICROSECONDS, MILLISECONDS, SECONDS, MINUTES, HOURS, DAYS, WEEKS
+**Time Units**: MILLISECONDS, SECONDS, MINUTES, HOURS, DAYS, WEEKS (milliseconds is the minimum precision)
 
 **Semantics**: Pattern must complete within time window or event count
 

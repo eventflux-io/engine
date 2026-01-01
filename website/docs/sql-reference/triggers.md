@@ -64,12 +64,10 @@ CREATE TRIGGER DailyTrigger AT EVERY 1 DAY;
 
 ### Time Units
 
-Uses standard SQL `DateTimeField` for time units:
+Supported time units:
 
 | Unit | Aliases | Example |
 |------|---------|---------|
-| `NANOSECONDS` | `NANOSECOND` | `AT EVERY 1000000 NANOSECONDS` |
-| `MICROSECONDS` | `MICROSECOND` | `AT EVERY 1000 MICROSECONDS` |
 | `MILLISECONDS` | `MILLISECOND` | `AT EVERY 50 MILLISECONDS` |
 | `SECONDS` | `SECOND` | `AT EVERY 5 SECONDS` |
 | `MINUTES` | `MINUTE` | `AT EVERY 1 MINUTE` |
@@ -77,7 +75,7 @@ Uses standard SQL `DateTimeField` for time units:
 | `DAYS` | `DAY` | `AT EVERY 1 DAY` |
 | `WEEKS` | `WEEK` | `AT EVERY 1 WEEK` |
 
-**Note:** Variable-length units (YEAR, MONTH) are not supported as they cannot be converted to fixed milliseconds.
+**Note:** Milliseconds is the minimum precision. Sub-millisecond units (NANOSECONDS, MICROSECONDS) and variable-length units (YEAR, MONTH) are not supported.
 
 ---
 

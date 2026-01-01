@@ -41,12 +41,10 @@ SELECT currentTimeMillis() AS timestamp FROM HeartbeatTrigger;
 
 ### Time Unit Support
 
-Uses standard SQL `DateTimeField` for time units. All fixed-duration units are supported:
+Supported time units (milliseconds is the minimum precision):
 
 | Unit | Aliases | Multiplier (to ms) | Example |
 |------|---------|-------------------|---------|
-| NANOSECOND | NANOSECONDS | 1/1,000,000 | `AT EVERY 1000000 NANOSECONDS` |
-| MICROSECOND | MICROSECONDS | 1/1,000 | `AT EVERY 1000 MICROSECONDS` |
 | MILLISECOND | MILLISECONDS | 1 | `AT EVERY 50 MILLISECONDS` |
 | SECOND | SECONDS | 1,000 | `AT EVERY 5 SECONDS` |
 | MINUTE | MINUTES | 60,000 | `AT EVERY 1 MINUTE` |
@@ -54,7 +52,7 @@ Uses standard SQL `DateTimeField` for time units. All fixed-duration units are s
 | DAY | DAYS | 86,400,000 | `AT EVERY 1 DAY` |
 | WEEK | WEEKS | 604,800,000 | `AT EVERY 1 WEEK` |
 
-**Note:** Variable-length units (YEAR, MONTH) are not supported for triggers as they cannot be converted to fixed milliseconds.
+**Note:** Sub-millisecond units (NANOSECONDS, MICROSECONDS) and variable-length units (YEAR, MONTH) are not supported.
 
 ---
 
@@ -176,9 +174,9 @@ duration
 
 time_unit
     ::= <standard SQL DateTimeField>
-    -- Includes: NANOSECOND(S), MICROSECOND(S), MILLISECOND(S),
-    --           SECOND(S), MINUTE(S), HOUR(S), DAY(S), WEEK(S)
-    -- Note: YEAR, MONTH not allowed (variable-length)
+    -- Includes: MILLISECOND(S), SECOND(S), MINUTE(S), HOUR(S), DAY(S), WEEK(S)
+    -- Note: Milliseconds is the minimum precision
+    -- Note: NANOSECOND(S), MICROSECOND(S), YEAR, MONTH not allowed
 ```
 
 ---
@@ -245,8 +243,9 @@ All time-based parameters (triggers, windows, WITHIN clauses) use the same parsi
 
 This ensures:
 - Same syntax everywhere: `5 SECONDS`, `10 MINUTES`, etc.
-- Same time units supported: NANOSECONDS, MICROSECONDS, MILLISECONDS, SECONDS, MINUTES, HOURS, DAYS, WEEKS
-- Same validation: Variable-length units (YEAR, MONTH) are rejected at parse time
+- Same time units supported: MILLISECONDS, SECONDS, MINUTES, HOURS, DAYS, WEEKS
+- Milliseconds is the minimum precision
+- Sub-millisecond units (NANOSECONDS, MICROSECONDS) and variable-length units (YEAR, MONTH) are rejected at parse time
 
 ---
 
