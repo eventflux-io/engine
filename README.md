@@ -1,6 +1,6 @@
 # EventFlux
 
-[![Build](https://github.com/eventflux-io/engine/actions/workflows/ci.yml/badge.svg)](https://github.com/eventflux-io/engine/actions/workflows/ci.yml)
+[![Build](https://github.com/eventflux-io/engine/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/eventflux-io/engine/actions/workflows/docker-publish.yml)
 [![GHCR](https://img.shields.io/badge/ghcr.io-eventflux--io%2Fengine-blue)](https://ghcr.io/eventflux-io/engine)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](LICENSE-APACHE)
 
