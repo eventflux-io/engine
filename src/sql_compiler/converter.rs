@@ -236,9 +236,15 @@ impl SqlConverter {
                         })?;
 
                     // Validate relation (stream or table) exists
-                    catalog
+                    let relation = catalog
                         .get_relation(&stream_name)
                         .map_err(|_| ConverterError::SchemaNotFound(stream_name.clone()))?;
+
+                    // Validation 1.7: Tables cannot be queried directly without JOIN
+                    // Tables are lookup structures that must be joined with a stream
+                    if relation.is_table() {
+                        return Err(ConverterError::DirectTableQuery(stream_name));
+                    }
 
                     // Create InputStream (works for both streams and tables - runtime will differentiate)
                     let mut single_stream = SingleInputStream::new_basic(
@@ -1551,6 +1557,14 @@ impl SqlConverter {
                             "Invalid stream name in pattern".to_string(),
                         )
                     })?;
+
+                // Validation 1.9: Tables cannot be used in patterns/sequences
+                // Only streams can be used as event sources in patterns
+                if let Ok(relation) = catalog.get_relation(&stream_id) {
+                    if relation.is_table() {
+                        return Err(ConverterError::TableInPattern(stream_id));
+                    }
+                }
 
                 // Create SingleInputStream with optional alias
                 let mut single_stream = SingleInputStream::new_basic(

@@ -80,6 +80,18 @@ pub enum ConverterError {
 
     #[error("Conversion failed: {0}")]
     ConversionFailed(String),
+
+    #[error("Direct table query not allowed: '{0}'. Tables must be used with JOIN. Example: FROM Stream JOIN {0} ON Stream.id = {0}.id")]
+    DirectTableQuery(String),
+
+    #[error("Table '{0}' cannot be used in pattern/sequence. Only streams can be used in PATTERN or SEQUENCE clauses.")]
+    TableInPattern(String),
+
+    #[error("Aggregation '{0}' cannot be queried directly. Use: FROM Stream JOIN {0} ON Stream.timestamp WITHIN ...")]
+    DirectAggregationQuery(String),
+
+    #[error("Aggregation '{0}' cannot be used in pattern/sequence. Only streams can be used in PATTERN or SEQUENCE clauses.")]
+    AggregationInPattern(String),
 }
 
 #[derive(Debug, Error)]
