@@ -116,7 +116,7 @@ impl SqlCatalog {
     ///
     /// Triggers are also registered as streams so they can be queried in FROM clauses.
     /// Trigger streams have no schema (they emit empty events) but can be joined or
-    /// used to generate derived events using functions like currentTimeMillis().
+    /// used to generate derived events using functions like now().
     pub fn register_trigger(&mut self, trigger: TriggerDefinition) {
         let trigger_name = trigger.id.clone();
 
@@ -127,8 +127,7 @@ impl SqlCatalog {
         // Also register as a stream so queries can SELECT FROM trigger_name
         // The stream has no attributes (trigger events are empty)
         let stream_def = StreamDefinition::new(trigger_name.clone());
-        self.streams
-            .insert(trigger_name, Arc::new(stream_def));
+        self.streams.insert(trigger_name, Arc::new(stream_def));
     }
 
     /// Get a trigger definition by name

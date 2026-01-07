@@ -3013,14 +3013,14 @@ async fn length_batch_window_test_count() {
     }
 }
 
-/// Window with currentTimeMillis function
+/// Window with now() function
 #[tokio::test]
 async fn length_window_test_current_time() {
     let app = "\
         CREATE STREAM stockStream (symbol STRING);\n\
         CREATE STREAM outputStream (symbol STRING, timestamp BIGINT);\n\
         INSERT INTO outputStream\n\
-        SELECT symbol, currentTimeMillis() AS timestamp\n\
+        SELECT symbol, now() AS timestamp\n\
         FROM stockStream WINDOW('length', 3);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(

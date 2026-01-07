@@ -1240,25 +1240,21 @@ impl SqlConverter {
             "sin" => "sin",
             "cos" => "cos",
             "tan" => "tan",
+            "asin" => "asin",
+            "acos" => "acos",
+            "atan" => "atan",
             "exp" => "exp",
             "power" => "power",
             "pow" => "power",
             "ln" => "ln",
             "log" => "log",
             "log10" => "log10",
-            // Namespace-prefixed math functions
-            "math:sin" => "math:sin",
-            "math:cos" => "math:cos",
-            "math:tan" => "math:tan",
-            "math:log" => "math:log",
-            "math:log10" => "math:log10",
-            "math:exp" => "math:exp",
-            "math:sqrt" => "math:sqrt",
-            "math:abs" => "math:abs",
-            "math:ceil" => "math:ceil",
-            "math:floor" => "math:floor",
-            "math:round" => "math:round",
-            "math:power" => "math:power",
+            "maximum" => "maximum",
+            "minimum" => "minimum",
+            "mod" => "mod",
+            "sign" => "sign",
+            "trunc" => "trunc",
+            "truncate" => "trunc",
             // String functions
             "upper" => "upper",
             "lower" => "lower",
@@ -1266,6 +1262,18 @@ impl SqlConverter {
             "concat" => "concat",
             "replace" => "replace",
             "trim" => "trim",
+            "left" => "left",
+            "right" => "right",
+            "ltrim" => "ltrim",
+            "rtrim" => "rtrim",
+            "reverse" => "reverse",
+            "repeat" => "repeat",
+            "position" => "position",
+            "locate" => "position", // MySQL compatibility
+            "instr" => "position",  // MySQL/Oracle compatibility
+            "ascii" => "ascii",
+            "chr" => "chr",
+            "char" => "chr", // MySQL compatibility
             // Note: substr/substring as function calls need 1-based to 0-based conversion
             // This is handled specially below before the match
             "substr" | "substring" => {
@@ -1284,13 +1292,16 @@ impl SqlConverter {
                 }
                 "substring"
             }
+            "lpad" => "lpad",
+            "rpad" => "rpad",
             // Utility functions
             "coalesce" => "coalesce",
-            "ifnull" => "coalesce", // IFNULL is an alias for COALESCE with 2 args
+            "default" => "default",
+            "ifnull" => "default", // IFNULL maps to default (2 args only)
             "nullif" => "nullif",
             "uuid" => "uuid",
             "eventtimestamp" => "eventTimestamp",
-            "currenttimemillis" => "currentTimestamp",
+            "now" => "now",
             _ => {
                 return Err(ConverterError::UnsupportedFeature(format!(
                     "Function '{}' not supported",

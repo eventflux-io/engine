@@ -135,7 +135,7 @@ async fn trigger_test9_with_query() {
         CREATE TRIGGER HeartbeatTrigger AT EVERY 50 MILLISECONDS;\n\
         CREATE STREAM outputStream (timestamp BIGINT);\n\
         INSERT INTO outputStream\n\
-        SELECT currentTimeMillis() AS timestamp FROM HeartbeatTrigger;\n";
+        SELECT now() AS timestamp FROM HeartbeatTrigger;\n";
     let runner = AppRunner::new(app, "outputStream").await;
     sleep(Duration::from_millis(130));
     let out = runner.shutdown();

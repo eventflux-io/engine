@@ -362,7 +362,11 @@ fn test_valid_bool_equals_bool() {
         WHERE x = y;\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "BOOL = BOOL should be allowed. Error: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "BOOL = BOOL should be allowed. Error: {:?}",
+        result.err()
+    );
 }
 
 /// Valid: Numeric comparison with numeric (different types)
@@ -376,7 +380,11 @@ fn test_valid_int_greater_than_double() {
         WHERE x > y;\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "INT > DOUBLE should be allowed (type promotion). Error: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "INT > DOUBLE should be allowed (type promotion). Error: {:?}",
+        result.err()
+    );
 }
 
 /// Valid: String comparison with string
@@ -390,7 +398,11 @@ fn test_valid_string_equals_string() {
         WHERE x = y;\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "STRING = STRING should be allowed. Error: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "STRING = STRING should be allowed. Error: {:?}",
+        result.err()
+    );
 }
 
 /// Valid: Boolean attribute in filter
@@ -404,7 +416,11 @@ fn test_valid_boolean_attribute_in_filter() {
         WHERE available;\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "Boolean attribute in WHERE should be allowed. Error: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Boolean attribute in WHERE should be allowed. Error: {:?}",
+        result.err()
+    );
 }
 
 /// Valid: NOT with boolean attribute
@@ -418,7 +434,11 @@ fn test_valid_not_with_boolean() {
         WHERE NOT available;\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "NOT with boolean attribute should be allowed. Error: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "NOT with boolean attribute should be allowed. Error: {:?}",
+        result.err()
+    );
 }
 
 /// Valid: Table with JOIN
@@ -432,7 +452,11 @@ fn test_valid_table_with_join() {
         FROM S JOIN T ON S.id = T.id;\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "Table with JOIN should be allowed. Error: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Table with JOIN should be allowed. Error: {:?}",
+        result.err()
+    );
 }
 
 /// Valid: Stream in PATTERN
@@ -446,5 +470,9 @@ fn test_valid_stream_in_pattern() {
         FROM PATTERN (EVERY (a=A -> b=B));\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "Streams in PATTERN should be allowed. Error: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Streams in PATTERN should be allowed. Error: {:?}",
+        result.err()
+    );
 }

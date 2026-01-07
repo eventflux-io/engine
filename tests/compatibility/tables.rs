@@ -2579,7 +2579,7 @@ async fn table_test_division() {
     assert_eq!(out.len(), 1);
 }
 
-/// Table with currentTimeMillis
+/// Table with now() function
 #[tokio::test]
 async fn table_test_current_time() {
     let app = "\
@@ -2591,7 +2591,7 @@ async fn table_test_current_time() {
         INSERT INTO dataTable SELECT * FROM insertStream;\n\
         \n\
         INSERT INTO outputStream\n\
-        SELECT dataTable.value AS value, currentTimeMillis() AS queriedAt\n\
+        SELECT dataTable.value AS value, now() AS queriedAt\n\
         FROM queryStream JOIN dataTable\n\
         ON queryStream.id = dataTable.id;\n";
     let runner = AppRunner::new(app, "outputStream").await;

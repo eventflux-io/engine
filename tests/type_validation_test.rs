@@ -191,7 +191,10 @@ fn test_1_2_string_string_comparison_allowed() {
 
     // String-to-string comparison is allowed (lexicographic ordering)
     let result = CompareExpressionExecutor::new(left, right, CompareOperator::LessThan);
-    assert!(result.is_ok(), "STRING < STRING should be allowed for lexicographic comparison");
+    assert!(
+        result.is_ok(),
+        "STRING < STRING should be allowed for lexicographic comparison"
+    );
 }
 
 // ============================================================================
@@ -252,7 +255,11 @@ fn test_1_3_valid_attributes_allowed() {
         WHERE price > 100.0;\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "Valid attributes should be allowed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Valid attributes should be allowed: {:?}",
+        result.err()
+    );
 }
 
 // ============================================================================
@@ -270,7 +277,10 @@ fn test_1_4_duplicate_stream_rejected() {
         FROM Stock;\n";
 
     let result = parse(sql);
-    assert!(result.is_err(), "Duplicate stream definition should be rejected");
+    assert!(
+        result.is_err(),
+        "Duplicate stream definition should be rejected"
+    );
 
     let err = result.unwrap_err().to_string();
     assert!(
@@ -290,7 +300,11 @@ fn test_1_4_different_streams_allowed() {
         FROM Stock1 JOIN Stock2 ON Stock1.symbol = Stock2.symbol;\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "Different stream names should be allowed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Different stream names should be allowed: {:?}",
+        result.err()
+    );
 }
 
 // ============================================================================
@@ -356,7 +370,11 @@ fn test_1_5_boolean_where_allowed() {
         WHERE active;\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "Boolean attribute in WHERE should be allowed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Boolean attribute in WHERE should be allowed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -369,7 +387,11 @@ fn test_1_5_comparison_where_allowed() {
         WHERE price > 100.0;\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "Comparison in WHERE should be allowed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Comparison in WHERE should be allowed: {:?}",
+        result.err()
+    );
 }
 
 // ============================================================================
@@ -444,11 +466,17 @@ fn test_1_7_direct_table_query_rejected() {
         FROM Lookup;\n";
 
     let result = parse(sql);
-    assert!(result.is_err(), "Direct table query without JOIN should be rejected");
+    assert!(
+        result.is_err(),
+        "Direct table query without JOIN should be rejected"
+    );
 
     let err = result.unwrap_err().to_string();
     assert!(
-        err.contains("table") || err.contains("Table") || err.contains("JOIN") || err.contains("Direct"),
+        err.contains("table")
+            || err.contains("Table")
+            || err.contains("JOIN")
+            || err.contains("Direct"),
         "Error should mention table needs JOIN: {}",
         err
     );
@@ -465,7 +493,11 @@ fn test_1_7_table_with_join_allowed() {
         FROM Events JOIN Lookup ON Events.id = Lookup.id;\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "Table with JOIN should be allowed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Table with JOIN should be allowed: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -477,7 +509,11 @@ fn test_1_7_stream_direct_query_allowed() {
         FROM Events;\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "Direct stream query should be allowed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Direct stream query should be allowed: {:?}",
+        result.err()
+    );
 }
 
 // ============================================================================
@@ -555,7 +591,11 @@ fn test_1_9_stream_in_pattern_allowed() {
         FROM PATTERN (EVERY (a=EventA -> b=EventB));\n";
 
     let result = parse(sql);
-    assert!(result.is_ok(), "Streams in pattern should be allowed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Streams in pattern should be allowed: {:?}",
+        result.err()
+    );
 }
 
 // ============================================================================
@@ -603,7 +643,10 @@ fn test_numeric_type_comparison_allowed() {
     ));
 
     let result = CompareExpressionExecutor::new(int_exec, double_exec, CompareOperator::Equal);
-    assert!(result.is_ok(), "INT = DOUBLE should be allowed with type promotion");
+    assert!(
+        result.is_ok(),
+        "INT = DOUBLE should be allowed with type promotion"
+    );
 }
 
 #[test]
@@ -632,6 +675,7 @@ fn test_float_double_comparison_allowed() {
         AttributeType::DOUBLE,
     ));
 
-    let result = CompareExpressionExecutor::new(float_exec, double_exec, CompareOperator::GreaterThan);
+    let result =
+        CompareExpressionExecutor::new(float_exec, double_exec, CompareOperator::GreaterThan);
     assert!(result.is_ok(), "FLOAT > DOUBLE should be allowed");
 }

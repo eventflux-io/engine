@@ -952,7 +952,7 @@ async fn partition_test27_uuid() {
     }
 }
 
-/// Partition with currentTimeMillis
+/// Partition with now() function
 #[tokio::test]
 async fn partition_test28_current_time() {
     let app = "\
@@ -961,7 +961,7 @@ async fn partition_test28_current_time() {
         PARTITION WITH (service OF logStream)\n\
         BEGIN\n\
             INSERT INTO outputStream\n\
-            SELECT service, currentTimeMillis() AS timestamp\n\
+            SELECT service, now() AS timestamp\n\
             FROM logStream;\n\
         END;\n";
     let runner = AppRunner::new(app, "outputStream").await;
