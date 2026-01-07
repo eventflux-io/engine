@@ -2136,14 +2136,14 @@ async fn pattern_test_uuid_function() {
     }
 }
 
-/// Pattern with currentTimeMillis
+/// Pattern with now() function
 #[tokio::test]
 async fn pattern_test_current_time() {
     let app = "\
         CREATE STREAM eventStream (id STRING);\n\
         CREATE STREAM outputStream (id STRING, timestamp BIGINT);\n\
         INSERT INTO outputStream\n\
-        SELECT e1.id AS id, currentTimeMillis() AS timestamp\n\
+        SELECT e1.id AS id, now() AS timestamp\n\
         FROM PATTERN (e1=eventStream);\n";
     let runner = AppRunner::new(app, "outputStream").await;
     runner.send(

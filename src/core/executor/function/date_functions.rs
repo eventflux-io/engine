@@ -9,10 +9,11 @@ use crate::query_api::definition::attribute::Type as ApiAttributeType;
 use chrono::{NaiveDateTime, Utc};
 use std::sync::Arc;
 
+/// NOW() function - returns current timestamp in milliseconds
 #[derive(Debug, Default, Clone)]
-pub struct CurrentTimestampFunctionExecutor;
+pub struct NowFunctionExecutor;
 
-impl ExpressionExecutor for CurrentTimestampFunctionExecutor {
+impl ExpressionExecutor for NowFunctionExecutor {
     fn execute(&self, _event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
         let millis = Utc::now().timestamp_millis();
         Some(AttributeValue::Long(millis))

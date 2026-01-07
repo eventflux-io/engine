@@ -19,6 +19,12 @@ EventFlux provides a comprehensive set of built-in functions for data transforma
 | `FLOOR(x)` | Round down | `FLOOR(4.8)` | `4` |
 | `ROUND(x)` | Round to nearest | `ROUND(4.5)` | `5` |
 | `ROUND(x, n)` | Round to n decimals | `ROUND(4.567, 2)` | `4.57` |
+| `TRUNC(x)` | Truncate to integer | `TRUNC(4.9)` | `4` |
+| `TRUNC(x, n)` | Truncate to n decimals | `TRUNC(4.567, 2)` | `4.56` |
+| `SIGN(x)` | Returns -1, 0, or 1 | `SIGN(-5)` | `-1` |
+| `MOD(x, y)` | Modulo (remainder) | `MOD(17, 5)` | `2` |
+| `MAXIMUM(a, b, ...)` | Maximum of values | `MAXIMUM(1, 5, 3)` | `5` |
+| `MINIMUM(a, b, ...)` | Minimum of values | `MINIMUM(1, 5, 3)` | `1` |
 
 ### Advanced Math
 
@@ -63,7 +69,9 @@ INSERT INTO Processed;
 | `LENGTH(s)` | String length | `LENGTH('hello')` | `5` |
 | `UPPER(s)` | Uppercase | `UPPER('hello')` | `'HELLO'` |
 | `LOWER(s)` | Lowercase | `LOWER('HELLO')` | `'hello'` |
-| `TRIM(s)` | Remove whitespace | `TRIM('  hi  ')` | `'hi'` |
+| `TRIM(s)` | Remove whitespace (both ends) | `TRIM('  hi  ')` | `'hi'` |
+| `LTRIM(s)` | Remove leading whitespace | `LTRIM('  hi  ')` | `'hi  '` |
+| `RTRIM(s)` | Remove trailing whitespace | `RTRIM('  hi  ')` | `'  hi'` |
 
 ### String Manipulation
 
@@ -71,17 +79,32 @@ INSERT INTO Processed;
 |----------|-------------|---------|--------|
 | `CONCAT(a, b, ...)` | Concatenate | `CONCAT('a', 'b', 'c')` | `'abc'` |
 | `SUBSTRING(s, start, len)` | Extract substring | `SUBSTRING('hello', 1, 3)` | `'hel'` |
+| `LEFT(s, n)` | Get leftmost n characters | `LEFT('hello', 3)` | `'hel'` |
+| `RIGHT(s, n)` | Get rightmost n characters | `RIGHT('hello', 3)` | `'llo'` |
+| `LPAD(s, len, pad)` | Left-pad string to length | `LPAD('hi', 5, '*')` | `'***hi'` |
+| `RPAD(s, len, pad)` | Right-pad string to length | `RPAD('hi', 5, '*')` | `'hi***'` |
 | `REPLACE(s, from, to)` | Replace text | `REPLACE('hello', 'l', 'x')` | `'hexxo'` |
 | `REVERSE(s)` | Reverse string | `REVERSE('hello')` | `'olleh'` |
+| `REPEAT(s, n)` | Repeat string n times | `REPEAT('ab', 3)` | `'ababab'` |
 
 ### String Searching
 
 | Function | Description | Example | Result |
 |----------|-------------|---------|--------|
-| `POSITION(sub IN s)` | Find position | `POSITION('ll' IN 'hello')` | `3` |
+| `POSITION(sub, s)` | Find position (1-based) | `POSITION('ll', 'hello')` | `3` |
+| `LOCATE(sub, s)` | Find position (alias) | `LOCATE('ll', 'hello')` | `3` |
+| `INSTR(sub, s)` | Find position (alias) | `INSTR('ll', 'hello')` | `3` |
 | `STARTS_WITH(s, prefix)` | Check prefix | `STARTS_WITH('hello', 'he')` | `true` |
 | `ENDS_WITH(s, suffix)` | Check suffix | `ENDS_WITH('hello', 'lo')` | `true` |
 | `CONTAINS(s, sub)` | Contains check | `CONTAINS('hello', 'ell')` | `true` |
+
+### Character Functions
+
+| Function | Description | Example | Result |
+|----------|-------------|---------|--------|
+| `ASCII(s)` | ASCII code of first character | `ASCII('A')` | `65` |
+| `CHR(n)` | Character from ASCII code | `CHR(65)` | `'A'` |
+| `CHAR(n)` | Character from ASCII code (alias) | `CHAR(65)` | `'A'` |
 
 ### Example
 
@@ -293,8 +316,15 @@ See [Aggregations](/docs/sql-reference/aggregations) for detailed coverage.
 
 | Function | Description |
 |----------|-------------|
-| `CURRENT_TIMESTAMP` | Current timestamp |
-| `NOW()` | Current timestamp |
+| `NOW()` | Current timestamp in milliseconds |
+
+```sql
+SELECT sensor_id,
+       NOW() AS processing_time,
+       value
+FROM SensorData
+INSERT INTO Timestamped;
+```
 
 ### Time Extraction
 
@@ -324,14 +354,31 @@ INSERT INTO AdjustedTimes;
 
 ### NULL Handling
 
+| Function | Description | Example | Result |
+|----------|-------------|---------|--------|
+| `COALESCE(a, b, ...)` | First non-null value | `COALESCE(NULL, 'hi')` | `'hi'` |
+| `DEFAULT(val, default)` | Return default if null | `DEFAULT(NULL, 0)` | `0` |
+| `IFNULL(val, default)` | Return default if null (alias) | `IFNULL(NULL, 0)` | `0` |
+| `NULLIF(a, b)` | Return null if equal | `NULLIF(5, 5)` | `NULL` |
+
 ```sql
 SELECT
-    IFNULL(value, 0) AS value_or_zero,
     COALESCE(a, b, c, 'default') AS first_non_null,
+    DEFAULT(value, 0) AS value_or_zero,
+    IFNULL(value, 0) AS also_value_or_zero,
     NULLIF(status, 'UNKNOWN') AS null_if_unknown
 FROM Data
 INSERT INTO Processed;
 ```
+
+:::tip Numeric Type Widening
+`DEFAULT()` and `IFNULL()` support automatic numeric type widening. You can use a LONG default with an INT value, or a DOUBLE default with a FLOAT value:
+```sql
+SELECT DEFAULT(int_column, 999999999999) AS widened_to_long,
+       DEFAULT(float_column, 3.14159265358979) AS widened_to_double
+FROM Data;
+```
+:::
 
 ### Type Checking
 

@@ -14,6 +14,7 @@ use super::catalog::{SqlApplication, SqlCatalog};
 use super::converter::SqlConverter;
 use super::error::ApplicationError;
 use super::normalization::normalize_stream_syntax;
+use super::type_inference::TypeInferenceEngine;
 use super::type_mapping::sql_type_to_attribute_type;
 use super::with_clause::{extract_with_options, validate_with_clause};
 
@@ -24,17 +25,24 @@ fn convert_stream_trigger(
     let name = trigger.name.to_string();
 
     match &trigger.timing {
-        StreamTriggerTiming::Start => {
-            Ok(TriggerDefinition::new(name).at("start".to_string()))
-        }
+        StreamTriggerTiming::Start => Ok(TriggerDefinition::new(name).at("start".to_string())),
         StreamTriggerTiming::Every { interval_ms } => {
             // interval_ms is pre-computed at parse time using parse_streaming_time_duration_ms()
             Ok(TriggerDefinition::new(name).at_every(*interval_ms as i64))
         }
-        StreamTriggerTiming::Cron(expr) => {
-            Ok(TriggerDefinition::new(name).at(expr.clone()))
-        }
+        StreamTriggerTiming::Cron(expr) => Ok(TriggerDefinition::new(name).at(expr.clone())),
     }
+}
+
+/// Validate expression types in a query using the type inference engine
+fn validate_query_types(
+    query: &crate::query_api::execution::Query,
+    catalog: &SqlCatalog,
+) -> Result<(), ApplicationError> {
+    let type_engine = TypeInferenceEngine::new(catalog);
+    type_engine
+        .validate_query(query)
+        .map_err(ApplicationError::Type)
 }
 
 /// Parse a complete SQL application with multiple statements
@@ -112,6 +120,10 @@ pub fn parse_sql_application(sql: &str) -> Result<SqlApplication, ApplicationErr
             sqlparser::ast::Statement::Query(query) => {
                 // Convert query AST directly (no re-parsing!)
                 let q = SqlConverter::convert_query_ast(&query, &catalog, None)?;
+
+                // Type validation: validate expression types in the query
+                validate_query_types(&q, &catalog)?;
+
                 execution_elements.push(crate::query_api::execution::ExecutionElement::Query(q));
             }
             sqlparser::ast::Statement::Insert(insert) => {
@@ -134,6 +146,10 @@ pub fn parse_sql_application(sql: &str) -> Result<SqlApplication, ApplicationErr
                 })?;
 
                 let q = SqlConverter::convert_query_ast(source, &catalog, Some(target_stream))?;
+
+                // Type validation: validate expression types in the query
+                validate_query_types(&q, &catalog)?;
+
                 execution_elements.push(crate::query_api::execution::ExecutionElement::Query(q));
             }
             sqlparser::ast::Statement::Partition {

@@ -179,6 +179,118 @@ impl ExpressionExecutor for TanFunctionExecutor {
     }
 }
 
+#[derive(Debug)]
+pub struct AsinFunctionExecutor {
+    value_executor: Box<dyn ExpressionExecutor>,
+}
+
+impl AsinFunctionExecutor {
+    pub fn new(value_executor: Box<dyn ExpressionExecutor>) -> Result<Self, String> {
+        Ok(Self { value_executor })
+    }
+}
+
+impl ExpressionExecutor for AsinFunctionExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        let val = self.value_executor.execute(event)?;
+        match val {
+            AttributeValue::Null => Some(AttributeValue::Null),
+            _ => {
+                let num = to_f64(&val)?;
+                // asin is only defined for values in [-1, 1]
+                if num < -1.0 || num > 1.0 {
+                    Some(AttributeValue::Double(f64::NAN))
+                } else {
+                    Some(AttributeValue::Double(num.asin()))
+                }
+            }
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        ApiAttributeType::DOUBLE
+    }
+
+    fn clone_executor(&self, ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(AsinFunctionExecutor {
+            value_executor: self.value_executor.clone_executor(ctx),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct AcosFunctionExecutor {
+    value_executor: Box<dyn ExpressionExecutor>,
+}
+
+impl AcosFunctionExecutor {
+    pub fn new(value_executor: Box<dyn ExpressionExecutor>) -> Result<Self, String> {
+        Ok(Self { value_executor })
+    }
+}
+
+impl ExpressionExecutor for AcosFunctionExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        let val = self.value_executor.execute(event)?;
+        match val {
+            AttributeValue::Null => Some(AttributeValue::Null),
+            _ => {
+                let num = to_f64(&val)?;
+                // acos is only defined for values in [-1, 1]
+                if num < -1.0 || num > 1.0 {
+                    Some(AttributeValue::Double(f64::NAN))
+                } else {
+                    Some(AttributeValue::Double(num.acos()))
+                }
+            }
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        ApiAttributeType::DOUBLE
+    }
+
+    fn clone_executor(&self, ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(AcosFunctionExecutor {
+            value_executor: self.value_executor.clone_executor(ctx),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct AtanFunctionExecutor {
+    value_executor: Box<dyn ExpressionExecutor>,
+}
+
+impl AtanFunctionExecutor {
+    pub fn new(value_executor: Box<dyn ExpressionExecutor>) -> Result<Self, String> {
+        Ok(Self { value_executor })
+    }
+}
+
+impl ExpressionExecutor for AtanFunctionExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        let val = self.value_executor.execute(event)?;
+        match val {
+            AttributeValue::Null => Some(AttributeValue::Null),
+            _ => {
+                let num = to_f64(&val)?;
+                Some(AttributeValue::Double(num.atan()))
+            }
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        ApiAttributeType::DOUBLE
+    }
+
+    fn clone_executor(&self, ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(AtanFunctionExecutor {
+            value_executor: self.value_executor.clone_executor(ctx),
+        })
+    }
+}
+
 impl ExpressionExecutor for RoundFunctionExecutor {
     fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
         let val = self.value_executor.execute(event)?;
@@ -463,6 +575,272 @@ impl ExpressionExecutor for Log10FunctionExecutor {
     fn clone_executor(&self, ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
         Box::new(Log10FunctionExecutor {
             value_executor: self.value_executor.clone_executor(ctx),
+        })
+    }
+}
+
+/// MaximumFunctionExecutor implements maximum(a, b, c, ...) - returns the maximum of all values.
+/// All arguments must be numeric. Returns DOUBLE.
+#[derive(Debug)]
+pub struct MaximumFunctionExecutor {
+    executors: Vec<Box<dyn ExpressionExecutor>>,
+}
+
+impl MaximumFunctionExecutor {
+    pub fn new(executors: Vec<Box<dyn ExpressionExecutor>>) -> Result<Self, String> {
+        if executors.is_empty() {
+            return Err("maximum() requires at least one argument".to_string());
+        }
+        Ok(Self { executors })
+    }
+}
+
+impl ExpressionExecutor for MaximumFunctionExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        let mut max_val: Option<f64> = None;
+
+        for exec in &self.executors {
+            match exec.execute(event)? {
+                AttributeValue::Null => continue,
+                val => {
+                    let num = to_f64(&val)?;
+                    max_val = Some(match max_val {
+                        None => num,
+                        Some(current) => current.max(num),
+                    });
+                }
+            }
+        }
+
+        match max_val {
+            Some(v) => Some(AttributeValue::Double(v)),
+            None => Some(AttributeValue::Null),
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        ApiAttributeType::DOUBLE
+    }
+
+    fn clone_executor(&self, ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(MaximumFunctionExecutor {
+            executors: self
+                .executors
+                .iter()
+                .map(|e| e.clone_executor(ctx))
+                .collect(),
+        })
+    }
+}
+
+/// MinimumFunctionExecutor implements minimum(a, b, c, ...) - returns the minimum of all values.
+/// All arguments must be numeric. Returns DOUBLE.
+#[derive(Debug)]
+pub struct MinimumFunctionExecutor {
+    executors: Vec<Box<dyn ExpressionExecutor>>,
+}
+
+impl MinimumFunctionExecutor {
+    pub fn new(executors: Vec<Box<dyn ExpressionExecutor>>) -> Result<Self, String> {
+        if executors.is_empty() {
+            return Err("minimum() requires at least one argument".to_string());
+        }
+        Ok(Self { executors })
+    }
+}
+
+impl ExpressionExecutor for MinimumFunctionExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        let mut min_val: Option<f64> = None;
+
+        for exec in &self.executors {
+            match exec.execute(event)? {
+                AttributeValue::Null => continue,
+                val => {
+                    let num = to_f64(&val)?;
+                    min_val = Some(match min_val {
+                        None => num,
+                        Some(current) => current.min(num),
+                    });
+                }
+            }
+        }
+
+        match min_val {
+            Some(v) => Some(AttributeValue::Double(v)),
+            None => Some(AttributeValue::Null),
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        ApiAttributeType::DOUBLE
+    }
+
+    fn clone_executor(&self, ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(MinimumFunctionExecutor {
+            executors: self
+                .executors
+                .iter()
+                .map(|e| e.clone_executor(ctx))
+                .collect(),
+        })
+    }
+}
+
+/// ModFunctionExecutor implements mod(a, b) - returns a % b (modulo operation).
+#[derive(Debug)]
+pub struct ModFunctionExecutor {
+    a_executor: Box<dyn ExpressionExecutor>,
+    b_executor: Box<dyn ExpressionExecutor>,
+}
+
+impl ModFunctionExecutor {
+    pub fn new(
+        a_executor: Box<dyn ExpressionExecutor>,
+        b_executor: Box<dyn ExpressionExecutor>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            a_executor,
+            b_executor,
+        })
+    }
+}
+
+impl ExpressionExecutor for ModFunctionExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        let a_val = self.a_executor.execute(event)?;
+        let b_val = self.b_executor.execute(event)?;
+
+        match (&a_val, &b_val) {
+            (AttributeValue::Null, _) | (_, AttributeValue::Null) => Some(AttributeValue::Null),
+            _ => {
+                let a = to_f64(&a_val)?;
+                let b = to_f64(&b_val)?;
+                if b == 0.0 {
+                    Some(AttributeValue::Null) // Division by zero returns null
+                } else {
+                    Some(AttributeValue::Double(a % b))
+                }
+            }
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        ApiAttributeType::DOUBLE
+    }
+
+    fn clone_executor(&self, ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(ModFunctionExecutor {
+            a_executor: self.a_executor.clone_executor(ctx),
+            b_executor: self.b_executor.clone_executor(ctx),
+        })
+    }
+}
+
+/// SignFunctionExecutor implements sign(num) - returns -1, 0, or 1.
+#[derive(Debug)]
+pub struct SignFunctionExecutor {
+    value_executor: Box<dyn ExpressionExecutor>,
+}
+
+impl SignFunctionExecutor {
+    pub fn new(value_executor: Box<dyn ExpressionExecutor>) -> Result<Self, String> {
+        Ok(Self { value_executor })
+    }
+}
+
+impl ExpressionExecutor for SignFunctionExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        match self.value_executor.execute(event)? {
+            AttributeValue::Null => Some(AttributeValue::Null),
+            val => {
+                let num = to_f64(&val)?;
+                let sign = if num > 0.0 {
+                    1
+                } else if num < 0.0 {
+                    -1
+                } else {
+                    0
+                };
+                Some(AttributeValue::Int(sign))
+            }
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        ApiAttributeType::INT
+    }
+
+    fn clone_executor(&self, ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(SignFunctionExecutor {
+            value_executor: self.value_executor.clone_executor(ctx),
+        })
+    }
+}
+
+/// TruncFunctionExecutor implements trunc(num) or trunc(num, precision).
+/// Truncates decimal places (towards zero).
+#[derive(Debug)]
+pub struct TruncFunctionExecutor {
+    value_executor: Box<dyn ExpressionExecutor>,
+    precision_executor: Option<Box<dyn ExpressionExecutor>>,
+}
+
+impl TruncFunctionExecutor {
+    pub fn new(value_executor: Box<dyn ExpressionExecutor>) -> Result<Self, String> {
+        Ok(Self {
+            value_executor,
+            precision_executor: None,
+        })
+    }
+
+    pub fn new_with_precision(
+        value_executor: Box<dyn ExpressionExecutor>,
+        precision_executor: Box<dyn ExpressionExecutor>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            value_executor,
+            precision_executor: Some(precision_executor),
+        })
+    }
+}
+
+impl ExpressionExecutor for TruncFunctionExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        match self.value_executor.execute(event)? {
+            AttributeValue::Null => Some(AttributeValue::Null),
+            val => {
+                let num = to_f64(&val)?;
+                let precision = match &self.precision_executor {
+                    Some(exec) => match exec.execute(event)? {
+                        AttributeValue::Null => return Some(AttributeValue::Null),
+                        p => match &p {
+                            AttributeValue::Int(i) => *i,
+                            AttributeValue::Long(l) => *l as i32,
+                            _ => 0,
+                        },
+                    },
+                    None => 0,
+                };
+
+                let multiplier = 10_f64.powi(precision);
+                let truncated = (num * multiplier).trunc() / multiplier;
+                Some(AttributeValue::Double(truncated))
+            }
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        ApiAttributeType::DOUBLE
+    }
+
+    fn clone_executor(&self, ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(TruncFunctionExecutor {
+            value_executor: self.value_executor.clone_executor(ctx),
+            precision_executor: self
+                .precision_executor
+                .as_ref()
+                .map(|e| e.clone_executor(ctx)),
         })
     }
 }

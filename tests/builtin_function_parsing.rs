@@ -83,9 +83,9 @@ fn test_concat_and_length_functions() {
 }
 
 #[test]
-fn test_current_timestamp_function() {
+fn test_now_function() {
     let ctx = empty_ctx("current_ts");
-    let expr = Expression::function_no_ns("currentTimestamp".to_string(), vec![]);
+    let expr = Expression::function_no_ns("now".to_string(), vec![]);
     let exec = parse_expression(&expr, &ctx).unwrap();
     assert_eq!(exec.get_return_type(), AttrType::LONG);
     let val = exec.execute(None);

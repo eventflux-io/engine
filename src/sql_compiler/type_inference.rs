@@ -185,14 +185,16 @@ fn get_function_signature(name: &str) -> Option<&'static FunctionSignature> {
         // Utility functions
         // coalesce - returns first non-null value, type is first arg's type
         FunctionSignature::new("coalesce", 1, |args| Ok(args[0])),
+        // default - returns second arg if first is null, type is first arg's type
+        FunctionSignature::new("default", 2, |args| Ok(args[0])),
         // nullif - returns NULL if args are equal, otherwise first arg
         FunctionSignature::new("nullif", 2, |args| Ok(args[0])),
         // uuid - generates a random UUID string
         FunctionSignature::new("uuid", 0, |_| Ok(AttributeType::STRING)),
         // eventTimestamp - returns event timestamp as LONG
         FunctionSignature::new("eventtimestamp", 0, |_| Ok(AttributeType::LONG)),
-        // currentTimeMillis - alias for current time
-        FunctionSignature::new("currenttimemillis", 0, |_| Ok(AttributeType::LONG)),
+        // now - returns current timestamp in milliseconds
+        FunctionSignature::new("now", 0, |_| Ok(AttributeType::LONG)),
         // Additional math functions
         FunctionSignature::new("floor", 1, |args| {
             if is_numeric(args[0]) {
@@ -248,6 +250,33 @@ fn get_function_signature(name: &str) -> Option<&'static FunctionSignature> {
                 ))
             }
         }),
+        FunctionSignature::new("asin", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "ASIN requires numeric argument".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("acos", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "ACOS requires numeric argument".into(),
+                ))
+            }
+        }),
+        FunctionSignature::new("atan", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "ATAN requires numeric argument".into(),
+                ))
+            }
+        }),
         FunctionSignature::new("exp", 1, |args| {
             if is_numeric(args[0]) {
                 Ok(AttributeType::DOUBLE)
@@ -293,6 +322,66 @@ fn get_function_signature(name: &str) -> Option<&'static FunctionSignature> {
                 ))
             }
         }),
+        // maximum - returns maximum of all numeric arguments
+        FunctionSignature::new("maximum", 1, |args| {
+            if args.iter().all(|a| is_numeric(*a)) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "MAXIMUM requires numeric arguments".into(),
+                ))
+            }
+        }),
+        // minimum - returns minimum of all numeric arguments
+        FunctionSignature::new("minimum", 1, |args| {
+            if args.iter().all(|a| is_numeric(*a)) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "MINIMUM requires numeric arguments".into(),
+                ))
+            }
+        }),
+        // mod - modulo operation (a % b)
+        FunctionSignature::new("mod", 2, |args| {
+            if is_numeric(args[0]) && is_numeric(args[1]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "MOD requires numeric arguments".into(),
+                ))
+            }
+        }),
+        // sign - returns -1, 0, or 1
+        FunctionSignature::new("sign", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::INT)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "SIGN requires numeric argument".into(),
+                ))
+            }
+        }),
+        // trunc - truncate decimal places
+        FunctionSignature::new("trunc", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "TRUNC requires numeric argument".into(),
+                ))
+            }
+        }),
+        // truncate - alias for trunc
+        FunctionSignature::new("truncate", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::DOUBLE)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "TRUNCATE requires numeric argument".into(),
+                ))
+            }
+        }),
         // Additional string functions
         FunctionSignature::new("trim", 1, |args| {
             if args[0] == AttributeType::STRING {
@@ -315,6 +404,66 @@ fn get_function_signature(name: &str) -> Option<&'static FunctionSignature> {
                 ))
             }
         }),
+        // left - returns leftmost n characters
+        FunctionSignature::new("left", 2, |args| {
+            if args[0] == AttributeType::STRING && is_numeric(args[1]) {
+                Ok(AttributeType::STRING)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "LEFT requires (STRING, INT) arguments".into(),
+                ))
+            }
+        }),
+        // right - returns rightmost n characters
+        FunctionSignature::new("right", 2, |args| {
+            if args[0] == AttributeType::STRING && is_numeric(args[1]) {
+                Ok(AttributeType::STRING)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "RIGHT requires (STRING, INT) arguments".into(),
+                ))
+            }
+        }),
+        // ltrim - trims leading whitespace
+        FunctionSignature::new("ltrim", 1, |args| {
+            if args[0] == AttributeType::STRING {
+                Ok(AttributeType::STRING)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "LTRIM requires STRING argument".into(),
+                ))
+            }
+        }),
+        // rtrim - trims trailing whitespace
+        FunctionSignature::new("rtrim", 1, |args| {
+            if args[0] == AttributeType::STRING {
+                Ok(AttributeType::STRING)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "RTRIM requires STRING argument".into(),
+                ))
+            }
+        }),
+        // reverse - reverses string
+        FunctionSignature::new("reverse", 1, |args| {
+            if args[0] == AttributeType::STRING {
+                Ok(AttributeType::STRING)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "REVERSE requires STRING argument".into(),
+                ))
+            }
+        }),
+        // repeat - repeats string n times
+        FunctionSignature::new("repeat", 2, |args| {
+            if args[0] == AttributeType::STRING && is_numeric(args[1]) {
+                Ok(AttributeType::STRING)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "REPEAT requires (STRING, INT) arguments".into(),
+                ))
+            }
+        }),
         FunctionSignature::new("substring", 1, |_| Ok(AttributeType::STRING)),
         // substr is an alias for substring
         FunctionSignature::new("substr", 1, |_| Ok(AttributeType::STRING)),
@@ -325,6 +474,92 @@ fn get_function_signature(name: &str) -> Option<&'static FunctionSignature> {
             } else {
                 Err(TypeError::ConversionFailed(
                     "LIKE requires STRING arguments".into(),
+                ))
+            }
+        }),
+        // position - returns 1-based position of substring (0 if not found)
+        FunctionSignature::new("position", 2, |args| {
+            if args[0] == AttributeType::STRING && args[1] == AttributeType::STRING {
+                Ok(AttributeType::INT)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "POSITION requires (STRING, STRING) arguments".into(),
+                ))
+            }
+        }),
+        // locate - alias for position (MySQL compatibility)
+        FunctionSignature::new("locate", 2, |args| {
+            if args[0] == AttributeType::STRING && args[1] == AttributeType::STRING {
+                Ok(AttributeType::INT)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "LOCATE requires (STRING, STRING) arguments".into(),
+                ))
+            }
+        }),
+        // instr - alias for position (MySQL/Oracle compatibility)
+        FunctionSignature::new("instr", 2, |args| {
+            if args[0] == AttributeType::STRING && args[1] == AttributeType::STRING {
+                Ok(AttributeType::INT)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "INSTR requires (STRING, STRING) arguments".into(),
+                ))
+            }
+        }),
+        // ascii - returns ASCII code of first character
+        FunctionSignature::new("ascii", 1, |args| {
+            if args[0] == AttributeType::STRING {
+                Ok(AttributeType::INT)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "ASCII requires STRING argument".into(),
+                ))
+            }
+        }),
+        // chr - returns character from ASCII/Unicode code point
+        FunctionSignature::new("chr", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::STRING)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "CHR requires INT argument".into(),
+                ))
+            }
+        }),
+        // char - alias for chr (MySQL compatibility)
+        FunctionSignature::new("char", 1, |args| {
+            if is_numeric(args[0]) {
+                Ok(AttributeType::STRING)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "CHAR requires INT argument".into(),
+                ))
+            }
+        }),
+        // lpad - left pad string to specified length
+        FunctionSignature::new("lpad", 3, |args| {
+            if args[0] == AttributeType::STRING
+                && is_numeric(args[1])
+                && args[2] == AttributeType::STRING
+            {
+                Ok(AttributeType::STRING)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "LPAD requires (STRING, INT, STRING) arguments".into(),
+                ))
+            }
+        }),
+        // rpad - right pad string to specified length
+        FunctionSignature::new("rpad", 3, |args| {
+            if args[0] == AttributeType::STRING
+                && is_numeric(args[1])
+                && args[2] == AttributeType::STRING
+            {
+                Ok(AttributeType::STRING)
+            } else {
+                Err(TypeError::ConversionFailed(
+                    "RPAD requires (STRING, INT, STRING) arguments".into(),
                 ))
             }
         }),
@@ -394,12 +629,34 @@ impl<'a> TypeInferenceEngine<'a> {
             Expression::Mod(m) => {
                 self.infer_arithmetic_type(&m.left_value, &m.right_value, context)
             }
-            Expression::Compare(_)
-            | Expression::And(_)
-            | Expression::Or(_)
-            | Expression::Not(_)
-            | Expression::IsNull(_)
-            | Expression::In(_) => Ok(AttributeType::BOOL),
+            Expression::Compare(cmp) => {
+                // Validate comparison operand types (1.1, 1.2 type validation)
+                self.validate_comparison_types(
+                    &cmp.left_expression,
+                    &cmp.right_expression,
+                    &cmp.operator,
+                    context,
+                )?;
+                Ok(AttributeType::BOOL)
+            }
+            Expression::And(and) => {
+                // Validate AND operands are BOOL (1.5 type validation)
+                self.validate_boolean_operand(&and.left_expression, context, "AND (left)")?;
+                self.validate_boolean_operand(&and.right_expression, context, "AND (right)")?;
+                Ok(AttributeType::BOOL)
+            }
+            Expression::Or(or) => {
+                // Validate OR operands are BOOL (1.5 type validation)
+                self.validate_boolean_operand(&or.left_expression, context, "OR (left)")?;
+                self.validate_boolean_operand(&or.right_expression, context, "OR (right)")?;
+                Ok(AttributeType::BOOL)
+            }
+            Expression::Not(not) => {
+                // Validate NOT operand is BOOL (1.6 type validation)
+                self.validate_boolean_operand(&not.expression, context, "NOT")?;
+                Ok(AttributeType::BOOL)
+            }
+            Expression::IsNull(_) | Expression::In(_) => Ok(AttributeType::BOOL),
             Expression::AttributeFunction(func) => self.infer_function_type(func, context),
             Expression::Case(case) => {
                 // Type of CASE is determined by the result branches
@@ -645,13 +902,13 @@ impl<'a> TypeInferenceEngine<'a> {
         if expr_type != AttributeType::BOOL {
             let hint = match expr {
                 Expression::Variable(_) if is_numeric(expr_type) => {
-                    format!("Did you mean to use a comparison? Try adding '> 0' or '!= 0'")
+                    "Did you mean to use a comparison? Try adding '> 0' or '!= 0'".to_string()
                 }
                 Expression::Add(_)
                 | Expression::Subtract(_)
                 | Expression::Multiply(_)
                 | Expression::Divide(_) => {
-                    format!("Arithmetic expressions must be compared: try '(...) > 0'")
+                    "Arithmetic expressions must be compared: try '(...) > 0'".to_string()
                 }
                 Expression::AttributeFunction(f) => {
                     format!(
@@ -808,6 +1065,84 @@ impl<'a> TypeInferenceEngine<'a> {
         // Validate HAVING clause
         if let Some(having) = query.get_selector().get_having_expression() {
             self.validate_boolean_expression(having, &context, "HAVING")?;
+        }
+
+        Ok(())
+    }
+
+    /// Validate comparison operand types (1.1 and 1.2 type validation)
+    ///
+    /// Rules:
+    /// - BOOL can only be compared with BOOL using == and !=
+    /// - STRING can only be compared with STRING
+    /// - Numeric types (INT, LONG, FLOAT, DOUBLE) can be compared with each other
+    fn validate_comparison_types(
+        &self,
+        left: &Expression,
+        right: &Expression,
+        operator: &crate::query_api::expression::condition::CompareOperator,
+        context: &TypeContext,
+    ) -> Result<(), TypeError> {
+        use crate::query_api::expression::condition::CompareOperator;
+
+        let left_type = self.infer_type(left, context)?;
+        let right_type = self.infer_type(right, context)?;
+
+        // Check BOOL comparison rules
+        if left_type == AttributeType::BOOL || right_type == AttributeType::BOOL {
+            // BOOL can only be compared with BOOL
+            if left_type != right_type {
+                return Err(TypeError::ConversionFailed(format!(
+                    "Cannot compare BOOL with {:?}. Boolean values can only be compared with other boolean values.",
+                    if left_type == AttributeType::BOOL { right_type } else { left_type }
+                )));
+            }
+            // BOOL can only use == and !=
+            match operator {
+                CompareOperator::Equal | CompareOperator::NotEqual => {}
+                _ => {
+                    return Err(TypeError::ConversionFailed(format!(
+                        "Boolean values can only use == and != operators, not {:?}",
+                        operator
+                    )));
+                }
+            }
+        }
+
+        // Check STRING comparison rules
+        if left_type == AttributeType::STRING || right_type == AttributeType::STRING {
+            // STRING can only be compared with STRING
+            if left_type != right_type {
+                return Err(TypeError::ConversionFailed(format!(
+                    "Cannot compare STRING with {:?}. String values can only be compared with other string values.",
+                    if left_type == AttributeType::STRING { right_type } else { left_type }
+                )));
+            }
+        }
+
+        // Numeric types can be compared with each other (INT, LONG, FLOAT, DOUBLE)
+        // No additional validation needed - type coercion handles this
+
+        Ok(())
+    }
+
+    /// Validate that an expression is boolean (for AND/OR/NOT operands)
+    ///
+    /// This implements 1.5 and 1.6 type validation from SIDDHI_ONLY.md
+    fn validate_boolean_operand(
+        &self,
+        expr: &Expression,
+        context: &TypeContext,
+        operator_name: &str,
+    ) -> Result<(), TypeError> {
+        let expr_type = self.infer_type(expr, context)?;
+
+        if expr_type != AttributeType::BOOL {
+            return Err(TypeError::ConversionFailed(format!(
+                "{} operator requires BOOL operand, but found {:?}. \
+                 Hint: Use a comparison expression (e.g., 'value > 0') instead of a raw value.",
+                operator_name, expr_type
+            )));
         }
 
         Ok(())

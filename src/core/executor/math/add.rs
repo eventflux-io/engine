@@ -25,7 +25,7 @@ impl AddExpressionExecutor {
         let return_type = match (left_type, right_type) {
             // Handle error cases first
             (ApiAttributeType::STRING, _) | (_, ApiAttributeType::STRING) => {
-                return Err(format!("String concatenation with '+' is not supported. Use str:concat(). Found input types {left_type:?} and {right_type:?}."));
+                return Err(format!("String concatenation with '+' is not supported. Use concat(). Found input types {left_type:?} and {right_type:?}."));
             }
             (ApiAttributeType::BOOL, _) | (_, ApiAttributeType::BOOL) => {
                 return Err(format!("Arithmetic addition not supported for BOOL types. Found input types {left_type:?} and {right_type:?}."));
