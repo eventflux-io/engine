@@ -1,0 +1,428 @@
+{
+  "version": "0.1.0",
+  "generated": "2026-01-10T14:05:18.479041+00:00",
+  "sources": {
+    "rabbitmq": {
+      "name": "rabbitmq",
+      "supportedFormats": [
+        "json",
+        "csv",
+        "bytes"
+      ],
+      "requiredParameters": [
+        "rabbitmq.host",
+        "rabbitmq.queue"
+      ],
+      "optionalParameters": [
+        "rabbitmq.port",
+        "rabbitmq.vhost",
+        "rabbitmq.username",
+        "rabbitmq.password",
+        "rabbitmq.prefetch",
+        "rabbitmq.consumer.tag",
+        "rabbitmq.auto.ack",
+        "rabbitmq.declare.queue",
+        "error.strategy",
+        "error.retry.max-attempts",
+        "error.retry.initial-delay-ms",
+        "error.retry.max-delay-ms",
+        "error.retry.backoff-multiplier",
+        "error.dlq.stream"
+      ]
+    },
+    "timer": {
+      "name": "timer",
+      "optionalParameters": [
+        "timer.interval"
+      ]
+    },
+    "websocket": {
+      "name": "websocket",
+      "supportedFormats": [
+        "json",
+        "text",
+        "bytes"
+      ],
+      "requiredParameters": [
+        "websocket.url"
+      ],
+      "optionalParameters": [
+        "websocket.reconnect",
+        "websocket.reconnect.delay.ms",
+        "websocket.reconnect.max.delay.ms",
+        "websocket.reconnect.max.attempts",
+        "websocket.subprotocol",
+        "error.strategy",
+        "error.retry.max-attempts",
+        "error.retry.initial-delay-ms",
+        "error.retry.max-delay-ms",
+        "error.retry.backoff-multiplier",
+        "error.dlq.stream"
+      ]
+    }
+  },
+  "sinks": {
+    "log": {
+      "name": "log",
+      "supportedFormats": [
+        "json",
+        "text",
+        "csv",
+        "bytes"
+      ],
+      "optionalParameters": [
+        "log.prefix",
+        "log.level"
+      ]
+    },
+    "rabbitmq": {
+      "name": "rabbitmq",
+      "supportedFormats": [
+        "json",
+        "csv",
+        "bytes"
+      ],
+      "requiredParameters": [
+        "rabbitmq.host",
+        "rabbitmq.exchange"
+      ],
+      "optionalParameters": [
+        "rabbitmq.port",
+        "rabbitmq.vhost",
+        "rabbitmq.username",
+        "rabbitmq.password",
+        "rabbitmq.routing.key",
+        "rabbitmq.persistent",
+        "rabbitmq.content.type",
+        "rabbitmq.declare.exchange",
+        "rabbitmq.exchange.type"
+      ]
+    },
+    "websocket": {
+      "name": "websocket",
+      "supportedFormats": [
+        "json",
+        "text",
+        "bytes"
+      ],
+      "requiredParameters": [
+        "websocket.url"
+      ],
+      "optionalParameters": [
+        "websocket.reconnect",
+        "websocket.reconnect.delay.ms",
+        "websocket.reconnect.max.delay.ms",
+        "websocket.reconnect.max.attempts",
+        "websocket.message.type",
+        "websocket.subprotocol"
+      ]
+    }
+  },
+  "mappers": {
+    "bytes": {
+      "name": "bytes"
+    },
+    "csv": {
+      "name": "csv",
+      "optionalParameters": [
+        "csv.mapping.*",
+        "csv.delimiter",
+        "csv.has-header",
+        "csv.ignore-parse-errors"
+      ]
+    },
+    "json": {
+      "name": "json",
+      "optionalParameters": [
+        "json.mapping.*",
+        "json.ignore-parse-errors",
+        "json.date-format"
+      ]
+    }
+  },
+  "windows": {
+    "cron": {
+      "name": "cron"
+    },
+    "externalTime": {
+      "name": "externalTime"
+    },
+    "externalTimeBatch": {
+      "name": "externalTimeBatch"
+    },
+    "length": {
+      "name": "length"
+    },
+    "lengthBatch": {
+      "name": "lengthBatch"
+    },
+    "lossyCounting": {
+      "name": "lossyCounting"
+    },
+    "session": {
+      "name": "session"
+    },
+    "sort": {
+      "name": "sort"
+    },
+    "time": {
+      "name": "time"
+    },
+    "timeBatch": {
+      "name": "timeBatch"
+    }
+  },
+  "aggregators": {
+    "avg": {
+      "name": "avg",
+      "arity": 1
+    },
+    "count": {
+      "name": "count",
+      "arity": 1
+    },
+    "distinctCount": {
+      "name": "distinctCount",
+      "arity": 1
+    },
+    "max": {
+      "name": "max",
+      "arity": 1
+    },
+    "maxForever": {
+      "name": "maxForever",
+      "arity": 1
+    },
+    "min": {
+      "name": "min",
+      "arity": 1
+    },
+    "minForever": {
+      "name": "minForever",
+      "arity": 1
+    },
+    "sum": {
+      "name": "sum",
+      "arity": 1
+    }
+  },
+  "functions": {
+    "abs": {
+      "name": "abs"
+    },
+    "acos": {
+      "name": "acos"
+    },
+    "ascii": {
+      "name": "ascii"
+    },
+    "asin": {
+      "name": "asin"
+    },
+    "atan": {
+      "name": "atan"
+    },
+    "cast": {
+      "name": "cast"
+    },
+    "ceil": {
+      "name": "ceil"
+    },
+    "char": {
+      "name": "char"
+    },
+    "chr": {
+      "name": "chr"
+    },
+    "coalesce": {
+      "name": "coalesce"
+    },
+    "concat": {
+      "name": "concat"
+    },
+    "convert": {
+      "name": "convert"
+    },
+    "cos": {
+      "name": "cos"
+    },
+    "dateAdd": {
+      "name": "dateAdd"
+    },
+    "default": {
+      "name": "default"
+    },
+    "eventTimestamp": {
+      "name": "eventTimestamp"
+    },
+    "exp": {
+      "name": "exp"
+    },
+    "floor": {
+      "name": "floor"
+    },
+    "formatDate": {
+      "name": "formatDate"
+    },
+    "ifnull": {
+      "name": "ifnull"
+    },
+    "instr": {
+      "name": "instr"
+    },
+    "left": {
+      "name": "left"
+    },
+    "length": {
+      "name": "length"
+    },
+    "like": {
+      "name": "like"
+    },
+    "ln": {
+      "name": "ln"
+    },
+    "locate": {
+      "name": "locate"
+    },
+    "log": {
+      "name": "log"
+    },
+    "log10": {
+      "name": "log10"
+    },
+    "lower": {
+      "name": "lower"
+    },
+    "lpad": {
+      "name": "lpad"
+    },
+    "ltrim": {
+      "name": "ltrim"
+    },
+    "maximum": {
+      "name": "maximum"
+    },
+    "minimum": {
+      "name": "minimum"
+    },
+    "mod": {
+      "name": "mod"
+    },
+    "now": {
+      "name": "now"
+    },
+    "nullif": {
+      "name": "nullif"
+    },
+    "parseDate": {
+      "name": "parseDate"
+    },
+    "position": {
+      "name": "position"
+    },
+    "pow": {
+      "name": "pow"
+    },
+    "power": {
+      "name": "power"
+    },
+    "repeat": {
+      "name": "repeat"
+    },
+    "replace": {
+      "name": "replace"
+    },
+    "reverse": {
+      "name": "reverse"
+    },
+    "right": {
+      "name": "right"
+    },
+    "round": {
+      "name": "round"
+    },
+    "rpad": {
+      "name": "rpad"
+    },
+    "rtrim": {
+      "name": "rtrim"
+    },
+    "sign": {
+      "name": "sign"
+    },
+    "sin": {
+      "name": "sin"
+    },
+    "sqrt": {
+      "name": "sqrt"
+    },
+    "substr": {
+      "name": "substr"
+    },
+    "substring": {
+      "name": "substring"
+    },
+    "tan": {
+      "name": "tan"
+    },
+    "trim": {
+      "name": "trim"
+    },
+    "trunc": {
+      "name": "trunc"
+    },
+    "truncate": {
+      "name": "truncate"
+    },
+    "upper": {
+      "name": "upper"
+    },
+    "uuid": {
+      "name": "uuid"
+    }
+  },
+  "collectionAggregators": {
+    "avg": {
+      "name": "avg",
+      "supportsCountOnly": false,
+      "description": "Averages attribute values across a pattern collection"
+    },
+    "count": {
+      "name": "count",
+      "supportsCountOnly": true,
+      "description": "Counts events in a pattern collection"
+    },
+    "max": {
+      "name": "max",
+      "supportsCountOnly": false,
+      "description": "Finds maximum attribute value in a pattern collection"
+    },
+    "min": {
+      "name": "min",
+      "supportsCountOnly": false,
+      "description": "Finds minimum attribute value in a pattern collection"
+    },
+    "stdDev": {
+      "name": "stdDev",
+      "supportsCountOnly": false,
+      "description": "Computes population standard deviation across a pattern collection"
+    },
+    "sum": {
+      "name": "sum",
+      "supportsCountOnly": false,
+      "description": "Sums attribute values across a pattern collection"
+    }
+  },
+  "tables": {
+    "cache": {
+      "name": "cache"
+    },
+    "inMemory": {
+      "name": "inMemory"
+    },
+    "jdbc": {
+      "name": "jdbc"
+    }
+  }
+}

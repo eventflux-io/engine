@@ -1,0 +1,136 @@
+name: EventFlux Studio
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'studio/**'
+      - 'src/bin/generate_schema.rs'
+      - '.github/workflows/studio.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'studio/**'
+      - 'src/bin/generate_schema.rs'
+      - '.github/workflows/studio.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to VS Code Marketplace'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  generate-schema:
+    name: Generate Schema
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-schema-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-schema-
+
+      - name: Generate EventFlux Schema
+        run: cargo run --bin generate_schema
+
+      - name: Upload schema artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eventflux-schema
+          path: studio/webview/src/schemas/eventflux-schema.json
+          retention-days: 1
+
+  build:
+    name: Build Extension
+    runs-on: ubuntu-latest
+    needs: generate-schema
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download schema artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: eventflux-schema
+          path: studio/webview/src/schemas/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            studio/package-lock.json
+            studio/webview/package-lock.json
+
+      - name: Install extension dependencies
+        working-directory: studio
+        run: npm ci
+
+      - name: Install webview dependencies
+        working-directory: studio/webview
+        run: npm ci
+
+      - name: Build extension
+        working-directory: studio
+        run: npm run build
+
+      - name: Package extension
+        working-directory: studio
+        run: |
+          npm install -g @vscode/vsce
+          vsce package --no-dependencies
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eventflux-studio-vsix
+          path: studio/*.vsix
+          retention-days: 30
+
+  publish:
+    name: Publish Extension
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+    steps:
+      - name: Download VSIX artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: eventflux-studio-vsix
+          path: ./
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          npm install -g @vscode/vsce
+          vsce publish --packagePath *.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Upload VSIX to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: '*.vsix'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

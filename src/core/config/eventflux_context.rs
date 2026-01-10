@@ -717,6 +717,66 @@ impl EventFluxContext {
             .cloned()
             .collect()
     }
+
+    /// List the names of all registered source factories
+    pub fn list_source_factory_names(&self) -> Vec<String> {
+        self.source_factories
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// List the names of all registered sink factories
+    pub fn list_sink_factory_names(&self) -> Vec<String> {
+        self.sink_factories
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// List the names of all registered store factories
+    pub fn list_store_factory_names(&self) -> Vec<String> {
+        self.store_factories
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// List the names of all registered source mapper factories
+    pub fn list_source_mapper_factory_names(&self) -> Vec<String> {
+        self.source_mapper_factories
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// List the names of all registered sink mapper factories
+    pub fn list_sink_mapper_factory_names(&self) -> Vec<String> {
+        self.sink_mapper_factories
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// List the names of all registered table factories
+    pub fn list_table_factory_names(&self) -> Vec<String> {
+        self.table_factories
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
 }
 
 impl Default for EventFluxContext {

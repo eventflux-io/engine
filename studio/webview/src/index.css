@@ -1,0 +1,326 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* VS Code theme integration */
+:root {
+  --vscode-editor-background: #1e1e1e;
+  --vscode-editor-foreground: #cccccc;
+  --vscode-panel-border: #80808059;
+  --vscode-input-background: #3c3c3c;
+  --vscode-input-foreground: #cccccc;
+  --vscode-button-background: #0e639c;
+  --vscode-button-foreground: #ffffff;
+  --vscode-button-hoverBackground: #1177bb;
+  --vscode-list-hoverBackground: #2a2d2e;
+  --vscode-list-activeSelectionBackground: #094771;
+  --vscode-focusBorder: #007fd4;
+  --vscode-editor-font-family: 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+  --vscode-editor-font-size: 13px;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size);
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* React Flow custom styles */
+.react-flow {
+  background-color: var(--vscode-editor-background);
+}
+
+.react-flow__node {
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.react-flow__handle {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+}
+
+.react-flow__handle-left {
+  left: -6px;
+}
+
+.react-flow__handle-right {
+  right: -6px;
+}
+
+.react-flow__edge-path {
+  stroke-width: 2;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 4;
+  stroke: #f59e0b !important;
+}
+
+.react-flow__edge.selected {
+  z-index: 1000;
+}
+
+/* Edge selection indicator */
+.react-flow__edge-interaction {
+  stroke-width: 20;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 3;
+  filter: brightness(1.2);
+}
+
+/* Element node styles */
+.element-node {
+  @apply rounded-lg shadow-lg border-2 overflow-hidden;
+  min-width: 160px;
+}
+
+.element-node.selected {
+  @apply ring-2 ring-offset-2 ring-offset-transparent;
+}
+
+.element-node-header {
+  @apply px-3 py-2 flex items-center gap-2 text-white font-medium;
+}
+
+.element-node-body {
+  @apply px-3 py-2 bg-gray-900/50 text-gray-300 text-xs;
+}
+
+.element-node-attribute {
+  @apply flex justify-between py-0.5;
+}
+
+.element-node-attribute-name {
+  @apply text-gray-400;
+}
+
+.element-node-attribute-type {
+  @apply text-gray-500 font-mono;
+}
+
+/* Stream node */
+.element-node.stream {
+  @apply border-stream;
+}
+.element-node.stream .element-node-header {
+  @apply bg-stream;
+}
+
+/* Table node */
+.element-node.table {
+  @apply border-table;
+}
+.element-node.table .element-node-header {
+  @apply bg-table;
+}
+
+/* Trigger node */
+.element-node.trigger {
+  @apply border-trigger;
+}
+.element-node.trigger .element-node-header {
+  @apply bg-trigger;
+}
+
+/* Window node */
+.element-node.window {
+  @apply border-window;
+}
+.element-node.window .element-node-header {
+  @apply bg-window;
+}
+
+/* Filter node */
+.element-node.filter {
+  @apply border-filter;
+}
+.element-node.filter .element-node-header {
+  @apply bg-filter;
+}
+
+/* Projection node */
+.element-node.projection {
+  @apply border-projection;
+}
+.element-node.projection .element-node-header {
+  @apply bg-projection;
+}
+
+/* Aggregation node */
+.element-node.aggregation {
+  @apply border-aggregation;
+}
+.element-node.aggregation .element-node-header {
+  @apply bg-aggregation;
+}
+
+/* Join node */
+.element-node.join {
+  @apply border-join;
+}
+.element-node.join .element-node-header {
+  @apply bg-join;
+}
+
+/* Pattern node */
+.element-node.pattern {
+  @apply border-pattern;
+}
+.element-node.pattern .element-node-header {
+  @apply bg-pattern;
+}
+
+/* Partition node */
+.element-node.partition {
+  @apply border-partition;
+}
+.element-node.partition .element-node-header {
+  @apply bg-partition;
+}
+
+/* Output node */
+.element-node.output {
+  @apply border-output;
+}
+.element-node.output .element-node-header {
+  @apply bg-output;
+}
+
+/* Source node - External data ingestion */
+.element-node.source {
+  @apply border-source border-dashed;
+}
+.element-node.source .element-node-header {
+  @apply bg-source;
+}
+
+/* Sink node - External data output */
+.element-node.sink {
+  @apply border-sink border-dashed;
+}
+.element-node.sink .element-node-header {
+  @apply bg-sink;
+}
+
+/* Palette styles */
+.palette-item {
+  @apply flex items-center gap-2 px-3 py-2 rounded cursor-grab text-sm;
+  @apply hover:bg-vscode-list-hover transition-colors;
+}
+
+.palette-item:active {
+  @apply cursor-grabbing;
+}
+
+.palette-item-icon {
+  @apply w-5 h-5 rounded flex items-center justify-center text-white;
+}
+
+/* Panel styles */
+.panel {
+  @apply bg-gray-900/80 border border-vscode-border rounded-lg;
+}
+
+.panel-header {
+  @apply px-3 py-2 border-b border-vscode-border font-medium text-sm;
+}
+
+.panel-content {
+  @apply p-3;
+}
+
+/* Form styles */
+.form-group {
+  @apply mb-4;
+}
+
+.form-label {
+  @apply block text-xs text-gray-400 mb-1;
+}
+
+.form-input {
+  @apply px-2 py-1.5 rounded text-sm;
+  @apply bg-vscode-input-bg text-vscode-input-fg;
+  @apply border border-vscode-border;
+  @apply focus:outline-none focus:border-vscode-focus-border;
+  min-width: 60px;
+}
+
+.form-input:not(.flex-1) {
+  @apply w-full;
+}
+
+.form-select {
+  @apply px-2 py-1.5 rounded text-sm;
+  @apply bg-vscode-input-bg text-vscode-input-fg;
+  @apply border border-vscode-border;
+  @apply focus:outline-none focus:border-vscode-focus-border;
+  min-width: 60px;
+}
+
+.form-select:not(.flex-1):not([class*="w-"]) {
+  @apply w-full;
+}
+
+/* Form input in inline layouts - ensure readable size */
+.form-input.flex-1,
+.form-select.flex-1 {
+  min-width: 70px;
+}
+
+/* Form checkbox */
+.form-checkbox {
+  @apply rounded border-vscode-border bg-vscode-input-bg;
+  @apply focus:ring-vscode-focus-border focus:ring-offset-0;
+}
+
+/* Button styles */
+.btn {
+  @apply px-3 py-1.5 rounded text-sm font-medium;
+  @apply transition-colors focus:outline-none;
+}
+
+.btn-primary {
+  @apply bg-vscode-button-bg text-vscode-button-fg;
+  @apply hover:bg-vscode-button-hover;
+}
+
+.btn-secondary {
+  @apply bg-gray-700 text-gray-200;
+  @apply hover:bg-gray-600;
+}
+
+/* Scrollbar styles */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(121, 121, 121, 0.4);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(121, 121, 121, 0.7);
+}

@@ -1,0 +1,144 @@
+{
+  "name": "eventflux-studio",
+  "displayName": "EventFlux Studio",
+  "description": "Visual low-code editor for creating EventFlux streaming applications",
+  "version": "0.1.0",
+  "publisher": "eventflux",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/eventflux-io/engine"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "eventflux",
+    "streaming",
+    "cep",
+    "low-code",
+    "visual",
+    "sql"
+  ],
+  "icon": "icons/logo.png",
+  "activationEvents": [
+    "onLanguage:eventflux",
+    "onCommand:eventflux.openStudio"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "eventflux.openStudio",
+        "title": "Open in EventFlux Studio",
+        "category": "EventFlux"
+      },
+      {
+        "command": "eventflux.newStudioProject",
+        "title": "New Studio Project",
+        "category": "EventFlux"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "eventflux.studioEditor",
+        "displayName": "EventFlux Studio",
+        "selector": [
+          {
+            "filenamePattern": "*.eventflux.studio"
+          },
+          {
+            "filenamePattern": "*.efstudio"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "languages": [
+      {
+        "id": "eventflux-studio",
+        "aliases": ["EventFlux Studio"],
+        "extensions": [".eventflux.studio", ".efstudio"],
+        "icon": {
+          "light": "./icons/studio-light.svg",
+          "dark": "./icons/studio-dark.svg"
+        }
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "eventflux.openStudio",
+          "when": "resourceExtname == .eventflux",
+          "group": "navigation"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "eventflux.openStudio",
+          "when": "resourceExtname == .eventflux",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "EventFlux Studio",
+      "properties": {
+        "eventflux.studio.autoSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically save changes to the studio file"
+        },
+        "eventflux.studio.gridSize": {
+          "type": "number",
+          "default": 20,
+          "description": "Grid size for snapping elements"
+        },
+        "eventflux.studio.snapToGrid": {
+          "type": "boolean",
+          "default": true,
+          "description": "Snap elements to grid when dragging"
+        },
+        "eventflux.engine.host": {
+          "type": "string",
+          "default": "localhost",
+          "description": "EventFlux engine host for live execution"
+        },
+        "eventflux.engine.port": {
+          "type": "number",
+          "default": 9090,
+          "description": "EventFlux engine port for live execution"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "npm run build:extension && npm run build:webview",
+    "build:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "build:webview": "cd webview && npm run build",
+    "watch": "concurrently \"npm run watch:extension\" \"npm run watch:webview\"",
+    "watch:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch",
+    "watch:webview": "cd webview && npm run dev",
+    "lint": "eslint src --ext ts,tsx",
+    "test": "vitest run",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "concurrently": "^8.2.2",
+    "esbuild": "^0.19.8",
+    "eslint": "^8.55.0",
+    "typescript": "^5.3.2",
+    "vitest": "^1.0.4"
+  },
+  "dependencies": {}
+}
