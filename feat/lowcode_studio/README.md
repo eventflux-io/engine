@@ -215,11 +215,10 @@ studio/
 - [x] CI/CD pipeline
 
 ### Phase 2: Core Processing - IN PROGRESS
-- [ ] Bidirectional SQL sync (SQL → Visual)
+- [ ] Import/Export `.eventflux` files (see "File Format Strategy" section)
 - [ ] Real-time validation messages
 - [ ] Monaco SQL editor improvements
 - [ ] Error markers in visual elements
-- [ ] **Change file extension from `.eventflux.studio` to `.eventflux`** - Load existing `.eventflux` SQL files into visual editor, export visual designs back to `.eventflux`
 - [ ] **Attribute schema propagation** - Track available attributes through the flow (see "Schema Propagation" section below)
 
 ### Phase 3: Advanced Features
@@ -242,6 +241,106 @@ studio/
 - [ ] Copy/paste elements
 - [ ] Keyboard shortcuts
 - [ ] Theme support (light/dark)
+
+## File Format Strategy
+
+### Why Two File Extensions?
+
+| Extension | Format | Purpose |
+|-----------|--------|---------|
+| `.eventflux` | SQL | Production queries, runnable by EventFlux engine |
+| `.eventflux.studio` | JSON | Visual Studio projects (nodes, edges, positions, properties) |
+
+**The file extension is a promise to the user:**
+
+- `.eventflux` promises: "I am valid EventFlux SQL. Run me with the engine."
+- `.eventflux.studio` promises: "I am a Studio project. Open me in Studio."
+
+### The Problem with a Single Extension
+
+The visual editor cannot yet represent 100% of the EventFlux SQL grammar:
+
+| Feature | Visual Support | Risk if Editing `.eventflux` Directly |
+|---------|----------------|---------------------------------------|
+| Basic streams | ✅ Full | Safe |
+| Filters, projections | ✅ Full | Safe |
+| Windows (all 9 types) | ✅ Full | Safe |
+| Joins | ✅ Full | Safe |
+| WITH clauses | ❌ Not yet | **Would be lost on save** |
+| Complex patterns | ⚠️ Partial | **Features may be lost** |
+| Advanced expressions | ⚠️ Partial | **May be simplified** |
+
+**Data loss is unacceptable.** If a user opens a production `.eventflux` file with WITH clauses, edits something visually, and saves—those WITH clauses would silently disappear.
+
+### Current Approach (Phase 1-2)
+
+```
+┌─────────────────┐                         ┌─────────────────────┐
+│  .eventflux    │  ──── Import ─────────► │  .eventflux.studio  │
+│  (SQL, full)   │                          │  (JSON, visual)     │
+│                │  ◄──── Export ─────────  │                     │
+└─────────────────┘         │               └─────────────────────┘
+                            │
+                            ▼
+                  ⚠️ Warning shown if
+                  features will be lost
+```
+
+**Import workflow:**
+1. File → Import from `.eventflux`
+2. Parser identifies unsupported features
+3. Warning dialog: "This file uses features not yet supported: WITH clause (line 5). Import anyway?"
+4. User decides with full information
+
+**Export workflow:**
+1. File → Export to `.eventflux`
+2. Generates clean SQL from visual representation
+3. No data loss because the visual canvas is the source of truth
+
+### Future: Graceful Degradation (Phase 3+)
+
+Once Studio matures, it will support opening `.eventflux` files directly with "SQL Block" nodes:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  Canvas                                              │
+│                                                      │
+│  ┌─────────┐     ┌─────────┐     ┌─────────┐        │
+│  │ Stream  │────►│ Filter  │────►│ Output  │        │
+│  └─────────┘     └─────────┘     └─────────┘        │
+│                                                      │
+│  ┌────────────────────────────────────────────────┐ │
+│  │ ⚠️ SQL Block (preserved, read-only)            │ │
+│  │ ┌────────────────────────────────────────────┐ │ │
+│  │ │ WITH (                                     │ │ │
+│  │ │   rabbitmq.host = 'localhost',             │ │ │
+│  │ │   rabbitmq.port = 5672                     │ │ │
+│  │ │ )                                          │ │ │
+│  │ └────────────────────────────────────────────┘ │ │
+│  │ This feature is not yet editable visually     │ │
+│  └────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────┘
+```
+
+- Unsupported SQL constructs become "SQL Block" nodes
+- These blocks are **preserved exactly** on save (lossless round-trip)
+- Users can edit supported parts visually
+- As Studio grows, fewer SQL Blocks needed
+
+### Roadmap
+
+| Phase | File Strategy |
+|-------|---------------|
+| Phase 1-2 | Keep `.eventflux.studio` separate, add Import/Export with warnings |
+| Phase 3 | Implement SQL Block nodes for graceful degradation |
+| Phase 4+ | Consider `.eventflux` + `.eventflux.layout` sidecar when Studio covers 90%+ of grammar |
+
+### Benefits of Current Approach
+
+1. **No silent data loss** - Users explicitly import/export with warnings
+2. **Clear expectations** - `.eventflux.studio` is obviously a Studio file
+3. **Safe experimentation** - Can't accidentally break production queries
+4. **Separate concerns** - Visual layout (JSON) vs executable code (SQL)
 
 ## Schema Propagation (TODO - Phase 2)
 
