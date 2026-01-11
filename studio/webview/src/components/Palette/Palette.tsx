@@ -35,9 +35,9 @@ interface PaletteItem {
 
 const categories: PaletteCategory[] = [
   {
-    id: 'connectors',
-    name: 'Connectors',
-    description: 'External systems',
+    id: 'input',
+    name: 'Input',
+    description: 'Data entry points',
     items: [
       {
         type: 'source',
@@ -47,18 +47,18 @@ const categories: PaletteCategory[] = [
         color: 'bg-source',
       },
       {
-        type: 'sink',
-        name: 'Sink',
-        description: 'External data destination (Kafka, Log, etc.)',
-        icon: ArrowUpFromLine,
-        color: 'bg-sink',
+        type: 'trigger',
+        name: 'Trigger',
+        description: 'Time-based event generator',
+        icon: Timer,
+        color: 'bg-trigger',
       },
     ],
   },
   {
     id: 'data',
     name: 'Data',
-    description: 'Event channels',
+    description: 'Event channels & storage',
     items: [
       {
         type: 'stream',
@@ -74,27 +74,13 @@ const categories: PaletteCategory[] = [
         icon: Table2,
         color: 'bg-table',
       },
-      {
-        type: 'trigger',
-        name: 'Trigger',
-        description: 'Time-based event generator',
-        icon: Timer,
-        color: 'bg-trigger',
-      },
     ],
   },
   {
-    id: 'processing',
-    name: 'Processing',
-    description: 'Transform events',
+    id: 'filtering',
+    name: 'Filtering',
+    description: 'Filter and route events',
     items: [
-      {
-        type: 'window',
-        name: 'Window',
-        description: 'Time or count-based windowing',
-        icon: Clock,
-        color: 'bg-window',
-      },
       {
         type: 'filter',
         name: 'Filter',
@@ -102,12 +88,33 @@ const categories: PaletteCategory[] = [
         icon: Filter,
         color: 'bg-filter',
       },
+    ],
+  },
+  {
+    id: 'partitioning',
+    name: 'Partitioning',
+    description: 'Parallel processing',
+    items: [
       {
-        type: 'projection',
-        name: 'Projection',
-        description: 'Select and transform columns',
-        icon: Columns,
-        color: 'bg-projection',
+        type: 'partition',
+        name: 'Partition',
+        description: 'Parallel partitioning by key',
+        icon: Layers,
+        color: 'bg-partition',
+      },
+    ],
+  },
+  {
+    id: 'processing',
+    name: 'Processing',
+    description: 'Transform & aggregate',
+    items: [
+      {
+        type: 'window',
+        name: 'Window',
+        description: 'Time or count-based windowing',
+        icon: Clock,
+        color: 'bg-window',
       },
       {
         type: 'aggregation',
@@ -119,7 +126,7 @@ const categories: PaletteCategory[] = [
       {
         type: 'groupBy',
         name: 'Group By',
-        description: 'Group by attributes',
+        description: 'Group events by attributes',
         icon: Group,
         color: 'bg-aggregation',
       },
@@ -137,12 +144,33 @@ const categories: PaletteCategory[] = [
         icon: Route,
         color: 'bg-pattern',
       },
+    ],
+  },
+  {
+    id: 'selection',
+    name: 'Selection',
+    description: 'Select output columns',
+    items: [
       {
-        type: 'partition',
-        name: 'Partition',
-        description: 'Parallel partitioning',
-        icon: Layers,
-        color: 'bg-partition',
+        type: 'projection',
+        name: 'Projection',
+        description: 'Select and transform columns',
+        icon: Columns,
+        color: 'bg-projection',
+      },
+    ],
+  },
+  {
+    id: 'output',
+    name: 'Output',
+    description: 'Data destinations',
+    items: [
+      {
+        type: 'sink',
+        name: 'Sink',
+        description: 'External data destination (Kafka, Log, etc.)',
+        icon: ArrowUpFromLine,
+        color: 'bg-sink',
       },
     ],
   },
@@ -150,7 +178,7 @@ const categories: PaletteCategory[] = [
 
 export function Palette() {
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(['connectors', 'data', 'processing'])
+    new Set(['input', 'data', 'filtering', 'partitioning', 'processing', 'selection', 'output'])
   );
 
   const toggleCategory = (categoryId: string) => {

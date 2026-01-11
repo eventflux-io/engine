@@ -26,6 +26,10 @@ import {
   getSinkSchema,
   getConnectorParameters,
   formatParameterName,
+  getFunctionNames,
+  getAggregatorTypes,
+  getWindowTypes,
+  getTableExtensions,
 } from '../../schemas';
 
 const elementIcons: Record<ElementType, React.ComponentType<{ className?: string }>> = {
@@ -122,6 +126,38 @@ function AttributeSelect({
           <ChevronDown className="w-3 h-3" />
         </button>
       )}
+    </div>
+  );
+}
+
+// Collapsible function hints panel
+function FunctionHints({ show = false }: { show?: boolean }) {
+  const functionNames = useMemo(() => getFunctionNames(), []);
+  const aggregatorNames = useMemo(() => getAggregatorTypes(), []);
+
+  if (!show) return null;
+
+  return (
+    <div className="mt-2 p-2 bg-gray-800/30 rounded text-xs">
+      <div className="text-gray-400 mb-1">Available functions:</div>
+      <div className="flex flex-wrap gap-1">
+        {functionNames.slice(0, 15).map((fn) => (
+          <span key={fn} className="px-1.5 py-0.5 bg-gray-700 rounded text-gray-300 font-mono">
+            {fn}
+          </span>
+        ))}
+        {functionNames.length > 15 && (
+          <span className="px-1.5 py-0.5 text-gray-500">+{functionNames.length - 15} more</span>
+        )}
+      </div>
+      <div className="text-gray-400 mt-2 mb-1">Aggregators:</div>
+      <div className="flex flex-wrap gap-1">
+        {aggregatorNames.map((fn) => (
+          <span key={fn} className="px-1.5 py-0.5 bg-indigo-900/50 rounded text-indigo-300 font-mono">
+            {fn}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -310,17 +346,20 @@ function SourcePropertyEditor({ data, onChange }: { data: Record<string, unknown
   const schemaParamKeys = new Set(schemaParams.map(p => p.key));
   const customConfigKeys = Object.keys(config).filter(k => !schemaParamKeys.has(k));
 
+  const isNameEmpty = !sourceName.trim();
+
   return (
     <div className="space-y-4">
       <div className="form-group">
-        <label className="form-label">Source Name</label>
+        <label className="form-label form-label-required">Source Name</label>
         <input
           type="text"
           value={sourceName}
           onChange={(e) => onChange({ ...data, sourceName: e.target.value })}
-          className="form-input"
+          className={`form-input ${isNameEmpty ? 'form-input-error' : ''}`}
           placeholder="MySource"
         />
+        {isNameEmpty && <div className="form-error">Source name is required</div>}
       </div>
 
       <div className="form-group">
@@ -463,17 +502,20 @@ function SinkPropertyEditor({ data, onChange }: { data: Record<string, unknown>;
   const schemaParamKeys = new Set(schemaParams.map(p => p.key));
   const customConfigKeys = Object.keys(config).filter(k => !schemaParamKeys.has(k));
 
+  const isNameEmpty = !sinkName.trim();
+
   return (
     <div className="space-y-4">
       <div className="form-group">
-        <label className="form-label">Sink Name</label>
+        <label className="form-label form-label-required">Sink Name</label>
         <input
           type="text"
           value={sinkName}
           onChange={(e) => onChange({ ...data, sinkName: e.target.value })}
-          className="form-input"
+          className={`form-input ${isNameEmpty ? 'form-input-error' : ''}`}
           placeholder="MySink"
         />
+        {isNameEmpty && <div className="form-error">Sink name is required</div>}
       </div>
 
       <div className="form-group">
@@ -600,17 +642,20 @@ function StreamPropertyEditor({ data, onChange }: { data: Record<string, unknown
     });
   };
 
+  const isNameEmpty = !streamName.trim();
+
   return (
     <div className="space-y-4">
       <div className="form-group">
-        <label className="form-label">Stream Name</label>
+        <label className="form-label form-label-required">Stream Name</label>
         <input
           type="text"
           value={streamName}
           onChange={(e) => handleNameChange(e.target.value)}
-          className="form-input"
+          className={`form-input ${isNameEmpty ? 'form-input-error' : ''}`}
           placeholder="StreamName"
         />
+        {isNameEmpty && <div className="form-error">Stream name is required</div>}
       </div>
 
       <div className="form-group">
@@ -664,11 +709,19 @@ function StreamPropertyEditor({ data, onChange }: { data: Record<string, unknown
 
 // Table Property Editor
 function TablePropertyEditor({ data, onChange }: { data: Record<string, unknown>; onChange: (changes: Record<string, unknown>) => void }) {
+  const availableTableExtensions = getTableExtensions();
   const tableName = (data.tableName as string) || '';
   const attributes = (data.attributes as AttributeDefinition[]) || [];
   const extension = (data.extension as string) || '';
   const primaryKey = (data.primaryKey as string[]) || [];
   const withConfig = (data.withConfig as Record<string, string>) || {};
+
+  // Display names for table extensions
+  const extensionDisplayNames: Record<string, string> = {
+    inMemory: 'In-Memory',
+    cache: 'Cache (Redis)',
+    jdbc: 'JDBC Database',
+  };
 
   const handleNameChange = (name: string) => {
     onChange({ ...data, tableName: name });
@@ -705,10 +758,10 @@ function TablePropertyEditor({ data, onChange }: { data: Record<string, unknown>
   const handleExtensionChange = (ext: string) => {
     // Set default config based on extension
     let defaultConfig: Record<string, string> = {};
-    if (ext === 'redis') {
+    if (ext === 'cache') {
       defaultConfig = {
-        'redis.host': 'localhost',
-        'redis.port': '6379',
+        'cache.host': 'localhost',
+        'cache.port': '6379',
       };
     } else if (ext === 'jdbc') {
       defaultConfig = {
@@ -716,7 +769,7 @@ function TablePropertyEditor({ data, onChange }: { data: Record<string, unknown>
         'jdbc.driver': 'com.mysql.cj.jdbc.Driver',
       };
     }
-    onChange({ ...data, extension: ext || undefined, withConfig: ext ? defaultConfig : undefined });
+    onChange({ ...data, extension: ext || undefined, withConfig: ext && ext !== 'inMemory' ? defaultConfig : undefined });
   };
 
   const handleConfigChange = (key: string, value: string) => {
@@ -734,17 +787,20 @@ function TablePropertyEditor({ data, onChange }: { data: Record<string, unknown>
     onChange({ ...data, withConfig: Object.keys(newConfig).length > 0 ? newConfig : undefined });
   };
 
+  const isNameEmpty = !tableName.trim();
+
   return (
     <div className="space-y-4">
       <div className="form-group">
-        <label className="form-label">Table Name</label>
+        <label className="form-label form-label-required">Table Name</label>
         <input
           type="text"
           value={tableName}
           onChange={(e) => handleNameChange(e.target.value)}
-          className="form-input"
+          className={`form-input ${isNameEmpty ? 'form-input-error' : ''}`}
           placeholder="TableName"
         />
+        {isNameEmpty && <div className="form-error">Table name is required</div>}
       </div>
 
       <div className="form-group">
@@ -755,8 +811,13 @@ function TablePropertyEditor({ data, onChange }: { data: Record<string, unknown>
           className="form-select"
         >
           <option value="">In-Memory (default)</option>
-          <option value="redis">Redis</option>
-          <option value="jdbc">JDBC Database</option>
+          {availableTableExtensions
+            .filter((ext) => ext !== 'inMemory') // inMemory is the default (empty value)
+            .map((ext) => (
+              <option key={ext} value={ext}>
+                {extensionDisplayNames[ext] || ext}
+              </option>
+            ))}
         </select>
       </div>
 
@@ -927,7 +988,8 @@ function TriggerPropertyEditor({ data, onChange }: { data: Record<string, unknow
 
 // Window Property Editor
 function WindowPropertyEditor({ data, onChange }: { data: Record<string, unknown>; onChange: (changes: Record<string, unknown>) => void }) {
-  const windowType = (data.windowType as string) || 'length';
+  const availableWindowTypes = getWindowTypes();
+  const windowType = (data.windowType as string) || availableWindowTypes[0] || 'length';
   const parameters = (data.parameters as Record<string, unknown>) || {};
 
   const handleTypeChange = (type: string) => {
@@ -936,6 +998,14 @@ function WindowPropertyEditor({ data, onChange }: { data: Record<string, unknown
 
   const handleParamChange = (param: string, value: unknown) => {
     onChange({ ...data, parameters: { ...parameters, [param]: value } });
+  };
+
+  // Format window type name for display (e.g., "lengthBatch" -> "Length Batch")
+  const formatWindowTypeName = (type: string): string => {
+    return type
+      .replace(/([A-Z])/g, ' $1')
+      .replace(/^./, (str) => str.toUpperCase())
+      .trim();
   };
 
   return (
@@ -947,16 +1017,9 @@ function WindowPropertyEditor({ data, onChange }: { data: Record<string, unknown
           onChange={(e) => handleTypeChange(e.target.value)}
           className="form-select"
         >
-          <option value="length">Length</option>
-          <option value="lengthBatch">Length Batch</option>
-          <option value="time">Time</option>
-          <option value="timeBatch">Time Batch</option>
-          <option value="tumbling">Tumbling</option>
-          <option value="sliding">Sliding</option>
-          <option value="session">Session</option>
-          <option value="externalTime">External Time</option>
-          <option value="externalTimeBatch">External Time Batch</option>
-          <option value="sort">Sort</option>
+          {availableWindowTypes.map((type) => (
+            <option key={type} value={type}>{formatWindowTypeName(type)}</option>
+          ))}
         </select>
       </div>
 
@@ -1101,9 +1164,11 @@ function FilterPropertyEditor({ data, onChange, upstreamSchema }: { data: Record
 
       {upstreamSchema.length > 0 && (
         <div className="text-xs text-gray-500">
-          Available: {upstreamSchema.map((a) => a.name).join(', ')}
+          Attributes: {upstreamSchema.map((a) => a.name).join(', ')}
         </div>
       )}
+
+      <FunctionHints show={true} />
     </div>
   );
 }
@@ -1381,6 +1446,8 @@ function AggregationPropertyEditor({ data, onChange, upstreamSchema }: { data: R
           ))}
         </div>
       </div>
+
+      <FunctionHints show={true} />
     </div>
   );
 }

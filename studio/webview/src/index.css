@@ -266,6 +266,10 @@ body {
   @apply w-full;
 }
 
+.form-input.form-input-error {
+  @apply border-red-500;
+}
+
 .form-select {
   @apply px-2 py-1.5 rounded text-sm;
   @apply bg-vscode-input-bg text-vscode-input-fg;
@@ -276,6 +280,21 @@ body {
 
 .form-select:not(.flex-1):not([class*="w-"]) {
   @apply w-full;
+}
+
+.form-select.form-input-error {
+  @apply border-red-500;
+}
+
+/* Validation error message */
+.form-error {
+  @apply text-xs text-red-400 mt-1;
+}
+
+/* Required field indicator */
+.form-label-required::after {
+  content: ' *';
+  @apply text-red-400;
 }
 
 /* Form input in inline layouts - ensure readable size */

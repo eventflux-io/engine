@@ -4,6 +4,7 @@ import { Node, Edge, NodeChange, EdgeChange, applyNodeChanges, applyEdgeChanges 
 import type { VisualApplication, VisualElement, Connection, StudioConfig, ElementType, ElementProperties } from '../types';
 import { vscode } from '../utils/vscode';
 import { parseSQL, validateSQL } from '../utils/sqlParser';
+import { getSourceTypes, getSinkTypes, getSourceSchema, getSinkSchema, getWindowTypes } from '../schemas';
 
 // Debounce utility to prevent rapid saves
 function debounce<T extends (...args: unknown[]) => void>(fn: T, delay: number): T {
@@ -20,6 +21,12 @@ export interface UpstreamAttribute {
   type: string;
   streamId?: string;
   source: string; // element ID that defined this attribute
+}
+
+// History snapshot for undo/redo
+interface HistorySnapshot {
+  nodes: Node[];
+  edges: Edge[];
 }
 
 interface ApplicationState {
@@ -45,6 +52,10 @@ interface ApplicationState {
 
   // Configuration
   config: StudioConfig;
+
+  // Undo/Redo history (past = states to undo to, future = states to redo to)
+  past: HistorySnapshot[];
+  future: HistorySnapshot[];
 
   // Actions
   loadApplication: (data: VisualApplication) => void;
@@ -74,6 +85,13 @@ interface ApplicationState {
   save: () => void;
   debouncedSave: () => void;
   setConfig: (config: Partial<StudioConfig>) => void;
+
+  // Undo/Redo
+  pushHistory: () => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
 
   // Schema detection
   getUpstreamSchema: (elementId: string) => UpstreamAttribute[];
@@ -112,6 +130,8 @@ export const useApplicationStore = create<ApplicationState>()(
     viewMode: 'visual',
     generatedSQL: '',
     config: defaultConfig,
+    past: [],
+    future: [],
 
     // Load application from VS Code
     loadApplication: (data) => {
@@ -137,6 +157,8 @@ export const useApplicationStore = create<ApplicationState>()(
         nodes,
         edges,
         isDirty: false,
+        past: [],
+        future: [],
       });
 
       get().regenerateSQL();
@@ -204,6 +226,9 @@ export const useApplicationStore = create<ApplicationState>()(
 
     // Element management
     addElement: (type, position, properties = {}) => {
+      // Push current state to history before making changes
+      get().pushHistory();
+
       const id = `${type}-${Date.now()}`;
       const data = { ...getDefaultProperties(type), ...properties };
       const newNode: Node = {
@@ -235,6 +260,9 @@ export const useApplicationStore = create<ApplicationState>()(
     },
 
     removeElement: (id) => {
+      // Push current state to history before making changes
+      get().pushHistory();
+
       set((state) => ({
         nodes: state.nodes.filter((n) => n.id !== id),
         edges: state.edges.filter((e) => e.source !== id && e.target !== id),
@@ -302,6 +330,9 @@ export const useApplicationStore = create<ApplicationState>()(
 
     // Connection management
     addConnection: (connection) => {
+      // Push current state to history before making changes
+      get().pushHistory();
+
       const edge: Edge = {
         id: connection.id,
         source: connection.sourceElementId,
@@ -320,6 +351,9 @@ export const useApplicationStore = create<ApplicationState>()(
     },
 
     removeConnection: (id) => {
+      // Push current state to history before making changes
+      get().pushHistory();
+
       set((state) => ({
         edges: state.edges.filter((e) => e.id !== id),
         selectedConnectionId: state.selectedConnectionId === id ? null : state.selectedConnectionId,
@@ -642,12 +676,120 @@ export const useApplicationStore = create<ApplicationState>()(
 
       return result;
     },
+
+    // Undo/Redo implementation using past/future stacks
+    pushHistory: () => {
+      const { nodes, edges, past } = get();
+      // Save current state to past
+      const snapshot: HistorySnapshot = {
+        nodes: JSON.parse(JSON.stringify(nodes)),
+        edges: JSON.parse(JSON.stringify(edges)),
+      };
+      // Add to past, clear future (new action invalidates redo)
+      const newPast = [...past, snapshot];
+      // Limit history to 50 states
+      if (newPast.length > 50) {
+        newPast.shift();
+      }
+      set({ past: newPast, future: [] });
+    },
+
+    undo: () => {
+      const { nodes, edges, past, future } = get();
+      if (past.length === 0) return;
+
+      // Save current state to future (for redo)
+      const currentSnapshot: HistorySnapshot = {
+        nodes: JSON.parse(JSON.stringify(nodes)),
+        edges: JSON.parse(JSON.stringify(edges)),
+      };
+
+      // Pop from past and restore
+      const newPast = [...past];
+      const previousState = newPast.pop()!;
+
+      set({
+        nodes: JSON.parse(JSON.stringify(previousState.nodes)),
+        edges: JSON.parse(JSON.stringify(previousState.edges)),
+        past: newPast,
+        future: [...future, currentSnapshot],
+        isDirty: true,
+      });
+
+      // Regenerate SQL after undo
+      setTimeout(() => get().regenerateSQL(), 0);
+    },
+
+    redo: () => {
+      const { nodes, edges, past, future } = get();
+      if (future.length === 0) return;
+
+      // Save current state to past
+      const currentSnapshot: HistorySnapshot = {
+        nodes: JSON.parse(JSON.stringify(nodes)),
+        edges: JSON.parse(JSON.stringify(edges)),
+      };
+
+      // Pop from future and restore
+      const newFuture = [...future];
+      const nextState = newFuture.pop()!;
+
+      set({
+        nodes: JSON.parse(JSON.stringify(nextState.nodes)),
+        edges: JSON.parse(JSON.stringify(nextState.edges)),
+        past: [...past, currentSnapshot],
+        future: newFuture,
+        isDirty: true,
+      });
+
+      // Regenerate SQL after redo
+      setTimeout(() => get().regenerateSQL(), 0);
+    },
+
+    canUndo: () => get().past.length > 0,
+    canRedo: () => get().future.length > 0,
   }))
 );
 
 // Helper functions
 function getDefaultProperties(type: ElementType): Record<string, unknown> {
   switch (type) {
+    case 'source': {
+      // Default to websocket, fallback to first available from schema
+      const sourceTypes = getSourceTypes();
+      const defaultSourceType = sourceTypes.includes('websocket') ? 'websocket' : sourceTypes[0] || 'timer';
+      const schema = getSourceSchema(defaultSourceType);
+      // Initialize config with required parameters
+      const config: Record<string, string> = {};
+      if (schema?.requiredParameters) {
+        for (const param of schema.requiredParameters) {
+          config[param] = '';
+        }
+      }
+      return {
+        sourceName: 'NewSource',
+        sourceType: defaultSourceType,
+        config,
+      };
+    }
+    case 'sink': {
+      // Get first available sink type from schema
+      const sinkTypes = getSinkTypes();
+      const defaultSinkType = sinkTypes[0] || 'log';
+      const schema = getSinkSchema(defaultSinkType);
+      // Initialize config with required parameters
+      const config: Record<string, string> = {};
+      if (schema?.requiredParameters) {
+        for (const param of schema.requiredParameters) {
+          config[param] = '';
+        }
+      }
+      return {
+        sinkName: 'NewSink',
+        sinkType: defaultSinkType,
+        config,
+      };
+    }
     case 'stream':
       return {
         streamName: 'NewStream',
@@ -670,11 +812,15 @@ function getDefaultProperties(type: ElementType): Record<string, unknown> {
         triggerType: 'periodic',
         atEvery: 1000,
       };
-    case 'window':
+    case 'window': {
+      // Get first available window type from schema
+      const windowTypes = getWindowTypes();
+      const defaultWindowType = windowTypes.includes('length') ? 'length' : windowTypes[0] || 'length';
       return {
-        windowType: 'length',
+        windowType: defaultWindowType,
         parameters: { count: 10 },
       };
+    }
     case 'filter':
       return {
         condition: null,

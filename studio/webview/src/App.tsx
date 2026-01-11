@@ -21,6 +21,7 @@ import { Palette } from './components/Palette/Palette';
 import { PropertiesPanel } from './components/Properties/PropertiesPanel';
 import { ConfigPanel } from './components/ConfigPanel/ConfigPanel';
 import { SQLEditor } from './components/SQLEditor/SQLEditor';
+import { TemplateGallery } from './components/TemplateGallery';
 import { nodeTypes } from './elements/nodeTypes';
 import { vscode } from './utils/vscode';
 import { validateConnection } from './utils/connectionRules';
@@ -197,6 +198,7 @@ function App() {
   const { loadApplication, setConfig, viewMode } = useApplicationStore();
   const [rightPanel, setRightPanel] = useState<'properties' | 'config'>('properties');
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const showToast = useCallback((message: string, type: 'error' | 'success' = 'error') => {
     setToast({ message, type });
@@ -240,7 +242,7 @@ function App() {
   return (
     <ReactFlowProvider>
       <div className="h-screen flex flex-col bg-vscode-bg text-vscode-fg">
-        <Toolbar />
+        <Toolbar onOpenTemplates={() => setShowTemplates(true)} />
         <div className="flex-1 flex overflow-hidden">
           {/* Palette - only show in visual or split mode */}
           {viewMode !== 'sql' && <Palette />}
@@ -313,6 +315,12 @@ function App() {
             </div>
           )}
         </div>
+
+        {/* Template Gallery Modal */}
+        <TemplateGallery
+          isOpen={showTemplates}
+          onClose={() => setShowTemplates(false)}
+        />
       </div>
     </ReactFlowProvider>
   );

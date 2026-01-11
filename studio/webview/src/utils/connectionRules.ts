@@ -203,6 +203,45 @@ export function validateConnection(
     return { valid: false, reason: 'Connection already exists' };
   }
 
+  // Special rule: A stream can only have ONE external connector (either Source OR Sink, not both)
+  if (sourceType === 'source' && targetType === 'stream') {
+    // Check if stream already has a Source
+    const existingSourceConnection = edges.find((e) => {
+      const edgeSourceNode = nodes.find((n) => n.id === e.source);
+      return edgeSourceNode?.type === 'source' && e.target === connection.target;
+    });
+    if (existingSourceConnection) {
+      return { valid: false, reason: 'Stream already has a Source connected.' };
+    }
+    // Check if stream already has a Sink
+    const existingSinkConnection = edges.find((e) => {
+      const edgeTargetNode = nodes.find((n) => n.id === e.target);
+      return e.source === connection.target && edgeTargetNode?.type === 'sink';
+    });
+    if (existingSinkConnection) {
+      return { valid: false, reason: 'Stream already connects to a Sink. A stream can have either a Source or a Sink, not both.' };
+    }
+  }
+
+  if (sourceType === 'stream' && targetType === 'sink') {
+    // Check if stream already has a Sink
+    const existingSinkConnection = edges.find((e) => {
+      const edgeTargetNode = nodes.find((n) => n.id === e.target);
+      return e.source === connection.source && edgeTargetNode?.type === 'sink';
+    });
+    if (existingSinkConnection) {
+      return { valid: false, reason: 'Stream already connects to a Sink.' };
+    }
+    // Check if stream already has a Source
+    const existingSourceConnection = edges.find((e) => {
+      const edgeSourceNode = nodes.find((n) => n.id === e.source);
+      return edgeSourceNode?.type === 'source' && e.target === connection.source;
+    });
+    if (existingSourceConnection) {
+      return { valid: false, reason: 'Stream already has a Source connected. A stream can have either a Source or a Sink, not both.' };
+    }
+  }
+
   // Check for self-connection
   if (connection.source === connection.target) {
     return { valid: false, reason: 'Cannot connect element to itself' };

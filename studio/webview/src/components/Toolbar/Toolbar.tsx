@@ -1,28 +1,146 @@
-import { Play, Save, FileCode, Settings, Undo, Redo, Layout, Maximize2 } from 'lucide-react';
+import { Play, Save, Settings, Undo, Redo, Layout, Maximize2, FolderOpen, Download } from 'lucide-react';
+import { useReactFlow } from '@xyflow/react';
 import { useApplicationStore } from '../../stores/applicationStore';
 import { vscode } from '../../utils/vscode';
 
-export function Toolbar() {
-  const { name, isDirty, save, generatedSQL, viewMode, setViewMode } = useApplicationStore();
+interface ToolbarProps {
+  onOpenTemplates?: () => void;
+}
+
+export function Toolbar({ onOpenTemplates }: ToolbarProps) {
+  const { name, isDirty, save, generatedSQL, viewMode, setViewMode, nodes, setNodes, undo, redo, past, future, pushHistory } = useApplicationStore();
+  const { fitView } = useReactFlow();
+
+  // Compute canUndo/canRedo reactively (subscribing to past and future arrays)
+  const canUndo = past.length > 0;
+  const canRedo = future.length > 0;
+
+  const handleFitView = () => {
+    fitView({ padding: 0.2, duration: 300 });
+  };
+
+  const handleAutoLayout = () => {
+    if (nodes.length === 0) return;
+
+    // Save current state for undo
+    pushHistory();
+
+    // Simple auto-layout: arrange nodes in a grid/flow pattern
+    const nodeWidth = 200;
+    const nodeHeight = 100;
+    const horizontalGap = 80;
+    const verticalGap = 60;
+    const startX = 50;
+    const startY = 50;
+
+    // Group nodes by type for better organization
+    const sourceNodes = nodes.filter(n => n.type === 'source');
+    const triggerNodes = nodes.filter(n => n.type === 'trigger');
+    const streamNodes = nodes.filter(n => n.type === 'stream');
+    const processingNodes = nodes.filter(n => !['source', 'sink', 'stream', 'table', 'trigger'].includes(n.type || ''));
+    const sinkNodes = nodes.filter(n => n.type === 'sink');
+    const tableNodes = nodes.filter(n => n.type === 'table');
+
+    let currentX = startX;
+    let currentY = startY;
+    const updatedNodes = [...nodes];
+
+    // Position sources on the left
+    sourceNodes.forEach((node, i) => {
+      const idx = updatedNodes.findIndex(n => n.id === node.id);
+      if (idx !== -1) {
+        updatedNodes[idx] = {
+          ...updatedNodes[idx],
+          position: { x: currentX, y: currentY + i * (nodeHeight + verticalGap) },
+        };
+      }
+    });
+
+    // Position triggers below sources (same column)
+    const sourceOffset = sourceNodes.length * (nodeHeight + verticalGap);
+    triggerNodes.forEach((node, i) => {
+      const idx = updatedNodes.findIndex(n => n.id === node.id);
+      if (idx !== -1) {
+        updatedNodes[idx] = {
+          ...updatedNodes[idx],
+          position: { x: currentX, y: currentY + sourceOffset + i * (nodeHeight + verticalGap) },
+        };
+      }
+    });
+
+    // Position streams in the middle-left
+    currentX += nodeWidth + horizontalGap;
+    streamNodes.forEach((node, i) => {
+      const idx = updatedNodes.findIndex(n => n.id === node.id);
+      if (idx !== -1) {
+        updatedNodes[idx] = {
+          ...updatedNodes[idx],
+          position: { x: currentX, y: currentY + i * (nodeHeight + verticalGap) },
+        };
+      }
+    });
+
+    // Position processing nodes in the middle
+    currentX += nodeWidth + horizontalGap;
+    processingNodes.forEach((node, i) => {
+      const idx = updatedNodes.findIndex(n => n.id === node.id);
+      if (idx !== -1) {
+        updatedNodes[idx] = {
+          ...updatedNodes[idx],
+          position: { x: currentX, y: currentY + i * (nodeHeight + verticalGap) },
+        };
+      }
+    });
+
+    // Position sinks on the right
+    currentX += nodeWidth + horizontalGap;
+    sinkNodes.forEach((node, i) => {
+      const idx = updatedNodes.findIndex(n => n.id === node.id);
+      if (idx !== -1) {
+        updatedNodes[idx] = {
+          ...updatedNodes[idx],
+          position: { x: currentX, y: currentY + i * (nodeHeight + verticalGap) },
+        };
+      }
+    });
+
+    // Position tables below
+    currentX = startX + nodeWidth + horizontalGap;
+    const maxY = Math.max(sourceNodes.length + triggerNodes.length, streamNodes.length, processingNodes.length, sinkNodes.length) * (nodeHeight + verticalGap) + startY;
+    tableNodes.forEach((node, i) => {
+      const idx = updatedNodes.findIndex(n => n.id === node.id);
+      if (idx !== -1) {
+        updatedNodes[idx] = {
+          ...updatedNodes[idx],
+          position: { x: currentX + i * (nodeWidth + horizontalGap), y: maxY + verticalGap },
+        };
+      }
+    });
+
+    setNodes(updatedNodes);
+
+    // Fit view after layout
+    setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 50);
+  };
 
   const handleSave = () => {
     save();
   };
 
-  const handleShowSQL = () => {
-    vscode.postMessage({ type: 'showSQL', sql: generatedSQL });
-  };
-
-  const handleSaveSQL = () => {
-    vscode.postMessage({ type: 'saveSQL', sql: generatedSQL });
+  const handleExport = () => {
+    // Send SQL and nodes data (for config extraction) to extension
+    vscode.postMessage({
+      type: 'export',
+      sql: generatedSQL,
+      nodes: nodes.map(n => ({
+        type: n.type,
+        data: n.data,
+      })),
+    });
   };
 
   const handleRun = () => {
     vscode.postMessage({ type: 'runSimulation', application: {} });
-  };
-
-  const handleAutoLayout = () => {
-    // TODO: Implement auto-layout with dagre
   };
 
   return (
@@ -37,20 +155,20 @@ export function Toolbar() {
 
       {/* File actions */}
       <ToolbarButton icon={Save} label="Save" onClick={handleSave} shortcut="Ctrl+S" />
-      <ToolbarButton icon={FileCode} label="View SQL" onClick={handleShowSQL} />
-      <ToolbarButton icon={FileCode} label="Export SQL" onClick={handleSaveSQL} />
+      <ToolbarButton icon={FolderOpen} label="Templates" onClick={onOpenTemplates || (() => {})} />
+      <ToolbarButton icon={Download} label="Export" onClick={handleExport} />
 
       <div className="h-6 w-px bg-vscode-border mx-2" />
 
       {/* Edit actions */}
-      <ToolbarButton icon={Undo} label="Undo" onClick={() => {}} shortcut="Ctrl+Z" disabled />
-      <ToolbarButton icon={Redo} label="Redo" onClick={() => {}} shortcut="Ctrl+Y" disabled />
+      <ToolbarButton icon={Undo} label="Undo" onClick={undo} shortcut="Ctrl+Z" disabled={!canUndo} />
+      <ToolbarButton icon={Redo} label="Redo" onClick={redo} shortcut="Ctrl+Y" disabled={!canRedo} />
 
       <div className="h-6 w-px bg-vscode-border mx-2" />
 
       {/* View actions */}
       <ToolbarButton icon={Layout} label="Auto Layout" onClick={handleAutoLayout} />
-      <ToolbarButton icon={Maximize2} label="Fit View" onClick={() => {}} />
+      <ToolbarButton icon={Maximize2} label="Fit View" onClick={handleFitView} />
 
       <div className="flex-1" />
 
