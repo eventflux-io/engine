@@ -26,6 +26,12 @@ use uuid::Uuid;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+use crate::core::query::processor::Processor;
+
+/// Type alias for callback tracking map: callback_id → (stream_id, processor).
+#[rustfmt::skip]
+type CallbackMap = Arc<RwLock<HashMap<String, (String, Arc<Mutex<dyn Processor>>)>>>;
+
 /// Runtime lifecycle states for EventFluxAppRuntime
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeState {
@@ -88,6 +94,10 @@ pub struct EventFluxAppRuntime {
     /// - Extensible: new element types can easily plug into the resolver
     /// - Debuggable: each config tracks where properties came from
     pub resolved_configs: HashMap<String, crate::core::config::ResolvedElementConfig>,
+
+    /// Callback tracking for removal support.
+    /// See `add_callback()` and `remove_callback()` for usage.
+    pub callback_map: CallbackMap,
 }
 
 impl EventFluxAppRuntime {
@@ -304,38 +314,93 @@ impl EventFluxAppRuntime {
         self.input_manager.get_table_input_handler(table_id)
     }
 
+    /// Add a callback to receive events from a stream.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - The stream to subscribe to
+    /// * `callback` - The callback implementation to receive events
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(String)` - The callback ID that can be used with `remove_callback()`
+    /// * `Err(String)` - If the stream doesn't exist
     pub fn add_callback(
         &self,
         stream_id: &str,
         callback: Box<dyn StreamCallback>,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         let output_junction = self
             .stream_junction_map
             .get(stream_id)
             .ok_or_else(|| format!("StreamJunction '{stream_id}' not found to add callback"))?
             .clone();
 
-        let query_name_for_callback = format!(
-            "callback_processor_{}_{}",
-            stream_id,
-            Uuid::new_v4().hyphenated()
-        );
+        let callback_id = Uuid::new_v4().hyphenated().to_string();
+        let query_name_for_callback = format!("callback_processor_{}_{}", stream_id, &callback_id);
         let query_context_for_callback = Arc::new(EventFluxQueryContext::new(
             Arc::clone(&self.eventflux_app_context),
             query_name_for_callback.clone(),
             None, // No specific partition ID for a generic stream callback processor
         ));
 
-        let callback_processor = Arc::new(Mutex::new(CallbackProcessor::new(
-            Arc::new(Mutex::new(callback)),
-            Arc::clone(&self.eventflux_app_context),
-            query_context_for_callback,
-            // query_name_for_callback, // query_name is now in query_context
-        )));
+        let callback_processor: Arc<Mutex<dyn Processor>> =
+            Arc::new(Mutex::new(CallbackProcessor::new(
+                Arc::new(Mutex::new(callback)),
+                Arc::clone(&self.eventflux_app_context),
+                query_context_for_callback,
+            )));
+
+        // Subscribe to the junction
         output_junction
             .lock()
             .expect("Output StreamJunction Mutex poisoned")
-            .subscribe(callback_processor);
+            .subscribe(Arc::clone(&callback_processor));
+
+        // Track for later removal
+        self.callback_map
+            .write()
+            .expect("callback_map RwLock poisoned")
+            .insert(
+                callback_id.clone(),
+                (stream_id.to_string(), callback_processor),
+            );
+
+        Ok(callback_id)
+    }
+
+    /// Remove a previously registered callback.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback_id` - The ID returned from `add_callback()`
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Callback successfully removed
+    /// * `Err(String)` - If callback ID not found or stream junction doesn't exist
+    pub fn remove_callback(&self, callback_id: &str) -> Result<(), String> {
+        // Remove from tracking map and get the stream_id + processor
+        let (stream_id, processor) = self
+            .callback_map
+            .write()
+            .expect("callback_map RwLock poisoned")
+            .remove(callback_id)
+            .ok_or_else(|| format!("Callback '{}' not found", callback_id))?;
+
+        // Get the stream junction
+        let junction = self
+            .stream_junction_map
+            .get(&stream_id)
+            .ok_or_else(|| format!("StreamJunction '{}' not found", stream_id))?
+            .clone();
+
+        // Unsubscribe from the junction
+        junction
+            .lock()
+            .expect("StreamJunction Mutex poisoned")
+            .unsubscribe(&processor);
+
         Ok(())
     }
 
