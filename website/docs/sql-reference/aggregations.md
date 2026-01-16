@@ -18,21 +18,46 @@ Aggregations allow you to compute summary statistics over groups of events. Even
 | `COUNT(attr)` | Count non-null values | `COUNT(price)` |
 | `SUM(attr)` | Sum of values | `SUM(volume)` |
 | `AVG(attr)` | Average of values | `AVG(price)` |
-| `MIN(attr)` | Minimum value | `MIN(temperature)` |
-| `MAX(attr)` | Maximum value | `MAX(temperature)` |
+| `MIN(attr)` | Minimum value in window | `MIN(temperature)` |
+| `MAX(attr)` | Maximum value in window | `MAX(temperature)` |
+| `FIRST(attr)` | First value in window | `FIRST(price)` |
+| `LAST(attr)` | Last/most recent value in window | `LAST(price)` |
 
 ### Statistical Aggregates
 
 | Function | Description | Example |
 |----------|-------------|---------|
-| `STDDEV(attr)` | Standard deviation | `STDDEV(price)` |
+| `STDDEV(attr)` | Standard deviation (Welford's algorithm) | `STDDEV(price)` |
 | `VARIANCE(attr)` | Variance | `VARIANCE(latency)` |
+
+### Forever Aggregates
+
+These aggregates track all-time values across all windows and never reset:
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `MINFOREVER(attr)` | All-time minimum (never resets) | `MINFOREVER(price)` |
+| `MAXFOREVER(attr)` | All-time maximum (never resets) | `MAXFOREVER(price)` |
+
+```sql
+-- Track all-time high and low prices alongside windowed stats
+SELECT symbol,
+       MIN(price) AS window_low,      -- Resets each window
+       MAX(price) AS window_high,     -- Resets each window
+       MINFOREVER(price) AS all_time_low,   -- Never resets
+       MAXFOREVER(price) AS all_time_high   -- Never resets
+FROM Trades
+WINDOW TUMBLING(1 min)
+GROUP BY symbol
+INSERT INTO PriceExtremes;
+```
 
 ### Distinct Aggregates
 
 | Function | Description | Example |
 |----------|-------------|---------|
 | `COUNT(DISTINCT attr)` | Count unique values | `COUNT(DISTINCT user_id)` |
+| `DISTINCTCOUNT(attr)` | Count unique values (alias) | `DISTINCTCOUNT(user_id)` |
 | `SUM(DISTINCT attr)` | Sum unique values | `SUM(DISTINCT amount)` |
 
 ## Basic Usage
@@ -117,16 +142,33 @@ INSERT INTO AnomalySensors;
 ```sql
 -- OHLC (Open, High, Low, Close) calculation
 SELECT symbol,
-       -- Note: FIRST/LAST may need specific window support
-       MIN(price) AS low,
-       MAX(price) AS high,
-       AVG(price) AS avg_price,
+       FIRST(price) AS open,         -- First price in window
+       MAX(price) AS high,           -- Highest price
+       MIN(price) AS low,            -- Lowest price
+       LAST(price) AS close,         -- Last price in window
        SUM(volume) AS total_volume,
-       COUNT(*) AS tick_count
+       COUNT(*) AS tick_count,
+       STDDEV(price) AS price_volatility
 FROM MarketTicks
 WINDOW TUMBLING(1 min)
 GROUP BY symbol
 INSERT INTO OHLCBars;
+```
+
+### All-Time Tracking
+
+```sql
+-- Track session highs/lows alongside window stats
+SELECT symbol,
+       LAST(price) AS current_price,
+       MINFOREVER(price) AS session_low,    -- All-time low (never resets)
+       MAXFOREVER(price) AS session_high,   -- All-time high (never resets)
+       MIN(price) AS window_low,            -- Window low (resets)
+       MAX(price) AS window_high            -- Window high (resets)
+FROM Trades
+WINDOW SLIDING(5 min)
+GROUP BY symbol
+INSERT INTO SessionStats;
 ```
 
 ### IoT Monitoring
