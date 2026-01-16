@@ -402,9 +402,11 @@ impl EventFluxContext {
         };
         use crate::core::query::selector::attribute::aggregator::{
             AvgAttributeAggregatorFactory, CountAttributeAggregatorFactory,
-            DistinctCountAttributeAggregatorFactory, MaxAttributeAggregatorFactory,
+            DistinctCountAttributeAggregatorFactory, FirstAttributeAggregatorFactory,
+            LastAttributeAggregatorFactory, MaxAttributeAggregatorFactory,
             MaxForeverAttributeAggregatorFactory, MinAttributeAggregatorFactory,
-            MinForeverAttributeAggregatorFactory, SumAttributeAggregatorFactory,
+            MinForeverAttributeAggregatorFactory, StdDevAttributeAggregatorFactory,
+            SumAttributeAggregatorFactory,
         };
         use crate::core::stream::input::source::rabbitmq_source::RabbitMQSourceFactory;
         use crate::core::stream::input::source::websocket_source::WebSocketSourceFactory;
@@ -460,12 +462,24 @@ impl EventFluxContext {
             Box::new(MaxAttributeAggregatorFactory),
         );
         self.add_attribute_aggregator_factory(
-            "minForever".to_string(),
+            "minforever".to_string(),
             Box::new(MinForeverAttributeAggregatorFactory),
         );
         self.add_attribute_aggregator_factory(
-            "maxForever".to_string(),
+            "maxforever".to_string(),
             Box::new(MaxForeverAttributeAggregatorFactory),
+        );
+        self.add_attribute_aggregator_factory(
+            "stddev".to_string(),
+            Box::new(StdDevAttributeAggregatorFactory),
+        );
+        self.add_attribute_aggregator_factory(
+            "first".to_string(),
+            Box::new(FirstAttributeAggregatorFactory),
+        );
+        self.add_attribute_aggregator_factory(
+            "last".to_string(),
+            Box::new(LastAttributeAggregatorFactory),
         );
 
         self.add_table_factory("inMemory".to_string(), Box::new(InMemoryTableFactory));

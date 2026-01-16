@@ -1229,8 +1229,12 @@ impl SqlConverter {
             "avg" => "avg",
             "min" => "min",
             "max" => "max",
+            "minforever" => "minforever",
+            "maxforever" => "maxforever",
             "distinctcount" => "distinctCount",
-            "stddev" => "stdDev",
+            "stddev" => "stddev",
+            "first" => "first",
+            "last" => "last",
             // Math functions
             "round" => "round",
             "abs" => "abs",

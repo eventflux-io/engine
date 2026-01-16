@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -1361,100 +1361,6 @@ struct MinMaxState {
     value: Option<f64>,
 }
 
-macro_rules! minmax_exec {
-    ($name:ident, $cmp:expr) => {
-        #[derive(Debug)]
-        pub struct $name {
-            arg_exec: Option<Box<dyn ExpressionExecutor>>,
-            return_type: ApiAttributeType,
-            state: Mutex<MinMaxState>,
-            app_ctx: Option<Arc<EventFluxAppContext>>,
-        }
-        impl Default for $name {
-            fn default() -> Self {
-                Self {
-                    arg_exec: None,
-                    return_type: ApiAttributeType::DOUBLE,
-                    state: Mutex::new(MinMaxState::default()),
-                    app_ctx: None,
-                }
-            }
-        }
-        impl AttributeAggregatorExecutor for $name {
-            fn init(
-                &mut self,
-                mut e: Vec<Box<dyn ExpressionExecutor>>,
-                _m: ProcessingMode,
-                _ex: bool,
-                ctx: &EventFluxQueryContext,
-            ) -> Result<(), String> {
-                if e.len() != 1 {
-                    return Err("aggregator requires one arg".into());
-                }
-                let exec = e.remove(0);
-                self.return_type = exec.get_return_type();
-                self.arg_exec = Some(exec);
-                self.app_ctx = Some(Arc::clone(&ctx.eventflux_app_context));
-                Ok(())
-            }
-            fn process_add(&self, data: Option<AttributeValue>) -> Option<AttributeValue> {
-                if let Some(v) = data.and_then(|v| value_as_f64(&v)) {
-                    let mut st = self.state.lock().unwrap();
-                    match st.value {
-                        Some(current) => {
-                            if $cmp(v, current) {
-                                st.value = Some(v);
-                            }
-                        }
-                        None => st.value = Some(v),
-                    }
-                }
-                st_to_val(self.return_type, &self.state.lock().unwrap())
-            }
-            fn process_remove(&self, _data: Option<AttributeValue>) -> Option<AttributeValue> {
-                st_to_val(self.return_type, &self.state.lock().unwrap())
-            }
-            fn reset(&self) -> Option<AttributeValue> {
-                self.state.lock().unwrap().value = None;
-                None
-            }
-            fn clone_box(&self) -> Box<dyn AttributeAggregatorExecutor> {
-                let ctx = self.app_ctx.as_ref().unwrap();
-                Box::new($name {
-                    arg_exec: self.arg_exec.as_ref().map(|e| e.clone_executor(ctx)),
-                    return_type: self.return_type,
-                    state: Mutex::new(self.state.lock().unwrap().clone()),
-                    app_ctx: Some(Arc::clone(ctx)),
-                })
-            }
-        }
-        impl ExpressionExecutor for $name {
-            fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
-                let event = event?;
-                let data = self.arg_exec.as_ref().and_then(|e| e.execute(Some(event)));
-                match event.get_event_type() {
-                    ComplexEventType::Current => self.process_add(data),
-                    ComplexEventType::Expired => self.process_remove(data),
-                    ComplexEventType::Reset => self.reset(),
-                    _ => None,
-                }
-            }
-            fn get_return_type(&self) -> ApiAttributeType {
-                self.return_type
-            }
-            fn clone_executor(
-                &self,
-                _ctx: &Arc<EventFluxAppContext>,
-            ) -> Box<dyn ExpressionExecutor> {
-                Box::new(AttributeAggregatorExpressionExecutor::new(self.clone_box()))
-            }
-            fn is_attribute_aggregator(&self) -> bool {
-                true
-            }
-        }
-    };
-}
-
 fn st_to_val(rt: ApiAttributeType, st: &MinMaxState) -> Option<AttributeValue> {
     st.value.map(|v| match rt {
         ApiAttributeType::INT => AttributeValue::Int(v as i32),
@@ -1464,12 +1370,496 @@ fn st_to_val(rt: ApiAttributeType, st: &MinMaxState) -> Option<AttributeValue> {
     })
 }
 
-minmax_exec!(MinAttributeAggregatorExecutor, |v, current| v < current);
-minmax_exec!(MaxAttributeAggregatorExecutor, |v, current| v > current);
-minmax_exec!(MinForeverAttributeAggregatorExecutor, |v, current| v
-    < current);
-minmax_exec!(MaxForeverAttributeAggregatorExecutor, |v, current| v
-    > current);
+/// Comparison mode for min/max aggregators
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MinMaxMode {
+    Min,
+    Max,
+}
+
+impl MinMaxMode {
+    /// Returns true if `v` should replace `current` based on the mode
+    fn should_replace(&self, v: f64, current: f64) -> bool {
+        match self {
+            MinMaxMode::Min => v < current,
+            MinMaxMode::Max => v > current,
+        }
+    }
+}
+
+/// Unified min/max aggregator executor that handles all 4 variants:
+/// - min: tracks minimum, resets state on window reset
+/// - max: tracks maximum, resets state on window reset
+/// - minForever: tracks all-time minimum, preserves state on reset
+/// - maxForever: tracks all-time maximum, preserves state on reset
+#[derive(Debug)]
+pub struct MinMaxAttributeAggregatorExecutor {
+    arg_exec: Option<Box<dyn ExpressionExecutor>>,
+    return_type: ApiAttributeType,
+    state: Mutex<MinMaxState>,
+    app_ctx: Option<Arc<EventFluxAppContext>>,
+    mode: MinMaxMode,
+    preserve_on_reset: bool, // true for "forever" variants
+}
+
+impl MinMaxAttributeAggregatorExecutor {
+    pub fn new(mode: MinMaxMode, preserve_on_reset: bool) -> Self {
+        Self {
+            arg_exec: None,
+            return_type: ApiAttributeType::DOUBLE,
+            state: Mutex::new(MinMaxState::default()),
+            app_ctx: None,
+            mode,
+            preserve_on_reset,
+        }
+    }
+
+    fn update_state(&self, data: Option<AttributeValue>) {
+        if let Some(v) = data.and_then(|v| value_as_f64(&v)) {
+            let mut st = self.state.lock().unwrap();
+            match st.value {
+                Some(current) => {
+                    if self.mode.should_replace(v, current) {
+                        st.value = Some(v);
+                    }
+                }
+                None => st.value = Some(v),
+            }
+        }
+    }
+}
+
+impl AttributeAggregatorExecutor for MinMaxAttributeAggregatorExecutor {
+    fn init(
+        &mut self,
+        mut e: Vec<Box<dyn ExpressionExecutor>>,
+        _m: ProcessingMode,
+        _ex: bool,
+        ctx: &EventFluxQueryContext,
+    ) -> Result<(), String> {
+        if e.len() != 1 {
+            return Err("aggregator requires one arg".into());
+        }
+        let exec = e.remove(0);
+        self.return_type = exec.get_return_type();
+        self.arg_exec = Some(exec);
+        self.app_ctx = Some(Arc::clone(&ctx.eventflux_app_context));
+        Ok(())
+    }
+
+    fn process_add(&self, data: Option<AttributeValue>) -> Option<AttributeValue> {
+        self.update_state(data);
+        st_to_val(self.return_type, &self.state.lock().unwrap())
+    }
+
+    fn process_remove(&self, data: Option<AttributeValue>) -> Option<AttributeValue> {
+        // "Forever" variants also update on remove (like Java)
+        if self.preserve_on_reset {
+            self.update_state(data);
+        }
+        st_to_val(self.return_type, &self.state.lock().unwrap())
+    }
+
+    fn reset(&self) -> Option<AttributeValue> {
+        if self.preserve_on_reset {
+            // "Forever" variants do NOT clear state on reset
+            st_to_val(self.return_type, &self.state.lock().unwrap())
+        } else {
+            // Regular variants clear state and return None
+            self.state.lock().unwrap().value = None;
+            None
+        }
+    }
+
+    fn clone_box(&self) -> Box<dyn AttributeAggregatorExecutor> {
+        let ctx = self.app_ctx.as_ref().unwrap();
+        Box::new(MinMaxAttributeAggregatorExecutor {
+            arg_exec: self.arg_exec.as_ref().map(|e| e.clone_executor(ctx)),
+            return_type: self.return_type,
+            state: Mutex::new(self.state.lock().unwrap().clone()),
+            app_ctx: Some(Arc::clone(ctx)),
+            mode: self.mode,
+            preserve_on_reset: self.preserve_on_reset,
+        })
+    }
+}
+
+impl ExpressionExecutor for MinMaxAttributeAggregatorExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        let event = event?;
+        let data = self.arg_exec.as_ref().and_then(|e| e.execute(Some(event)));
+        match event.get_event_type() {
+            ComplexEventType::Current => self.process_add(data),
+            ComplexEventType::Expired => self.process_remove(data),
+            ComplexEventType::Reset => self.reset(),
+            _ => None,
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        self.return_type
+    }
+
+    fn clone_executor(&self, _ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(AttributeAggregatorExpressionExecutor::new(self.clone_box()))
+    }
+
+    fn is_attribute_aggregator(&self) -> bool {
+        true
+    }
+}
+
+// ============================================================================
+// StdDev Aggregator - Standard Deviation using Welford's online algorithm
+// ============================================================================
+
+#[derive(Debug, Clone, Default)]
+struct StdDevState {
+    mean: f64,
+    m2: f64, // Sum of squared deviations from mean (Welford's M2)
+    sum: f64,
+    count: u64,
+}
+
+impl StdDevState {
+    /// Calculate current standard deviation from state
+    fn current_stddev(&self) -> Option<AttributeValue> {
+        match self.count {
+            0 => None,
+            1 => Some(AttributeValue::Double(0.0)),
+            n => Some(AttributeValue::Double((self.m2 / n as f64).sqrt())),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct StdDevAttributeAggregatorExecutor {
+    arg_exec: Option<Box<dyn ExpressionExecutor>>,
+    state: Mutex<StdDevState>,
+    app_ctx: Option<Arc<EventFluxAppContext>>,
+}
+
+impl Default for StdDevAttributeAggregatorExecutor {
+    fn default() -> Self {
+        Self {
+            arg_exec: None,
+            state: Mutex::new(StdDevState::default()),
+            app_ctx: None,
+        }
+    }
+}
+
+impl AttributeAggregatorExecutor for StdDevAttributeAggregatorExecutor {
+    fn init(
+        &mut self,
+        mut e: Vec<Box<dyn ExpressionExecutor>>,
+        _m: ProcessingMode,
+        _ex: bool,
+        ctx: &EventFluxQueryContext,
+    ) -> Result<(), String> {
+        if e.len() != 1 {
+            return Err("stdDev aggregator requires exactly one argument".into());
+        }
+        self.arg_exec = Some(e.remove(0));
+        self.app_ctx = Some(Arc::clone(&ctx.eventflux_app_context));
+        Ok(())
+    }
+
+    fn process_add(&self, data: Option<AttributeValue>) -> Option<AttributeValue> {
+        let mut st = self.state.lock().unwrap();
+        if let Some(v) = data.and_then(|v| value_as_f64(&v)) {
+            st.count += 1;
+            if st.count == 1 {
+                st.sum = v;
+                st.mean = v;
+                st.m2 = 0.0;
+            } else {
+                let old_mean = st.mean;
+                st.sum += v;
+                st.mean = st.sum / st.count as f64;
+                st.m2 += (v - old_mean) * (v - st.mean);
+            }
+        }
+        st.current_stddev()
+    }
+
+    fn process_remove(&self, data: Option<AttributeValue>) -> Option<AttributeValue> {
+        let mut st = self.state.lock().unwrap();
+        if let Some(v) = data.and_then(|v| value_as_f64(&v)) {
+            if st.count > 0 {
+                st.count -= 1;
+            }
+            if st.count == 0 {
+                st.sum = 0.0;
+                st.mean = 0.0;
+                st.m2 = 0.0;
+            } else {
+                let old_mean = st.mean;
+                st.sum -= v;
+                st.mean = st.sum / st.count as f64;
+                st.m2 -= (v - old_mean) * (v - st.mean);
+            }
+        }
+        st.current_stddev()
+    }
+
+    fn reset(&self) -> Option<AttributeValue> {
+        let mut st = self.state.lock().unwrap();
+        st.mean = 0.0;
+        st.m2 = 0.0;
+        st.sum = 0.0;
+        st.count = 0;
+        None
+    }
+
+    fn clone_box(&self) -> Box<dyn AttributeAggregatorExecutor> {
+        let ctx = self.app_ctx.as_ref().unwrap();
+        Box::new(StdDevAttributeAggregatorExecutor {
+            arg_exec: self.arg_exec.as_ref().map(|e| e.clone_executor(ctx)),
+            state: Mutex::new(self.state.lock().unwrap().clone()),
+            app_ctx: Some(Arc::clone(ctx)),
+        })
+    }
+}
+
+impl ExpressionExecutor for StdDevAttributeAggregatorExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        let event = event?;
+        let data = self.arg_exec.as_ref().and_then(|e| e.execute(Some(event)));
+        match event.get_event_type() {
+            ComplexEventType::Current => self.process_add(data),
+            ComplexEventType::Expired => self.process_remove(data),
+            ComplexEventType::Reset => self.reset(),
+            _ => None,
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        ApiAttributeType::DOUBLE
+    }
+
+    fn clone_executor(&self, _ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(AttributeAggregatorExpressionExecutor::new(self.clone_box()))
+    }
+
+    fn is_attribute_aggregator(&self) -> bool {
+        true
+    }
+}
+
+// ============================================================================
+// First Aggregator - Returns first value in window
+// ============================================================================
+
+#[derive(Debug, Clone, Default)]
+struct FirstState {
+    values: VecDeque<AttributeValue>,
+}
+
+#[derive(Debug)]
+pub struct FirstAttributeAggregatorExecutor {
+    arg_exec: Option<Box<dyn ExpressionExecutor>>,
+    return_type: ApiAttributeType,
+    state: Mutex<FirstState>,
+    app_ctx: Option<Arc<EventFluxAppContext>>,
+}
+
+impl Default for FirstAttributeAggregatorExecutor {
+    fn default() -> Self {
+        Self {
+            arg_exec: None,
+            return_type: ApiAttributeType::STRING, // Will be set from input
+            state: Mutex::new(FirstState::default()),
+            app_ctx: None,
+        }
+    }
+}
+
+impl AttributeAggregatorExecutor for FirstAttributeAggregatorExecutor {
+    fn init(
+        &mut self,
+        mut e: Vec<Box<dyn ExpressionExecutor>>,
+        _m: ProcessingMode,
+        _ex: bool,
+        ctx: &EventFluxQueryContext,
+    ) -> Result<(), String> {
+        if e.len() != 1 {
+            return Err("first aggregator requires exactly one argument".into());
+        }
+        let exec = e.remove(0);
+        self.return_type = exec.get_return_type();
+        self.arg_exec = Some(exec);
+        self.app_ctx = Some(Arc::clone(&ctx.eventflux_app_context));
+        Ok(())
+    }
+
+    fn process_add(&self, data: Option<AttributeValue>) -> Option<AttributeValue> {
+        if let Some(v) = data {
+            let mut st = self.state.lock().unwrap();
+            st.values.push_back(v);
+            // Return front (first value)
+            st.values.front().cloned()
+        } else {
+            let st = self.state.lock().unwrap();
+            st.values.front().cloned()
+        }
+    }
+
+    fn process_remove(&self, _data: Option<AttributeValue>) -> Option<AttributeValue> {
+        let mut st = self.state.lock().unwrap();
+        // Remove front (oldest/first value that's expiring)
+        st.values.pop_front();
+        // Return new front (new first value)
+        st.values.front().cloned()
+    }
+
+    fn reset(&self) -> Option<AttributeValue> {
+        let mut st = self.state.lock().unwrap();
+        st.values.clear();
+        None
+    }
+
+    fn clone_box(&self) -> Box<dyn AttributeAggregatorExecutor> {
+        let ctx = self.app_ctx.as_ref().unwrap();
+        Box::new(FirstAttributeAggregatorExecutor {
+            arg_exec: self.arg_exec.as_ref().map(|e| e.clone_executor(ctx)),
+            return_type: self.return_type,
+            state: Mutex::new(self.state.lock().unwrap().clone()),
+            app_ctx: Some(Arc::clone(ctx)),
+        })
+    }
+}
+
+impl ExpressionExecutor for FirstAttributeAggregatorExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        let event = event?;
+        let data = self.arg_exec.as_ref().and_then(|e| e.execute(Some(event)));
+        match event.get_event_type() {
+            ComplexEventType::Current => self.process_add(data),
+            ComplexEventType::Expired => self.process_remove(data),
+            ComplexEventType::Reset => self.reset(),
+            _ => None,
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        self.return_type
+    }
+
+    fn clone_executor(&self, _ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(AttributeAggregatorExpressionExecutor::new(self.clone_box()))
+    }
+
+    fn is_attribute_aggregator(&self) -> bool {
+        true
+    }
+}
+
+// ============================================================================
+// Last Aggregator - Returns last/most recent value in window
+// ============================================================================
+
+#[derive(Debug, Clone, Default)]
+struct LastState {
+    last_value: Option<AttributeValue>,
+}
+
+#[derive(Debug)]
+pub struct LastAttributeAggregatorExecutor {
+    arg_exec: Option<Box<dyn ExpressionExecutor>>,
+    return_type: ApiAttributeType,
+    state: Mutex<LastState>,
+    app_ctx: Option<Arc<EventFluxAppContext>>,
+}
+
+impl Default for LastAttributeAggregatorExecutor {
+    fn default() -> Self {
+        Self {
+            arg_exec: None,
+            return_type: ApiAttributeType::STRING, // Will be set from input
+            state: Mutex::new(LastState::default()),
+            app_ctx: None,
+        }
+    }
+}
+
+impl AttributeAggregatorExecutor for LastAttributeAggregatorExecutor {
+    fn init(
+        &mut self,
+        mut e: Vec<Box<dyn ExpressionExecutor>>,
+        _m: ProcessingMode,
+        _ex: bool,
+        ctx: &EventFluxQueryContext,
+    ) -> Result<(), String> {
+        if e.len() != 1 {
+            return Err("last aggregator requires exactly one argument".into());
+        }
+        let exec = e.remove(0);
+        self.return_type = exec.get_return_type();
+        self.arg_exec = Some(exec);
+        self.app_ctx = Some(Arc::clone(&ctx.eventflux_app_context));
+        Ok(())
+    }
+
+    fn process_add(&self, data: Option<AttributeValue>) -> Option<AttributeValue> {
+        if let Some(v) = data {
+            let mut st = self.state.lock().unwrap();
+            st.last_value = Some(v.clone());
+            Some(v)
+        } else {
+            let st = self.state.lock().unwrap();
+            st.last_value.clone()
+        }
+    }
+
+    fn process_remove(&self, _data: Option<AttributeValue>) -> Option<AttributeValue> {
+        // Expired event is the oldest, not the last
+        // Keep current last_value
+        let st = self.state.lock().unwrap();
+        st.last_value.clone()
+    }
+
+    fn reset(&self) -> Option<AttributeValue> {
+        let mut st = self.state.lock().unwrap();
+        st.last_value = None;
+        None
+    }
+
+    fn clone_box(&self) -> Box<dyn AttributeAggregatorExecutor> {
+        let ctx = self.app_ctx.as_ref().unwrap();
+        Box::new(LastAttributeAggregatorExecutor {
+            arg_exec: self.arg_exec.as_ref().map(|e| e.clone_executor(ctx)),
+            return_type: self.return_type,
+            state: Mutex::new(self.state.lock().unwrap().clone()),
+            app_ctx: Some(Arc::clone(ctx)),
+        })
+    }
+}
+
+impl ExpressionExecutor for LastAttributeAggregatorExecutor {
+    fn execute(&self, event: Option<&dyn ComplexEvent>) -> Option<AttributeValue> {
+        let event = event?;
+        let data = self.arg_exec.as_ref().and_then(|e| e.execute(Some(event)));
+        match event.get_event_type() {
+            ComplexEventType::Current => self.process_add(data),
+            ComplexEventType::Expired => self.process_remove(data),
+            ComplexEventType::Reset => self.reset(),
+            _ => None,
+        }
+    }
+
+    fn get_return_type(&self) -> ApiAttributeType {
+        self.return_type
+    }
+
+    fn clone_executor(&self, _ctx: &Arc<EventFluxAppContext>) -> Box<dyn ExpressionExecutor> {
+        Box::new(AttributeAggregatorExpressionExecutor::new(self.clone_box()))
+    }
+
+    fn is_attribute_aggregator(&self) -> bool {
+        true
+    }
+}
 
 use crate::core::extension::AttributeAggregatorFactory;
 
@@ -1559,7 +1949,10 @@ impl AttributeAggregatorFactory for MinAttributeAggregatorFactory {
         "min"
     }
     fn create(&self) -> Box<dyn AttributeAggregatorExecutor> {
-        Box::new(MinAttributeAggregatorExecutor::default())
+        Box::new(MinMaxAttributeAggregatorExecutor::new(
+            MinMaxMode::Min,
+            false,
+        ))
     }
     fn clone_box(&self) -> Box<dyn AttributeAggregatorFactory> {
         Box::new(Self)
@@ -1574,7 +1967,10 @@ impl AttributeAggregatorFactory for MaxAttributeAggregatorFactory {
         "max"
     }
     fn create(&self) -> Box<dyn AttributeAggregatorExecutor> {
-        Box::new(MaxAttributeAggregatorExecutor::default())
+        Box::new(MinMaxAttributeAggregatorExecutor::new(
+            MinMaxMode::Max,
+            false,
+        ))
     }
     fn clone_box(&self) -> Box<dyn AttributeAggregatorFactory> {
         Box::new(Self)
@@ -1589,7 +1985,10 @@ impl AttributeAggregatorFactory for MinForeverAttributeAggregatorFactory {
         "minForever"
     }
     fn create(&self) -> Box<dyn AttributeAggregatorExecutor> {
-        Box::new(MinForeverAttributeAggregatorExecutor::default())
+        Box::new(MinMaxAttributeAggregatorExecutor::new(
+            MinMaxMode::Min,
+            true,
+        ))
     }
     fn clone_box(&self) -> Box<dyn AttributeAggregatorFactory> {
         Box::new(Self)
@@ -1604,7 +2003,55 @@ impl AttributeAggregatorFactory for MaxForeverAttributeAggregatorFactory {
         "maxForever"
     }
     fn create(&self) -> Box<dyn AttributeAggregatorExecutor> {
-        Box::new(MaxForeverAttributeAggregatorExecutor::default())
+        Box::new(MinMaxAttributeAggregatorExecutor::new(
+            MinMaxMode::Max,
+            true,
+        ))
+    }
+    fn clone_box(&self) -> Box<dyn AttributeAggregatorFactory> {
+        Box::new(Self)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StdDevAttributeAggregatorFactory;
+
+impl AttributeAggregatorFactory for StdDevAttributeAggregatorFactory {
+    fn name(&self) -> &'static str {
+        "stddev"
+    }
+    fn create(&self) -> Box<dyn AttributeAggregatorExecutor> {
+        Box::new(StdDevAttributeAggregatorExecutor::default())
+    }
+    fn clone_box(&self) -> Box<dyn AttributeAggregatorFactory> {
+        Box::new(Self)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FirstAttributeAggregatorFactory;
+
+impl AttributeAggregatorFactory for FirstAttributeAggregatorFactory {
+    fn name(&self) -> &'static str {
+        "first"
+    }
+    fn create(&self) -> Box<dyn AttributeAggregatorExecutor> {
+        Box::new(FirstAttributeAggregatorExecutor::default())
+    }
+    fn clone_box(&self) -> Box<dyn AttributeAggregatorFactory> {
+        Box::new(Self)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LastAttributeAggregatorFactory;
+
+impl AttributeAggregatorFactory for LastAttributeAggregatorFactory {
+    fn name(&self) -> &'static str {
+        "last"
+    }
+    fn create(&self) -> Box<dyn AttributeAggregatorExecutor> {
+        Box::new(LastAttributeAggregatorExecutor::default())
     }
     fn clone_box(&self) -> Box<dyn AttributeAggregatorFactory> {
         Box::new(Self)

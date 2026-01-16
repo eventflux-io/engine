@@ -52,7 +52,6 @@ async fn aggregator_test_distinct_count() {
 /// Reference: Aggregation1TestCase.java
 /// Note: stdDev window aggregator not implemented - only CollectionStdDev for patterns exists
 #[tokio::test]
-#[ignore = "stdDev window aggregator not implemented - only exists for pattern collections"]
 async fn aggregator_test_std_dev() {
     let app = "\
         CREATE STREAM inputStream (symbol STRING, price FLOAT);\n\
@@ -502,7 +501,6 @@ async fn order_by_test2_ascending() {
 /// First aggregator test
 /// Reference: FirstLastAggregatorTestCase.java
 #[tokio::test]
-#[ignore = "first() aggregator not yet supported"]
 async fn aggregator_test_first() {
     let app = "\
         CREATE STREAM stockStream (symbol STRING, price FLOAT);\n\
@@ -533,7 +531,6 @@ async fn aggregator_test_first() {
 /// Last aggregator test
 /// Reference: FirstLastAggregatorTestCase.java
 #[tokio::test]
-#[ignore = "last() aggregator not yet supported"]
 async fn aggregator_test_last() {
     let app = "\
         CREATE STREAM stockStream (symbol STRING, price FLOAT);\n\
@@ -569,7 +566,6 @@ async fn aggregator_test_last() {
 /// minForever aggregator test
 /// Reference: MinForeverAggregatorExtensionTestCase.java
 #[tokio::test]
-#[ignore = "minForever() aggregator not yet supported"]
 async fn aggregator_test_min_forever() {
     let app = "\
         CREATE STREAM stockStream (symbol STRING, price FLOAT);\n\
@@ -607,7 +603,6 @@ async fn aggregator_test_min_forever() {
 /// maxForever aggregator test
 /// Reference: MaxForeverAggregatorExtensionTestCase.java
 #[tokio::test]
-#[ignore = "maxForever() aggregator not yet supported"]
 async fn aggregator_test_max_forever() {
     let app = "\
         CREATE STREAM stockStream (symbol STRING, price FLOAT);\n\
