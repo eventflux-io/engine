@@ -920,7 +920,7 @@ mod tests {
         assert!(names.contains(&"min".to_string()));
         assert!(names.contains(&"max".to_string()));
         assert!(names.contains(&"distinctCount".to_string()));
-        assert!(names.contains(&"minForever".to_string()));
-        assert!(names.contains(&"maxForever".to_string()));
+        assert!(names.contains(&"minforever".to_string()));
+        assert!(names.contains(&"maxforever".to_string()));
     }
 }

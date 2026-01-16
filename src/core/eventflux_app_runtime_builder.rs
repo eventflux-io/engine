@@ -182,6 +182,7 @@ impl EventFluxAppRuntimeBuilder {
             sink_handlers: Arc::new(std::sync::RwLock::new(HashMap::new())),
             table_handlers: Arc::new(std::sync::RwLock::new(HashMap::new())),
             resolved_configs,
+            callback_map: Arc::new(std::sync::RwLock::new(HashMap::new())),
         })
     }
 }

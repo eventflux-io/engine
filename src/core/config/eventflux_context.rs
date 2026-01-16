@@ -402,9 +402,11 @@ impl EventFluxContext {
         };
         use crate::core::query::selector::attribute::aggregator::{
             AvgAttributeAggregatorFactory, CountAttributeAggregatorFactory,
-            DistinctCountAttributeAggregatorFactory, MaxAttributeAggregatorFactory,
+            DistinctCountAttributeAggregatorFactory, FirstAttributeAggregatorFactory,
+            LastAttributeAggregatorFactory, MaxAttributeAggregatorFactory,
             MaxForeverAttributeAggregatorFactory, MinAttributeAggregatorFactory,
-            MinForeverAttributeAggregatorFactory, SumAttributeAggregatorFactory,
+            MinForeverAttributeAggregatorFactory, StdDevAttributeAggregatorFactory,
+            SumAttributeAggregatorFactory,
         };
         use crate::core::stream::input::source::rabbitmq_source::RabbitMQSourceFactory;
         use crate::core::stream::input::source::websocket_source::WebSocketSourceFactory;
@@ -460,12 +462,24 @@ impl EventFluxContext {
             Box::new(MaxAttributeAggregatorFactory),
         );
         self.add_attribute_aggregator_factory(
-            "minForever".to_string(),
+            "minforever".to_string(),
             Box::new(MinForeverAttributeAggregatorFactory),
         );
         self.add_attribute_aggregator_factory(
-            "maxForever".to_string(),
+            "maxforever".to_string(),
             Box::new(MaxForeverAttributeAggregatorFactory),
+        );
+        self.add_attribute_aggregator_factory(
+            "stddev".to_string(),
+            Box::new(StdDevAttributeAggregatorFactory),
+        );
+        self.add_attribute_aggregator_factory(
+            "first".to_string(),
+            Box::new(FirstAttributeAggregatorFactory),
+        );
+        self.add_attribute_aggregator_factory(
+            "last".to_string(),
+            Box::new(LastAttributeAggregatorFactory),
         );
 
         self.add_table_factory("inMemory".to_string(), Box::new(InMemoryTableFactory));
@@ -711,6 +725,66 @@ impl EventFluxContext {
     /// List the names of all registered collection aggregation functions
     pub fn list_collection_aggregation_function_names(&self) -> Vec<String> {
         self.collection_aggregation_functions
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// List the names of all registered source factories
+    pub fn list_source_factory_names(&self) -> Vec<String> {
+        self.source_factories
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// List the names of all registered sink factories
+    pub fn list_sink_factory_names(&self) -> Vec<String> {
+        self.sink_factories
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// List the names of all registered store factories
+    pub fn list_store_factory_names(&self) -> Vec<String> {
+        self.store_factories
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// List the names of all registered source mapper factories
+    pub fn list_source_mapper_factory_names(&self) -> Vec<String> {
+        self.source_mapper_factories
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// List the names of all registered sink mapper factories
+    pub fn list_sink_mapper_factory_names(&self) -> Vec<String> {
+        self.sink_mapper_factories
+            .read()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// List the names of all registered table factories
+    pub fn list_table_factory_names(&self) -> Vec<String> {
+        self.table_factories
             .read()
             .unwrap()
             .keys()

@@ -1,0 +1,103 @@
+{
+  "$schema": "https://eventflux.io/schemas/studio/v1.json",
+  "version": "1.0",
+  "name": "Stock Price Analysis",
+  "description": "Analyze stock prices with tumbling windows and aggregations",
+  "application": {
+    "elements": [
+      {
+        "id": "stream-1",
+        "type": "stream",
+        "position": { "x": 100, "y": 150 },
+        "properties": {
+          "streamName": "StockTicks",
+          "attributes": [
+            { "name": "symbol", "type": "STRING" },
+            { "name": "price", "type": "DOUBLE" },
+            { "name": "volume", "type": "LONG" },
+            { "name": "timestamp", "type": "LONG" }
+          ]
+        }
+      },
+      {
+        "id": "window-1",
+        "type": "window",
+        "position": { "x": 350, "y": 150 },
+        "properties": {
+          "windowType": "tumbling",
+          "parameters": {
+            "duration": { "value": 1, "unit": "MINUTES" }
+          }
+        }
+      },
+      {
+        "id": "aggregation-1",
+        "type": "aggregation",
+        "position": { "x": 550, "y": 150 },
+        "properties": {
+          "aggregations": [
+            { "type": "AVG", "expression": { "type": "variable", "variableName": "price" }, "alias": "avgPrice" },
+            { "type": "SUM", "expression": { "type": "variable", "variableName": "volume" }, "alias": "totalVolume" },
+            { "type": "COUNT", "expression": { "type": "constant", "constantValue": "*" }, "alias": "tickCount" }
+          ]
+        }
+      },
+      {
+        "id": "groupby-1",
+        "type": "groupBy",
+        "position": { "x": 750, "y": 150 },
+        "properties": {
+          "groupByAttributes": ["symbol"]
+        }
+      },
+      {
+        "id": "output-1",
+        "type": "output",
+        "position": { "x": 950, "y": 150 },
+        "properties": {
+          "targetStreamName": "StockSummary"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "conn-1",
+        "sourceElementId": "stream-1",
+        "sourcePortId": "output",
+        "targetElementId": "window-1",
+        "targetPortId": "input"
+      },
+      {
+        "id": "conn-2",
+        "sourceElementId": "window-1",
+        "sourcePortId": "output",
+        "targetElementId": "aggregation-1",
+        "targetPortId": "input"
+      },
+      {
+        "id": "conn-3",
+        "sourceElementId": "aggregation-1",
+        "sourcePortId": "output",
+        "targetElementId": "groupby-1",
+        "targetPortId": "input"
+      },
+      {
+        "id": "conn-4",
+        "sourceElementId": "groupby-1",
+        "sourcePortId": "output",
+        "targetElementId": "output-1",
+        "targetPortId": "input"
+      }
+    ]
+  },
+  "layout": {
+    "zoom": 1.0,
+    "pan": { "x": 0, "y": 0 },
+    "gridSize": 20,
+    "snapToGrid": true
+  },
+  "metadata": {
+    "created": "2024-01-01T00:00:00Z",
+    "modified": "2024-01-01T00:00:00Z"
+  }
+}

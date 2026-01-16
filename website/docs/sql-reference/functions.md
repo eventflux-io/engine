@@ -8,6 +8,53 @@ description: Built-in functions reference for EventFlux
 
 EventFlux provides a comprehensive set of built-in functions for data transformation, mathematical operations, string manipulation, and more.
 
+## Function Types
+
+EventFlux has two distinct types of functions:
+
+### Scalar Functions (Stateless)
+
+Scalar functions operate on individual values and return a single result. They are **stateless** - each invocation is independent and doesn't remember previous calls.
+
+- Execute once per event
+- No memory of previous events
+- Can be used anywhere in SELECT, WHERE, HAVING clauses
+- Examples: `UPPER()`, `ABS()`, `CONCAT()`, `ROUND()`
+
+```sql
+-- Scalar functions transform individual values
+SELECT symbol,
+       UPPER(name) AS upper_name,        -- String transformation
+       ABS(delta) AS abs_delta,          -- Math operation
+       ROUND(price, 2) AS rounded_price  -- Rounding
+FROM Trades
+INSERT INTO Processed;
+```
+
+### Aggregate Functions (Stateful)
+
+Aggregate functions accumulate values over a group of events (typically within a window) and return a summary result. They are **stateful** - they maintain internal state that tracks values across multiple events.
+
+- Accumulate values across multiple events
+- Require a window or GROUP BY context
+- State resets when window expires (except "forever" variants)
+- Examples: `SUM()`, `AVG()`, `COUNT()`, `FIRST()`, `LAST()`
+
+```sql
+-- Aggregate functions summarize groups of events
+SELECT symbol,
+       SUM(volume) AS total_volume,      -- Accumulates over window
+       AVG(price) AS avg_price,          -- Running average
+       FIRST(price) AS open_price,       -- First value in window
+       LAST(price) AS close_price        -- Most recent value
+FROM Trades
+WINDOW TUMBLING(5 min)
+GROUP BY symbol
+INSERT INTO Summary;
+```
+
+See [Aggregations](/docs/sql-reference/aggregations) for detailed coverage of aggregate functions.
+
 ## Mathematical Functions
 
 ### Basic Math
@@ -299,16 +346,27 @@ INSERT INTO Converted;
 
 See [Aggregations](/docs/sql-reference/aggregations) for detailed coverage.
 
-| Function | Description |
-|----------|-------------|
-| `COUNT(*)` | Count all events |
-| `COUNT(attr)` | Count non-null |
-| `COUNT(DISTINCT attr)` | Count unique |
-| `SUM(attr)` | Sum values |
-| `AVG(attr)` | Average |
-| `MIN(attr)` | Minimum |
-| `MAX(attr)` | Maximum |
-| `STDDEV(attr)` | Standard deviation |
+| Function | Description | Resets on Window? |
+|----------|-------------|-------------------|
+| `COUNT(*)` | Count all events | Yes |
+| `COUNT(attr)` | Count non-null values | Yes |
+| `COUNT(DISTINCT attr)` | Count unique values | Yes |
+| `DISTINCTCOUNT(attr)` | Count unique values (alias) | Yes |
+| `SUM(attr)` | Sum of values | Yes |
+| `SUM(DISTINCT attr)` | Sum of unique values | Yes |
+| `AVG(attr)` | Average of values | Yes |
+| `MIN(attr)` | Minimum value in window | Yes |
+| `MAX(attr)` | Maximum value in window | Yes |
+| `FIRST(attr)` | First value in window | Yes |
+| `LAST(attr)` | Last/most recent value in window | Yes |
+| `STDDEV(attr)` | Standard deviation (Welford's algorithm) | Yes |
+| `VARIANCE(attr)` | Variance of values | Yes |
+| `MINFOREVER(attr)` | All-time minimum (never resets) | **No** |
+| `MAXFOREVER(attr)` | All-time maximum (never resets) | **No** |
+
+:::tip Forever Aggregates
+`MINFOREVER` and `MAXFOREVER` track all-time values that persist across window boundaries. Useful for tracking session highs/lows or all-time records.
+:::
 
 ## Date/Time Functions
 

@@ -1,0 +1,39 @@
+# Source files (keep only dist)
+src/**
+webview/src/**
+webview/node_modules/**
+webview/package-lock.json
+webview/tsconfig.json
+webview/tsconfig.node.json
+webview/vite.config.ts
+webview/postcss.config.js
+webview/tailwind.config.js
+webview/index.html
+
+# Development files
+.vscode/**
+node_modules/**
+*.ts
+!*.d.ts
+*.map
+.gitignore
+.eslintrc*
+tsconfig.json
+package-lock.json
+
+# Build artifacts
+*.vsix
+
+# Test files
+**/*.test.ts
+**/test/**
+**/tests/**
+
+# Source maps (not needed in production)
+**/*.map
+
+# Misc
+.DS_Store
+**/.DS_Store
+*.md
+!README.md
