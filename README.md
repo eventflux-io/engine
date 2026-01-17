@@ -1,8 +1,9 @@
 # EventFlux
 
 [![Build](https://github.com/eventflux-io/engine/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/eventflux-io/engine/actions/workflows/docker-publish.yml)
-[![GHCR](https://img.shields.io/badge/ghcr.io-eventflux--io%2Fengine-blue)](https://ghcr.io/eventflux-io/engine)
-[![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](LICENSE-APACHE)
+[![Rust](https://github.com/eventflux-io/engine/actions/workflows/rust.yml/badge.svg)](https://github.com/eventflux-io/engine/actions/workflows/rust.yml)
+[![GHCR](https://img.shields.io/badge/ghcr.io-eventflux--io%2Fengine-green)](https://ghcr.io/eventflux-io/engine)
+[![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-green.svg)](LICENSE-APACHE)
 
 Stream processing engine built in Rust. Write SQL, process events, skip the infrastructure headache.
 
@@ -76,6 +77,17 @@ Full docs at **[eventflux.io](https://eventflux.io)**:
 - [Connectors](https://eventflux.io/docs/connectors/overview) — Kafka, RabbitMQ, WebSocket, HTTP
 - [Examples](https://eventflux.io/docs/demo/crypto-trading) — real-world use cases
 - [Architecture](https://eventflux.io/docs/architecture/overview) — how it works under the hood
+
+## IDE Support
+
+**[EventFlux Studio](https://marketplace.visualstudio.com/items?itemName=eventflux.eventflux-studio)** — VS Code extension with:
+
+- Syntax highlighting for `.eventflux` files
+- Schema-aware autocomplete
+- Real-time error diagnostics
+- Query visualization
+
+Install from VS Code marketplace or search "EventFlux Studio" in extensions.
 
 ## Performance
 

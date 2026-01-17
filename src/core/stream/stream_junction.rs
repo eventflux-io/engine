@@ -141,70 +141,61 @@ impl StreamJunction {
             .clone()
             .unwrap_or_else(|| Arc::new(ExecutorService::default()));
 
-        // Configure pipeline based on async mode and performance requirements
         let backpressure_strategy = if is_async {
             BackpressureStrategy::ExponentialBackoff { max_delay_ms: 1000 }
         } else {
             BackpressureStrategy::Block
         };
 
-        let pipeline_config = PipelineConfig {
-            capacity: buffer_size,
-            backpressure: backpressure_strategy,
-            use_object_pool: true,
-            consumer_threads: if is_async {
-                (num_cpus::get() / 2).max(1)
-            } else {
-                1
-            },
-            batch_size: 64, // Optimal batch size for throughput
-            enable_metrics: eventflux_app_context.get_root_metrics_level()
-                != crate::core::config::eventflux_app_context::MetricsLevelPlaceholder::OFF,
-        };
-
-        let event_pipeline = Arc::new(
-            PipelineBuilder::new()
-                .with_capacity(pipeline_config.capacity)
-                .with_backpressure(pipeline_config.backpressure)
-                .with_object_pool(pipeline_config.use_object_pool)
-                .with_consumer_threads(pipeline_config.consumer_threads)
-                .with_batch_size(pipeline_config.batch_size)
-                .with_metrics(pipeline_config.enable_metrics)
-                .build()?,
-        );
-
-        let event_pool = Arc::new(EventPool::new(buffer_size * 2)); // 2x for buffering
-
-        let junction = Self {
+        Self::new_with_backpressure_and_executor(
             stream_id,
             stream_definition,
             eventflux_app_context,
-            event_pipeline,
-            _event_pool: event_pool,
-            subscribers: Arc::new(RwLock::new(Vec::new())),
-            is_async,
             buffer_size,
-            on_error_action: OnErrorAction::default(),
-            started: Arc::new(AtomicBool::new(false)),
-            shutdown: Arc::new(AtomicBool::new(false)),
+            is_async,
             fault_stream_junction,
-            events_processed: Arc::new(CachePadded::new(AtomicU64::new(0))),
-            events_dropped: Arc::new(CachePadded::new(AtomicU64::new(0))),
-            processing_errors: Arc::new(CachePadded::new(AtomicU64::new(0))),
+            backpressure_strategy,
             executor_service,
-        };
-
-        // Automatically start async consumer if in async mode
-        // This preserves backward compatibility - async junctions work immediately
-        if is_async {
-            junction.start_async_consumer()?;
-            junction.started.store(true, Ordering::Release);
-        }
-
-        Ok(junction)
+        )
     }
 
-    /// Create a new StreamJunction with a custom executor (primarily for testing)
+    /// Create a new StreamJunction with a custom backpressure strategy.
+    ///
+    /// Use this constructor when you need control over backpressure behavior:
+    /// - `BackpressureStrategy::Drop` - Fire-and-forget, immediately drop when buffer full
+    /// - `BackpressureStrategy::Block` - Guaranteed delivery, block until space available
+    /// - `BackpressureStrategy::ExponentialBackoff` - Retry with backoff before dropping
+    /// - `BackpressureStrategy::BlockWithTimeout` - Block with timeout, then drop
+    /// - `BackpressureStrategy::CircuitBreaker` - Fail fast after threshold
+    pub fn new_with_backpressure(
+        stream_id: String,
+        stream_definition: Arc<StreamDefinition>,
+        eventflux_app_context: Arc<EventFluxAppContext>,
+        buffer_size: usize,
+        is_async: bool,
+        fault_stream_junction: Option<Arc<Mutex<StreamJunction>>>,
+        backpressure_strategy: BackpressureStrategy,
+    ) -> Result<Self, String> {
+        let executor_service = eventflux_app_context
+            .executor_service
+            .clone()
+            .unwrap_or_else(|| Arc::new(ExecutorService::default()));
+
+        Self::new_with_backpressure_and_executor(
+            stream_id,
+            stream_definition,
+            eventflux_app_context,
+            buffer_size,
+            is_async,
+            fault_stream_junction,
+            backpressure_strategy,
+            executor_service,
+        )
+    }
+
+    /// Test-only constructor with custom executor.
+    ///
+    /// Not available in production builds.
     #[cfg(test)]
     pub fn new_with_executor(
         stream_id: String,
@@ -215,12 +206,39 @@ impl StreamJunction {
         fault_stream_junction: Option<Arc<Mutex<StreamJunction>>>,
         executor_service: Arc<ExecutorService>,
     ) -> Result<Self, String> {
-        // Configure pipeline based on async mode and performance requirements
         let backpressure_strategy = if is_async {
             BackpressureStrategy::ExponentialBackoff { max_delay_ms: 1000 }
         } else {
             BackpressureStrategy::Block
         };
+
+        Self::new_with_backpressure_and_executor(
+            stream_id,
+            stream_definition,
+            eventflux_app_context,
+            buffer_size,
+            is_async,
+            fault_stream_junction,
+            backpressure_strategy,
+            executor_service,
+        )
+    }
+
+    /// Internal constructor with all configuration options.
+    ///
+    /// This is a private implementation detail - use `new()` or `new_with_backpressure()`
+    /// for production code.
+    fn new_with_backpressure_and_executor(
+        stream_id: String,
+        stream_definition: Arc<StreamDefinition>,
+        eventflux_app_context: Arc<EventFluxAppContext>,
+        buffer_size: usize,
+        is_async: bool,
+        fault_stream_junction: Option<Arc<Mutex<StreamJunction>>>,
+        backpressure_strategy: BackpressureStrategy,
+        executor_service: Arc<ExecutorService>,
+    ) -> Result<Self, String> {
+        // Configure pipeline based on async mode and performance requirements
 
         let pipeline_config = PipelineConfig {
             capacity: buffer_size,

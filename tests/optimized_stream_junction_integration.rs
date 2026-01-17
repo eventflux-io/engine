@@ -15,7 +15,7 @@ use eventflux_rust::core::event::stream::StreamEvent;
 use eventflux_rust::core::event::value::AttributeValue;
 use eventflux_rust::core::query::processor::{ProcessingMode, Processor};
 use eventflux_rust::core::stream::{
-    JunctionBenchmark, JunctionConfig, StreamJunction, StreamJunctionFactory,
+    BackpressureStrategy, JunctionBenchmark, JunctionConfig, StreamJunction, StreamJunctionFactory,
 };
 use eventflux_rust::query_api::definition::attribute::Type as AttrType;
 use eventflux_rust::query_api::definition::StreamDefinition;
@@ -474,28 +474,102 @@ fn test_concurrent_publishers_optimized_junction() {
     assert!(metrics.pipeline_metrics.throughput_events_per_sec > 1000.0);
 }
 
+/// Slow processor that introduces delays to trigger backpressure
+#[derive(Debug)]
+struct SlowTestProcessor {
+    delay_us: u64,
+    name: String,
+}
+
+impl SlowTestProcessor {
+    fn new(name: String, delay_us: u64) -> Self {
+        Self { delay_us, name }
+    }
+}
+
+impl Processor for SlowTestProcessor {
+    fn process(&self, mut chunk: Option<Box<dyn ComplexEvent>>) {
+        while let Some(mut ce) = chunk {
+            chunk = ce.set_next(None);
+            // Introduce delay to slow down consumption and trigger backpressure
+            if self.delay_us > 0 {
+                thread::sleep(Duration::from_micros(self.delay_us));
+            }
+        }
+    }
+
+    fn next_processor(&self) -> Option<Arc<Mutex<dyn Processor>>> {
+        None
+    }
+
+    fn set_next_processor(&mut self, _n: Option<Arc<Mutex<dyn Processor>>>) {}
+
+    fn clone_processor(&self, _c: &Arc<EventFluxQueryContext>) -> Box<dyn Processor> {
+        Box::new(SlowTestProcessor::new(self.name.clone(), self.delay_us))
+    }
+
+    fn get_eventflux_app_context(&self) -> Arc<EventFluxAppContext> {
+        Arc::new(EventFluxAppContext::new(
+            Arc::new(EventFluxContext::new()),
+            "TestApp".to_string(),
+            Arc::new(eventflux_rust::query_api::eventflux_app::EventFluxApp::new(
+                "TestApp".to_string(),
+            )),
+            String::new(),
+        ))
+    }
+
+    fn get_eventflux_query_context(&self) -> Arc<EventFluxQueryContext> {
+        Arc::new(EventFluxQueryContext::new(
+            self.get_eventflux_app_context(),
+            "TestQuery".to_string(),
+            None,
+        ))
+    }
+
+    fn get_processing_mode(&self) -> ProcessingMode {
+        ProcessingMode::DEFAULT
+    }
+
+    fn is_stateful(&self) -> bool {
+        false
+    }
+}
+
 #[test]
 fn test_junction_backpressure_handling() {
     let (app_ctx, stream_def) = setup_test_context();
 
-    // Create junction with small buffer to trigger backpressure
-    let junction = StreamJunction::new(
+    // Create junction with minimum buffer size and Drop backpressure strategy
+    // This ensures immediate failure when buffer is full (deterministic behavior)
+    let junction = StreamJunction::new_with_backpressure(
         "BackpressureTest".to_string(),
         stream_def,
         app_ctx,
-        256, // Small buffer
+        64, // Minimum buffer size
         true,
         None,
+        BackpressureStrategy::Drop, // Immediately drop when buffer is full
     )
     .unwrap();
 
+    // Add a slow processor to create backpressure
+    // With Drop strategy, any events sent when buffer is full will be dropped immediately
+    let processor = Arc::new(Mutex::new(SlowTestProcessor::new(
+        "SlowProcessor".to_string(),
+        1000, // 1ms delay per event
+    )));
+    junction.subscribe(processor);
     junction.start_processing().unwrap();
 
     // Flood with events to trigger backpressure
+    // With 1ms delay per event and 64-element buffer, producer fills buffer
+    // almost instantly while consumer processes ~1000 events/second
     let mut success_count = 0;
     let mut dropped_count = 0;
+    let num_events = 500;
 
-    for i in 0..10000 {
+    for i in 0..num_events {
         let event = Event::new_with_data(
             i,
             vec![
@@ -510,6 +584,7 @@ fn test_junction_backpressure_handling() {
         }
     }
 
+    // Short wait then stop
     thread::sleep(Duration::from_millis(100));
     junction.stop_processing();
 
