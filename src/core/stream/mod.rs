@@ -23,6 +23,9 @@ pub use self::stream_junction::{
     JunctionPerformanceMetrics, OnErrorAction, Publisher, StreamJunction,
 };
 
+// Re-export BackpressureStrategy for custom junction configurations
+pub use crate::core::util::pipeline::BackpressureStrategy;
+
 // Re-export mapper types for convenience
 pub use self::mapper::{
     csv_mapper::{CsvSinkMapper, CsvSourceMapper},
