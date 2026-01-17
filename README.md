@@ -77,6 +77,17 @@ Full docs at **[eventflux.io](https://eventflux.io)**:
 - [Examples](https://eventflux.io/docs/demo/crypto-trading) — real-world use cases
 - [Architecture](https://eventflux.io/docs/architecture/overview) — how it works under the hood
 
+## IDE Support
+
+**[EventFlux Studio](https://marketplace.visualstudio.com/items?itemName=eventflux.eventflux-studio)** — VS Code extension with:
+
+- Syntax highlighting for `.eventflux` files
+- Schema-aware autocomplete
+- Real-time error diagnostics
+- Query visualization
+
+Install from VS Code marketplace or search "EventFlux Studio" in extensions.
+
 ## Performance
 
 - 1M+ events/sec on a single node
