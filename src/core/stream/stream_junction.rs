@@ -751,37 +751,24 @@ impl StreamJunction {
         let dispatch_tracker = Arc::clone(&self.dispatch_tracker);
         let stream_id = self.stream_id.clone();
 
-        // CRITICAL: Prevent executor thread starvation
-        // Consumers are long-running tasks that enqueue subscriber jobs to the same executor.
-        // We must ensure enough threads remain for subscriber tasks, or use inline processing.
+        // Consumers are long-running loops, so they run on dedicated threads,
+        // NOT on the shared executor: a work-stealing pool thread occupied by
+        // a consumer never executes queued subscriber dispatches, and with
+        // several async junctions the consumers alone could saturate the pool
+        // and starve every dispatch in the app.
         let pool_size = executor_service.pool_size();
-        let requested_consumer_threads = self.event_pipeline.config().consumer_threads;
+        let consumer_threads = self.event_pipeline.config().consumer_threads;
 
-        // Calculate effective consumer threads based on pool capacity
-        // Reserve at least 1 thread for subscriber tasks (or use inline processing)
-        let (consumer_threads, use_inline_processing) = if pool_size == 1 {
-            // Single-threaded: must use inline processing to avoid deadlock
+        // With a single-threaded executor, dispatching per event through the
+        // pool would serialize everything anyway — run subscribers inline on
+        // the consumer threads instead.
+        let use_inline_processing = pool_size == 1;
+        if use_inline_processing {
             log::warn!(
                 "[{}] Single-threaded executor detected (pool_size=1). Using inline subscriber processing.",
                 stream_id
             );
-            (1, true)
-        } else if pool_size <= requested_consumer_threads {
-            // Insufficient threads: clamp consumers to leave room for subscribers
-            let clamped = (pool_size - 1).max(1);
-            log::warn!(
-                "[{}] Executor pool_size ({}) insufficient for requested {} consumer threads. \
-                 Clamping to {} consumers to reserve threads for subscribers.",
-                stream_id,
-                pool_size,
-                requested_consumer_threads,
-                clamped
-            );
-            (clamped, false)
-        } else {
-            // Sufficient capacity: use requested consumer threads with async subscribers
-            (requested_consumer_threads, false)
-        };
+        }
 
         // Start N dedicated consumer threads that process events from the pipeline
         // This enables parallel consumption for higher throughput
@@ -793,9 +780,8 @@ impl StreamJunction {
             let executor_service_clone = Arc::clone(&executor_service);
             let dispatch_tracker_clone = Arc::clone(&dispatch_tracker);
             let stream_id_clone = stream_id.clone();
-            let executor_for_consumer = Arc::clone(&executor_service);
 
-            executor_for_consumer.execute(move || {
+            let consumer_body = move || {
                 // Clone variables needed after the consumer closure
                 let stream_id_for_completion = stream_id_clone.clone();
                 let error_counter_for_completion = Arc::clone(&error_counter_clone);
@@ -876,10 +862,23 @@ impl StreamJunction {
                     }
                     Err(e) => {
                         error_counter_for_completion.fetch_add(1, Ordering::Relaxed);
-                        log::error!("[{stream_id_for_completion}] Consumer {} error: {e}", consumer_id);
+                        log::error!(
+                            "[{stream_id_for_completion}] Consumer {} error: {e}",
+                            consumer_id
+                        );
                     }
                 }
-            });
+            };
+
+            std::thread::Builder::new()
+                .name(format!("{}-consumer-{}", self.stream_id, consumer_id))
+                .spawn(consumer_body)
+                .map_err(|e| {
+                    format!(
+                        "[{}] Failed to spawn consumer thread {}: {}",
+                        self.stream_id, consumer_id, e
+                    )
+                })?;
         }
 
         Ok(())
@@ -1638,9 +1637,9 @@ mod tests {
     #[test]
     fn test_limited_pool_executor_no_starvation() {
         // REGRESSION TEST: Limited executor pool must not starve subscribers
-        // Bug: Consumer threads exhaust executor pool, leaving no threads for subscriber tasks
+        // Bug: Consumer threads exhausted executor pool, leaving no threads for subscriber tasks
         // Scenario: pool_size=2, but junction wants 4 consumers (num_cpus/2 on 8-core machine)
-        // Fix: Clamp consumer threads to pool_size - 1, reserving threads for subscribers
+        // Fix: Consumers run on dedicated threads, so the pool serves only subscriber dispatches
 
         let ctx = Arc::new(EventFluxContext::new());
         let app = Arc::new(EventFluxApp::new("TestApp".to_string()));
@@ -1706,27 +1705,12 @@ mod tests {
         let metrics = junction.lock().unwrap().get_performance_metrics();
         assert_eq!(
             metrics.events_processed, 200,
-            "All events should be processed with clamped consumers (pool_size - 1)"
+            "All events should be processed with a small dispatch pool"
         );
         assert_eq!(
             metrics.events_dropped, 0,
             "No events should be dropped due to executor starvation"
         );
-
-        // Verify consumer threads were correctly clamped
-        // With pool_size=2, we should have clamped to 1 consumer (2 - 1 = 1)
-        // This leaves 1 thread free for subscriber tasks
-        let pipeline_config = junction
-            .lock()
-            .unwrap()
-            .event_pipeline
-            .config()
-            .consumer_threads;
-        assert!(
-            pipeline_config >= 1,
-            "Pipeline should have requested at least 1 consumer thread (num_cpus/2)"
-        );
-        // The actual clamping happens at runtime, so we verify through successful event processing
     }
 
     #[test]
