@@ -57,6 +57,26 @@ pub const MAX_DRAIN_TIMEOUT: Duration = Duration::from_secs(86_400);
 /// before clearing the sticky shutdown flags.
 const CONSUMER_EXIT_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// How long a timed-out shutdown waits, after halting, for live consumers and
+/// in-flight dispatches to finish before counting abandons and persisting.
+pub const HALT_SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Poll until every handle is settled (no live consumers, no in-flight
+/// dispatches) or the deadline passes. Used after `halt_processing` so the
+/// abandoned-event counts are exact and nothing mutates state concurrently
+/// with the shutdown snapshot. Returns whether all handles settled.
+pub fn poll_settled(handles: &[JunctionDrainHandle], deadline: Instant) -> bool {
+    loop {
+        if handles.iter().all(|h| h.settled()) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(DRAIN_POLL_INTERVAL);
+    }
+}
+
 /// Poll until every handle is quiescent for two consecutive passes with an
 /// unchanged total published count, or the deadline passes. Returns whether
 /// global quiescence was reached. Only meaningful once producers have stopped.
@@ -74,7 +94,9 @@ pub fn poll_quiescent(handles: &[JunctionDrainHandle], deadline: Instant) -> boo
     }
     let mut quiescent_streak = 0u32;
     let mut last_total_published: Option<u64> = None;
+    let mut grace_pass_used = false;
     loop {
+        let previous_streak = quiescent_streak;
         let total_published: u64 = handles.iter().map(|h| h.published()).sum();
         let all_quiescent = handles.iter().all(|h| h.is_quiescent());
         if all_quiescent && last_total_published == Some(total_published) {
@@ -89,9 +111,21 @@ pub fn poll_quiescent(handles: &[JunctionDrainHandle], deadline: Instant) -> boo
         }
         last_total_published = Some(total_published);
         if Instant::now() >= deadline {
-            return false;
+            // A quiescent first pass deserves its confirming re-read even at
+            // the deadline — otherwise an exhausted budget reports "timed out"
+            // for an already-idle system (e.g. the post-flush drain reusing
+            // the first drain's deadline). One grace pass bounds this.
+            if quiescent_streak == 0 || grace_pass_used {
+                return false;
+            }
+            grace_pass_used = true;
+            continue;
         }
-        if quiescent_streak == 0 {
+        // Only skip the sleep when this pass ADVANCED the streak (the
+        // confirming re-read needs a second read, not elapsed time). A pass
+        // that merely reset the streak to 1 saw ΣP move — sleeping there
+        // keeps a cascade-heavy shutdown from hot-spinning until the deadline.
+        if quiescent_streak <= previous_streak {
             std::thread::sleep(DRAIN_POLL_INTERVAL);
         }
     }
@@ -372,7 +406,12 @@ impl StreamJunction {
 
         // Automatically start async consumer if in async mode
         if is_async {
-            junction.start_async_consumer()?;
+            if let Err(e) = junction.start_async_consumer() {
+                // Stop any partially spawned consumers before the junction is
+                // dropped, or they idle forever holding the pipeline alive.
+                junction.halt_processing();
+                return Err(e);
+            }
             junction.started.store(true, Ordering::Release);
         }
 
@@ -433,6 +472,17 @@ impl StreamJunction {
     /// This method is idempotent - calling it multiple times is safe.
     /// For synchronous junctions, this is a no-op.
     pub fn start_processing(&self) -> Result<(), String> {
+        if self.shutdown.load(Ordering::Acquire) {
+            // A stopped junction must go through restart_processing, which
+            // waits out the old consumer set and clears the sticky flags.
+            // Starting here would CAS `started` to true while the spawned
+            // consumers immediately observe the shutdown flag and exit —
+            // a junction that accepts events nothing ever drains.
+            return Err(format!(
+                "[{}] junction is stopped; use restart_processing()",
+                self.stream_id
+            ));
+        }
         if self
             .started
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
@@ -443,9 +493,10 @@ impl StreamJunction {
 
         if self.is_async {
             if let Err(e) = self.start_async_consumer() {
-                // Un-latch so a later retry can spawn consumers instead of
-                // hitting the CAS and returning Ok with none running.
-                self.started.store(false, Ordering::Release);
+                // Stop the partially spawned set (they exit at their next
+                // iteration) and un-latch `started`. A retry must go through
+                // restart_processing, which waits for them and clears flags.
+                self.halt_processing();
                 return Err(e);
             }
         }
@@ -466,35 +517,48 @@ impl StreamJunction {
     /// events counted by `abandon_pending` are not also delivered afterwards
     /// (into stopped sinks, concurrently with the shutdown snapshot).
     pub fn halt_processing(&self) {
-        self.shutdown.store(true, Ordering::Release);
+        self.stop_processing();
         self.event_pipeline.halt();
-        self.started.store(false, Ordering::Release);
     }
 
     /// Undo a previous `stop_processing()`/`halt_processing()` so the junction
     /// accepts events again. Both shutdown flags are sticky, so this must run
     /// on every runtime restart — for sync junctions too, or `send_event`
     /// rejects forever after the first shutdown.
+    ///
+    /// Fails (leaving the flags sticky) if the previous consumer set is still
+    /// live after a bounded wait: clearing the flags with a straggler alive
+    /// would revive it permanently alongside the fresh set, leaking a consumer
+    /// set per restart. With sticky flags the straggler still exits once it
+    /// unblocks, and the restart can be retried.
     pub fn restart_processing(&self) -> Result<(), String> {
         if self.shutdown.load(Ordering::Acquire) {
-            // Wait for the previous consumer set to exit before clearing the
-            // flags: clearing early revives a straggler that has not yet
-            // observed the shutdown flag, and it would then run forever
-            // alongside the fresh set — duplicating consumers every restart.
-            // Consumers exit promptly here (queue drained or halted), so this
+            // Consumers exit promptly here (queue drained, or halted), so this
             // normally completes in well under a millisecond.
-            let deadline = Instant::now() + CONSUMER_EXIT_TIMEOUT;
-            while self.active_consumers.in_flight() != 0 {
-                if Instant::now() >= deadline {
-                    log::warn!(
-                        "[{}] {} consumer(s) from the previous run still live after {:?}; restarting anyway (they will exit once they re-observe a shutdown flag, but may duplicate consumption until then)",
+            if !self
+                .active_consumers
+                .wait_for_zero(CONSUMER_EXIT_TIMEOUT, DRAIN_POLL_INTERVAL)
+            {
+                return Err(format!(
+                    "[{}] {} consumer(s) from the previous run still live after {:?} (wedged subscriber?); not restarting — retry once they exit",
+                    self.stream_id,
+                    self.active_consumers.in_flight(),
+                    CONSUMER_EXIT_TIMEOUT
+                ));
+            }
+            // After a timed-out drain the leftover queue was already counted
+            // as abandoned/dropped — discard it so the restarted app does not
+            // replay events the operator was told were dropped (and before
+            // sinks reconnect, which would repeat the #136 lost-event window).
+            if self.event_pipeline.is_halted() {
+                let purged = self.event_pipeline.purge();
+                if purged > 0 {
+                    log::info!(
+                        "[{}] discarded {} event(s) abandoned by the previous shutdown",
                         self.stream_id,
-                        self.active_consumers.in_flight(),
-                        CONSUMER_EXIT_TIMEOUT
+                        purged
                     );
-                    break;
                 }
-                std::thread::sleep(DRAIN_POLL_INTERVAL);
             }
             self.shutdown.store(false, Ordering::Release);
             self.event_pipeline.clear_shutdown();
@@ -509,10 +573,10 @@ impl StreamJunction {
     /// holding the junction's Mutex (shutdown polls many junctions at 1ms).
     pub fn drain_handle(&self) -> JunctionDrainHandle {
         JunctionDrainHandle {
-            stream_id: self.stream_id.clone(),
             is_async: self.is_async,
             pipeline: Arc::clone(&self.event_pipeline),
             dispatch_tracker: Arc::clone(&self.dispatch_tracker),
+            active_consumers: Arc::clone(&self.active_consumers),
         }
     }
 
@@ -1129,15 +1193,23 @@ impl StreamJunction {
 /// all reads go through Arcs to atomics, never back through the Mutex.
 #[derive(Clone)]
 pub struct JunctionDrainHandle {
-    pub stream_id: String,
     is_async: bool,
     pipeline: Arc<EventPipeline>,
     dispatch_tracker: Arc<TaskTracker>,
+    active_consumers: Arc<TaskTracker>,
 }
 
 impl JunctionDrainHandle {
     pub fn is_async(&self) -> bool {
         self.is_async
+    }
+
+    /// True once no consumer thread is live and no subscriber dispatch is in
+    /// flight — i.e. nothing can mutate downstream state anymore. Used after
+    /// `halt_processing` to keep the abandoned-event count exact and the
+    /// shutdown snapshot free of concurrent mutation.
+    pub fn settled(&self) -> bool {
+        self.active_consumers.in_flight() == 0 && self.dispatch_tracker.in_flight() == 0
     }
 
     /// Published-event count (Acquire). Monotone once sources are stopped.

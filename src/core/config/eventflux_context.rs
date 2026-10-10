@@ -356,6 +356,10 @@ impl EventFluxContext {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// NOTE: `EventFluxManager` re-resolves this from its configuration
+    /// (`eventflux.application.async_default`, defaulting to false) at every
+    /// app creation, overwriting manual calls. To make streams async, set the
+    /// YAML key or per-stream SQL `WITH ('async.enabled' = 'true')` instead.
     pub fn set_default_async_mode(&self, mode: bool) {
         self.default_junction_async
             .store(mode, std::sync::atomic::Ordering::Relaxed);

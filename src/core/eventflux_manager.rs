@@ -184,8 +184,13 @@ impl EventFluxManager {
             .unwrap_or(false);
         self.eventflux_context.set_default_async_mode(async_default);
 
-        // Get application-specific configuration
-        let app_config = self.get_application_config(&app_name).await?;
+        // Get application-specific configuration from the already-loaded
+        // config (a get_application_config call would re-load and re-clone the
+        // whole config — and propagate a load error, defeating the
+        // proceed-with-defaults fallback above).
+        let app_config = loaded_config
+            .as_ref()
+            .and_then(|config| config.applications.get(&app_name).cloned());
 
         // EventFluxAppRuntime::new now handles creation of EventFluxAppContext and parsing
         let runtime = Arc::new(EventFluxAppRuntime::new_with_config(

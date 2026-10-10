@@ -31,7 +31,9 @@ use std::sync::{Arc, RwLock};
 /// no tracked work is queued or executing.
 #[derive(Debug, Default)]
 pub struct TaskTracker {
-    in_flight: AtomicU64,
+    // CachePadded keeps the hot per-dispatch increments/decrements off the
+    // cache line holding the Arc's reference counts.
+    in_flight: crossbeam_utils::CachePadded<AtomicU64>,
 }
 
 impl TaskTracker {
@@ -50,6 +52,24 @@ impl TaskTracker {
 
     pub fn in_flight(&self) -> u64 {
         self.in_flight.load(Ordering::Acquire)
+    }
+
+    /// Poll until `in_flight` reaches zero or `timeout` elapses, sleeping
+    /// `poll_interval` between checks. Returns whether zero was reached.
+    pub fn wait_for_zero(
+        &self,
+        timeout: std::time::Duration,
+        poll_interval: std::time::Duration,
+    ) -> bool {
+        let deadline =
+            std::time::Instant::now() + timeout.min(std::time::Duration::from_secs(86_400));
+        while self.in_flight() != 0 {
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(poll_interval);
+        }
+        true
     }
 }
 
@@ -195,17 +215,10 @@ impl ExecutorServiceRegistry {
 mod tests {
     use super::*;
     use std::sync::mpsc;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     fn wait_for_zero(tracker: &TaskTracker, timeout: Duration) -> bool {
-        let deadline = Instant::now() + timeout;
-        while tracker.in_flight() != 0 {
-            if Instant::now() >= deadline {
-                return false;
-            }
-            std::thread::yield_now();
-        }
-        true
+        tracker.wait_for_zero(timeout, Duration::from_micros(50))
     }
 
     #[test]

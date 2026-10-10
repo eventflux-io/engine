@@ -145,10 +145,20 @@ impl PipelineMetrics {
     /// failed. It still counts as consumed — `events_consumed` means "removed
     /// from the pipeline", and the shutdown drain relies on
     /// `published == consumed` becoming reachable once the queue empties —
-    /// while the failure is tracked in `processing_errors`.
+    /// while the failure is tracked in `processing_errors`. (No latency is
+    /// recorded, so sustained failures skew `avg_consume_latency_us` low;
+    /// use `processing_errors` to detect that state.)
     pub fn record_consume_error(&self) {
         self.events_consumed.fetch_add(1, Ordering::Release);
         self.processing_errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record events discarded by `EventPipeline::purge` (restart after an
+    /// abandoned drain). Counted as consumed — removed from the pipeline — so
+    /// the drain predicate stays balanced; they are NOT processing errors and
+    /// were already counted dropped at the junction level when abandoned.
+    pub fn record_purged(&self, count: u64) {
+        self.events_consumed.fetch_add(count, Ordering::Release);
     }
 
     /// Increment queue full counter

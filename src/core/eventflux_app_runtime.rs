@@ -31,7 +31,8 @@ use crate::core::stream::input::input_manager::InputManager;
 use crate::core::stream::output::sink::SinkCallbackAdapter;
 use crate::core::stream::output::stream_callback::StreamCallback; // The trait
 use crate::core::stream::stream_junction::{
-    poll_quiescent, StreamJunction, JUNCTION_DRAIN_TIMEOUT, MAX_DRAIN_TIMEOUT,
+    poll_quiescent, poll_settled, StreamJunction, HALT_SETTLE_TIMEOUT, JUNCTION_DRAIN_TIMEOUT,
+    MAX_DRAIN_TIMEOUT,
 };
 use crate::core::trigger::TriggerRuntime;
 use crate::core::util::parser::eventflux_app_parser::EventFluxAppParser; // For EventFluxAppParser::parse_eventflux_app_runtime_builder
@@ -1002,6 +1003,18 @@ impl EventFluxAppRuntime {
             // persist below and into sinks that are about to stop.
             for junction in self.stream_junction_map.values() {
                 junction.lock().unwrap().halt_processing();
+            }
+            // Let live consumers finish their current event and in-flight
+            // dispatches complete, so the abandoned counts below are exact and
+            // the persist snapshot sees no concurrent mutation. Bounded: a
+            // wedged subscriber can't hold shutdown hostage twice over.
+            let settled = poll_settled(&drain_handles, Instant::now() + HALT_SETTLE_TIMEOUT);
+            if !settled {
+                log::warn!(
+                    "EventFluxAppRuntime '{}': subscriber work still in flight {:?} after halt; abandoned counts may include events that are also delivered",
+                    self.name,
+                    HALT_SETTLE_TIMEOUT
+                );
             }
             let mut abandoned = 0u64;
             for junction in self.stream_junction_map.values() {

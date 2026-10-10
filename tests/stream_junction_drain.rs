@@ -231,4 +231,31 @@ fn test_drain_timeout_halts_and_abandons_pending() {
         "halted junction must not keep draining abandoned events \
          (abandoned {abandoned}, backlog settled at {queued} with {stable_samples} stable samples)"
     );
+
+    // Restarting after an abandoned drain must discard the backlog (it was
+    // already reported as dropped), not replay it into the restarted app.
+    junction
+        .restart_processing()
+        .expect("restart after halt should succeed once consumers exited");
+    let (queued_after_restart, in_flight_after_restart) = junction.pending_drain_estimate();
+    assert_eq!(
+        (queued_after_restart, in_flight_after_restart),
+        (0, 0),
+        "restart must purge the abandoned backlog instead of replaying it"
+    );
+    assert!(
+        junction.wait_quiescent(Duration::from_secs(1)),
+        "a restarted junction with a purged backlog must be quiescent"
+    );
+}
+
+/// An idle junction must report quiescent even when the caller's time budget
+/// is already exhausted — the confirming pass is a second read, not a wait.
+#[test]
+fn test_wait_quiescent_zero_timeout_on_idle_junction() {
+    let (junction, _processor) = make_junction(None, Duration::from_millis(0));
+    assert!(
+        junction.wait_quiescent(Duration::ZERO),
+        "an idle junction must be quiescent with a zero timeout"
+    );
 }
