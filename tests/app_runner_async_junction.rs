@@ -62,6 +62,44 @@ async fn async_junction_concurrent_dispatch() {
     assert_eq!(out.len(), 2000);
 }
 
+/// Regression test: YAML `eventflux.application.async_default` must reach
+/// junction creation (set_default_async_mode previously had no callers, so the
+/// fixture silently produced sync junctions), and an app whose junctions are
+/// ALL async must still deliver events (consumer loops previously ran on the
+/// shared executor, where two async junctions' consumers saturated the pool
+/// and starved every subscriber dispatch).
+#[tokio::test]
+async fn yaml_async_default_enables_async_junctions() {
+    use eventflux::core::config::ConfigManager;
+    use eventflux::core::eventflux_manager::EventFluxManager;
+
+    let config_manager = ConfigManager::from_file("tests/fixtures/app-async-enabled.yaml");
+    let manager = EventFluxManager::new_with_config_manager(config_manager);
+
+    // No per-stream WITH — async must come from the YAML default
+    let app = "\
+        CREATE STREAM In (v INT);\n\
+        CREATE STREAM Out (v INT);\n\
+        INSERT INTO Out SELECT v FROM In;\n";
+
+    let runner = AppRunner::new_with_manager(manager, app, "Out").await;
+    let rt = runner.runtime();
+    for (stream_id, junction) in rt.stream_junction_map.iter() {
+        assert!(
+            junction.lock().unwrap().get_performance_metrics().is_async,
+            "stream '{stream_id}' must be async via YAML async_default"
+        );
+    }
+
+    runner.send("In", vec![AttributeValue::Int(7)]);
+    let out = runner.shutdown();
+    assert_eq!(
+        out,
+        vec![vec![AttributeValue::Int(7)]],
+        "event must flow through two async junctions (executor starvation regression)"
+    );
+}
+
 /// Second subscriber on Out whose per-event sleep keeps the executor busy, so
 /// a backlog of subscriber dispatches reliably exists when shutdown() runs.
 #[derive(Debug)]
@@ -84,14 +122,11 @@ async fn async_junction_shutdown_drains_queued_events() {
 
     let manager = EventFluxManager::new();
 
-    // NOTE: async must be requested per-stream via SQL WITH — the YAML
-    // `async_default` fixture is not wired through to junction creation.
-    // Only In is async: two async junctions starve the shared executor
-    // (each junction spawns num_cpus/2 consumers), a pre-existing bug
-    // independent of the shutdown drain.
+    // Both junctions async: the drain must follow the cascade — events
+    // drained from In flow through the query into Out, which drains in turn.
     let app = "\
         CREATE STREAM In (v INT) WITH ('async.enabled' = 'true', 'async.buffer_size' = '4096');\n\
-        CREATE STREAM Out (v INT);\n\
+        CREATE STREAM Out (v INT) WITH ('async.enabled' = 'true', 'async.buffer_size' = '4096');\n\
         INSERT INTO Out SELECT v FROM In;\n";
 
     let runner = Arc::new(AppRunner::new_with_manager(manager, app, "Out").await);

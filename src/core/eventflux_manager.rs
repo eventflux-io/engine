@@ -156,6 +156,19 @@ impl EventFluxManager {
             ));
         }
 
+        // Apply global stream defaults (eventflux.application.async_default)
+        // to the shared context before parsing, so junction creation sees them
+        if let Ok(config) = self.get_config().await {
+            if let Some(async_default) = config
+                .eventflux
+                .application
+                .as_ref()
+                .and_then(|app| app.async_default)
+            {
+                self.eventflux_context.set_default_async_mode(async_default);
+            }
+        }
+
         // Get application-specific configuration
         let app_config = self.get_application_config(&app_name).await?;
 

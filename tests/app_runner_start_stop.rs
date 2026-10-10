@@ -58,13 +58,9 @@ async fn test_start_stop_restart_async() {
 
     let manager = EventFluxManager::new();
 
-    // Async must be requested per-stream via SQL WITH — the YAML
-    // `async_default` fixture is not wired through to junction creation.
-    // Only In is async: two async junctions starve the shared executor,
-    // a pre-existing bug independent of the restart contract under test.
     let app = "\
         CREATE STREAM In (v INT) WITH ('async.enabled' = 'true');\n\
-        CREATE STREAM Out (v INT);\n\
+        CREATE STREAM Out (v INT) WITH ('async.enabled' = 'true');\n\
         INSERT INTO Out SELECT v FROM In;\n";
     let runner = AppRunner::new_with_manager(manager, app, "Out").await;
     let rt = runner.runtime();
