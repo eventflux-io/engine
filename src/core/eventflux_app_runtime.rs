@@ -31,7 +31,7 @@ use crate::core::stream::input::input_manager::InputManager;
 use crate::core::stream::output::sink::SinkCallbackAdapter;
 use crate::core::stream::output::stream_callback::StreamCallback; // The trait
 use crate::core::stream::stream_junction::{
-    JunctionDrainHandle, StreamJunction, DRAIN_POLL_INTERVAL, JUNCTION_DRAIN_TIMEOUT,
+    poll_quiescent, StreamJunction, JUNCTION_DRAIN_TIMEOUT, MAX_DRAIN_TIMEOUT,
 };
 use crate::core::trigger::TriggerRuntime;
 use crate::core::util::parser::eventflux_app_parser::EventFluxAppParser; // For EventFluxAppParser::parse_eventflux_app_runtime_builder
@@ -934,49 +934,15 @@ impl EventFluxAppRuntime {
 
     /// Drain timeout for async junctions, overridable via
     /// `EVENTFLUX_JUNCTION_DRAIN_TIMEOUT_MS` (same pattern as
-    /// `EVENTFLUX_EXECUTOR_THREADS`).
+    /// `EVENTFLUX_EXECUTOR_THREADS`). Capped so `Instant + timeout` cannot
+    /// overflow on absurd override values.
     fn junction_drain_timeout() -> Duration {
         std::env::var("EVENTFLUX_JUNCTION_DRAIN_TIMEOUT_MS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
             .map(Duration::from_millis)
             .unwrap_or(JUNCTION_DRAIN_TIMEOUT)
-    }
-
-    /// Poll until every async junction is quiescent for two consecutive passes
-    /// with an unchanged total published count, or the deadline passes.
-    /// Returns whether global quiescence was reached.
-    ///
-    /// The ΣP-stability requirement closes cross-junction races: a cascading
-    /// tracked dispatch increments junction B's published count before its
-    /// guard decrements junction A's in-flight count, so a single
-    /// all-quiescent pass can be stale. With sources stopped, ΣP is finite and
-    /// monotone, so two matching quiescent passes mean nothing is moving.
-    fn poll_junctions_quiescent(handles: &[JunctionDrainHandle], deadline: Instant) -> bool {
-        if handles.is_empty() {
-            return true;
-        }
-        let mut quiescent_streak = 0u32;
-        let mut last_total_published: Option<u64> = None;
-        loop {
-            let total_published: u64 = handles.iter().map(|h| h.published()).sum();
-            let all_quiescent = handles.iter().all(|h| h.is_quiescent());
-            if all_quiescent && last_total_published == Some(total_published) {
-                quiescent_streak += 1;
-            } else if all_quiescent {
-                quiescent_streak = 1;
-            } else {
-                quiescent_streak = 0;
-            }
-            if quiescent_streak >= 2 {
-                return true;
-            }
-            last_total_published = Some(total_published);
-            if Instant::now() >= deadline {
-                return false;
-            }
-            std::thread::sleep(DRAIN_POLL_INTERVAL);
-        }
+            .min(MAX_DRAIN_TIMEOUT)
     }
 
     pub fn shutdown(&self) {
@@ -1008,8 +974,12 @@ impl EventFluxAppRuntime {
             .map(|j| j.lock().unwrap().drain_handle())
             .filter(|h| h.is_async())
             .collect();
-        let drain_deadline = Instant::now() + Self::junction_drain_timeout();
-        Self::poll_junctions_quiescent(&drain_handles, drain_deadline);
+        let drain_timeout = Self::junction_drain_timeout();
+        let drain_deadline = Instant::now() + drain_timeout;
+        // The first drain's result is intentionally unused: the second drain
+        // re-establishes global quiescence after the flush; this pass only
+        // ensures the flush sees drained events.
+        poll_quiescent(&drain_handles, drain_deadline);
 
         // Flush remaining events through the pipeline so state is stable.
         // Runs after the first drain so flushes see the drained events; flush
@@ -1017,15 +987,22 @@ impl EventFluxAppRuntime {
         for qr in &self.query_runtimes {
             qr.flush();
         }
-        let drained = Self::poll_junctions_quiescent(&drain_handles, drain_deadline);
+        let drained = poll_quiescent(&drain_handles, drain_deadline);
 
-        // Queues are empty (or the deadline passed) — now the sticky shutdown
-        // flags are safe to set; consumer loops exit promptly.
-        for junction in self.stream_junction_map.values() {
-            junction.lock().unwrap().stop_processing();
-        }
-
-        if !drained {
+        if drained {
+            // Queues are empty — the sticky shutdown flags are safe to set;
+            // consumer loops exit promptly.
+            for junction in self.stream_junction_map.values() {
+                junction.lock().unwrap().stop_processing();
+            }
+        } else {
+            // Timed out with a backlog. Halt consumers (no further draining)
+            // BEFORE counting the leftovers: a graceful stop would let them
+            // keep delivering the "abandoned" events concurrently with the
+            // persist below and into sinks that are about to stop.
+            for junction in self.stream_junction_map.values() {
+                junction.lock().unwrap().halt_processing();
+            }
             let mut abandoned = 0u64;
             for junction in self.stream_junction_map.values() {
                 abandoned += junction.lock().unwrap().abandon_pending();
@@ -1033,7 +1010,7 @@ impl EventFluxAppRuntime {
             log::warn!(
                 "EventFluxAppRuntime '{}' drain timed out after {:?}; abandoned {} queued event(s)",
                 self.name,
-                Self::junction_drain_timeout(),
+                drain_timeout,
                 abandoned
             );
         }

@@ -141,6 +141,16 @@ impl PipelineMetrics {
         }
     }
 
+    /// Record an event that was popped from the queue but whose handler
+    /// failed. It still counts as consumed — `events_consumed` means "removed
+    /// from the pipeline", and the shutdown drain relies on
+    /// `published == consumed` becoming reachable once the queue empties —
+    /// while the failure is tracked in `processing_errors`.
+    pub fn record_consume_error(&self) {
+        self.events_consumed.fetch_add(1, Ordering::Release);
+        self.processing_errors.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Increment queue full counter
     pub fn increment_queue_full(&self) {
         self.queue_full_events.fetch_add(1, Ordering::Relaxed);

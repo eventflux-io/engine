@@ -49,6 +49,54 @@ pub const JUNCTION_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 /// Poll interval for quiescence checks during the shutdown drain.
 pub const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(1);
 
+/// Upper bound on any drain/wait timeout. Caps user-supplied values so
+/// `Instant::now() + timeout` cannot overflow (which panics).
+pub const MAX_DRAIN_TIMEOUT: Duration = Duration::from_secs(86_400);
+
+/// How long `restart_processing` waits for the previous consumer set to exit
+/// before clearing the sticky shutdown flags.
+const CONSUMER_EXIT_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Poll until every handle is quiescent for two consecutive passes with an
+/// unchanged total published count, or the deadline passes. Returns whether
+/// global quiescence was reached. Only meaningful once producers have stopped.
+///
+/// The ΣP-stability requirement closes cross-junction races: a cascading
+/// tracked dispatch increments junction B's published count before its guard
+/// decrements junction A's in-flight count, so a single all-quiescent pass can
+/// be stale. With producers stopped, ΣP is finite and monotone, so two
+/// matching quiescent passes mean nothing is moving. The confirming pass needs
+/// a second read, not elapsed time, so the loop only sleeps while the system
+/// is visibly still moving.
+pub fn poll_quiescent(handles: &[JunctionDrainHandle], deadline: Instant) -> bool {
+    if handles.is_empty() {
+        return true;
+    }
+    let mut quiescent_streak = 0u32;
+    let mut last_total_published: Option<u64> = None;
+    loop {
+        let total_published: u64 = handles.iter().map(|h| h.published()).sum();
+        let all_quiescent = handles.iter().all(|h| h.is_quiescent());
+        if all_quiescent && last_total_published == Some(total_published) {
+            quiescent_streak += 1;
+        } else if all_quiescent {
+            quiescent_streak = 1;
+        } else {
+            quiescent_streak = 0;
+        }
+        if quiescent_streak >= 2 {
+            return true;
+        }
+        last_total_published = Some(total_published);
+        if Instant::now() >= deadline {
+            return false;
+        }
+        if quiescent_streak == 0 {
+            std::thread::sleep(DRAIN_POLL_INTERVAL);
+        }
+    }
+}
+
 /// Error handling strategies for StreamJunction
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OnErrorAction {
@@ -101,6 +149,10 @@ pub struct StreamJunction {
     // Consumer loops themselves are deliberately NOT tracked here — they run
     // until shutdown, so counting them would make quiescence unreachable.
     dispatch_tracker: Arc<TaskTracker>,
+
+    // Live dedicated consumer threads. Lets restart_processing wait for the
+    // previous set to exit before clearing the sticky shutdown flags.
+    active_consumers: Arc<TaskTracker>,
 }
 
 impl Debug for StreamJunction {
@@ -315,6 +367,7 @@ impl StreamJunction {
             processing_errors: Arc::new(CachePadded::new(AtomicU64::new(0))),
             executor_service,
             dispatch_tracker: Arc::new(TaskTracker::new()),
+            active_consumers: Arc::new(TaskTracker::new()),
         };
 
         // Automatically start async consumer if in async mode
@@ -389,28 +442,66 @@ impl StreamJunction {
         }
 
         if self.is_async {
-            self.start_async_consumer()?;
+            if let Err(e) = self.start_async_consumer() {
+                // Un-latch so a later retry can spawn consumers instead of
+                // hitting the CAS and returning Ok with none running.
+                self.started.store(false, Ordering::Release);
+                return Err(e);
+            }
         }
 
         Ok(())
     }
 
-    /// Stop processing events
+    /// Stop processing events gracefully: consumers finish draining the queue,
+    /// then exit. Use `halt_processing` to stop without draining.
     pub fn stop_processing(&self) {
         self.shutdown.store(true, Ordering::Release);
         self.event_pipeline.shutdown();
         self.started.store(false, Ordering::Release);
     }
 
-    /// Undo a previous `stop_processing()` so the junction accepts events
-    /// again. Both shutdown flags are sticky, so this must run on every
-    /// runtime restart — for sync junctions too, or `send_event` rejects
-    /// forever after the first shutdown.
+    /// Stop processing WITHOUT draining: consumers exit at their next
+    /// iteration, leaving queued events in place. Used on drain timeout so the
+    /// events counted by `abandon_pending` are not also delivered afterwards
+    /// (into stopped sinks, concurrently with the shutdown snapshot).
+    pub fn halt_processing(&self) {
+        self.shutdown.store(true, Ordering::Release);
+        self.event_pipeline.halt();
+        self.started.store(false, Ordering::Release);
+    }
+
+    /// Undo a previous `stop_processing()`/`halt_processing()` so the junction
+    /// accepts events again. Both shutdown flags are sticky, so this must run
+    /// on every runtime restart — for sync junctions too, or `send_event`
+    /// rejects forever after the first shutdown.
     pub fn restart_processing(&self) -> Result<(), String> {
-        self.shutdown.store(false, Ordering::Release);
-        self.event_pipeline.clear_shutdown();
-        // The old consumers exited when they observed the shutdown flag;
-        // start_processing's CAS re-admits a fresh set for async junctions.
+        if self.shutdown.load(Ordering::Acquire) {
+            // Wait for the previous consumer set to exit before clearing the
+            // flags: clearing early revives a straggler that has not yet
+            // observed the shutdown flag, and it would then run forever
+            // alongside the fresh set — duplicating consumers every restart.
+            // Consumers exit promptly here (queue drained or halted), so this
+            // normally completes in well under a millisecond.
+            let deadline = Instant::now() + CONSUMER_EXIT_TIMEOUT;
+            while self.active_consumers.in_flight() != 0 {
+                if Instant::now() >= deadline {
+                    log::warn!(
+                        "[{}] {} consumer(s) from the previous run still live after {:?}; restarting anyway (they will exit once they re-observe a shutdown flag, but may duplicate consumption until then)",
+                        self.stream_id,
+                        self.active_consumers.in_flight(),
+                        CONSUMER_EXIT_TIMEOUT
+                    );
+                    break;
+                }
+                std::thread::sleep(DRAIN_POLL_INTERVAL);
+            }
+            self.shutdown.store(false, Ordering::Release);
+            self.event_pipeline.clear_shutdown();
+        }
+        // start_processing's CAS re-admits a fresh consumer set for async
+        // junctions; on a first start the constructor-spawned set is still
+        // running and the CAS makes this a no-op.
         self.start_processing()
     }
 
@@ -425,64 +516,22 @@ impl StreamJunction {
         }
     }
 
-    /// True when no event accepted by this junction is still queued or being
-    /// dispatched to subscribers. Sync junctions dispatch inline and are
-    /// always quiescent. See `JunctionDrainHandle::is_quiescent` for the
-    /// predicate details.
-    pub fn is_quiescent(&self) -> bool {
-        self.drain_handle().is_quiescent()
-    }
-
-    /// Published-event count of the underlying pipeline (async mode).
-    pub fn pipeline_published(&self) -> u64 {
-        self.event_pipeline.metrics().events_published_count()
-    }
-
-    /// Consumed-event count of the underlying pipeline (async mode).
-    pub fn pipeline_consumed(&self) -> u64 {
-        self.event_pipeline.metrics().events_consumed_count()
-    }
-
     /// Best-effort estimate of undrained work: `(queued, in_flight)` where
     /// `queued` counts events still in the pipeline and `in_flight` counts
     /// subscriber dispatches handed to the executor but not yet finished.
     pub fn pending_drain_estimate(&self) -> (u64, u64) {
-        let consumed = self.pipeline_consumed();
-        let published = self.pipeline_published();
-        (
-            published.saturating_sub(consumed),
-            self.dispatch_tracker.in_flight(),
-        )
+        self.drain_handle().pending_drain_estimate()
     }
 
     /// Poll until this junction is quiescent for two consecutive passes with
-    /// an unchanged published count, or `timeout` elapses. Returns whether
-    /// quiescence was reached. Only meaningful once producers have stopped.
+    /// an unchanged published count, or `timeout` elapses (capped at one day).
+    /// Returns whether quiescence was reached. Only meaningful once producers
+    /// have stopped; for multi-junction cascades use [`poll_quiescent`] over
+    /// all the junctions' handles — a single junction's stability cannot see
+    /// dispatches still in flight toward it from other junctions.
     pub fn wait_quiescent(&self, timeout: Duration) -> bool {
-        let handle = self.drain_handle();
-        let deadline = Instant::now() + timeout;
-        // Two stable passes close the race where a dispatch publishes into
-        // this junction just before its guard decrements elsewhere.
-        let mut quiescent_streak = 0u32;
-        let mut last_published: Option<u64> = None;
-        loop {
-            let published = handle.published();
-            if handle.is_quiescent() && last_published == Some(published) {
-                quiescent_streak += 1;
-            } else if handle.is_quiescent() {
-                quiescent_streak = 1;
-            } else {
-                quiescent_streak = 0;
-            }
-            if quiescent_streak >= 2 {
-                return true;
-            }
-            last_published = Some(published);
-            if Instant::now() >= deadline {
-                return false;
-            }
-            std::thread::sleep(DRAIN_POLL_INTERVAL);
-        }
+        let timeout = timeout.min(MAX_DRAIN_TIMEOUT);
+        poll_quiescent(&[self.drain_handle()], Instant::now() + timeout)
     }
 
     /// Give up on undrained events after a drain timeout: count still-queued
@@ -744,7 +793,6 @@ impl StreamJunction {
     fn start_async_consumer(&self) -> Result<(), String> {
         let subscribers = Arc::clone(&self.subscribers);
         let pipeline = Arc::clone(&self.event_pipeline);
-        let _shutdown_flag = Arc::clone(&self.shutdown);
         let error_counter = Arc::clone(&self.processing_errors);
         let events_processed = Arc::clone(&self.events_processed);
         let executor_service = Arc::clone(&self.executor_service);
@@ -764,8 +812,8 @@ impl StreamJunction {
         // the consumer threads instead.
         let use_inline_processing = pool_size == 1;
         if use_inline_processing {
-            log::warn!(
-                "[{}] Single-threaded executor detected (pool_size=1). Using inline subscriber processing.",
+            log::info!(
+                "[{}] Single-threaded executor (pool_size=1): running subscribers inline on the consumer threads instead of dispatching through the pool.",
                 stream_id
             );
         }
@@ -780,8 +828,12 @@ impl StreamJunction {
             let executor_service_clone = Arc::clone(&executor_service);
             let dispatch_tracker_clone = Arc::clone(&dispatch_tracker);
             let stream_id_clone = stream_id.clone();
+            let consumer_guard = self.active_consumers.register();
 
             let consumer_body = move || {
+                // Dropped (even on panic) when the loop exits, so
+                // restart_processing can tell when this consumer set is gone.
+                let _consumer_guard = consumer_guard;
                 // Clone variables needed after the consumer closure
                 let stream_id_for_completion = stream_id_clone.clone();
                 let error_counter_for_completion = Arc::clone(&error_counter_clone);
@@ -815,9 +867,11 @@ impl StreamJunction {
                         ));
 
                         if use_inline_processing {
-                            // CRITICAL: Run inline when executor has insufficient threads
-                            // If pool_size <= consumer_threads, all threads are consumed by consumers
-                            // and subscriber tasks never execute, causing pipeline to fill and drop events
+                            // pool_size == 1: dispatching per event through a
+                            // single-thread pool would serialize everything
+                            // anyway, so run the subscriber on this consumer
+                            // thread. Quiescence is still covered: inline work
+                            // finishes before this event counts as consumed.
                             match subscriber.lock() {
                                 Ok(processor) => {
                                     processor.process(event_for_sub);

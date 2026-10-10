@@ -95,8 +95,12 @@ pub struct EventPipeline {
     backpressure: Arc<BackpressureHandler>,
     /// Pipeline metrics
     metrics: Arc<PipelineMetrics>,
-    /// Shutdown coordination
+    /// Shutdown coordination: consumers drain the queue, then exit
     shutdown: Arc<AtomicBool>,
+    /// Hard stop: consumers exit at the next iteration WITHOUT draining.
+    /// Used when a shutdown drain times out and the leftover queue has
+    /// already been counted as abandoned.
+    halted: AtomicBool,
     /// Sequence generator for ordering
     sequence: CachePadded<AtomicU64>,
 }
@@ -125,6 +129,7 @@ impl EventPipeline {
             backpressure,
             metrics,
             shutdown,
+            halted: AtomicBool::new(false),
             sequence: CachePadded::new(AtomicU64::new(0)),
         })
     }
@@ -197,10 +202,15 @@ impl EventPipeline {
         F: FnMut(StreamEvent, u64) -> Result<(), String>,
     {
         let mut processed = 0u64;
+        let mut idle_spins = 0u32;
 
         loop {
+            if self.halted.load(Ordering::Acquire) {
+                break; // Hard stop: leave remaining events in the queue
+            }
             match self.event_queue.pop() {
                 Some(mut pooled_event) => {
+                    idle_spins = 0;
                     let start_time = Instant::now();
                     let sequence = pooled_event.sequence();
                     let event = pooled_event.take_event();
@@ -213,7 +223,11 @@ impl EventPipeline {
                             self.metrics.record_consume_success(latency);
                         }
                         Err(e) => {
-                            self.metrics.increment_processing_errors();
+                            // The event left the queue: count it consumed (as an
+                            // error) so published == consumed stays reachable for
+                            // shutdown draining, and return its pool slot.
+                            self.metrics.record_consume_error();
+                            self.event_pool.release(pooled_event);
                             return Err(format!("Processing error at sequence {sequence}: {e}"));
                         }
                     }
@@ -226,13 +240,25 @@ impl EventPipeline {
                     if self.shutdown.load(Ordering::Acquire) {
                         break; // Exit only when no events and shutdown requested
                     }
-                    // Otherwise yield to prevent busy spinning
-                    std::thread::yield_now();
+                    Self::idle_backoff(&mut idle_spins);
                 }
             }
         }
 
         Ok(processed)
+    }
+
+    /// Back off when the queue is empty: spin-yield briefly for low wake-up
+    /// latency under bursty load, then sleep so idle consumer threads do not
+    /// burn a core each.
+    fn idle_backoff(idle_spins: &mut u32) {
+        const SPIN_LIMIT: u32 = 64;
+        if *idle_spins < SPIN_LIMIT {
+            *idle_spins += 1;
+            std::thread::yield_now();
+        } else {
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
     }
 
     /// Consume events in batches for higher throughput
@@ -241,9 +267,13 @@ impl EventPipeline {
         F: FnMut(Vec<(StreamEvent, u64)>) -> Result<(), String>,
     {
         let mut processed = 0u64;
+        let mut idle_spins = 0u32;
         let mut batch = Vec::with_capacity(batch_size);
 
         loop {
+            if self.halted.load(Ordering::Acquire) {
+                break; // Hard stop: leave remaining events in the queue
+            }
             // Collect a batch
             for _ in 0..batch_size {
                 match self.event_queue.pop() {
@@ -258,6 +288,7 @@ impl EventPipeline {
             }
 
             if !batch.is_empty() {
+                idle_spins = 0;
                 let start_time = Instant::now();
                 let batch_len = batch.len();
 
@@ -269,7 +300,12 @@ impl EventPipeline {
                         self.metrics.record_batch_success(batch_len, latency);
                     }
                     Err(e) => {
-                        self.metrics.increment_processing_errors();
+                        // The batch left the queue: count it consumed (as
+                        // errors) so published == consumed stays reachable
+                        // for shutdown draining.
+                        for _ in 0..batch_len {
+                            self.metrics.record_consume_error();
+                        }
                         return Err(format!("Batch processing error: {e}"));
                     }
                 }
@@ -280,8 +316,7 @@ impl EventPipeline {
                 if self.shutdown.load(Ordering::Acquire) {
                     break; // Exit only when no events and shutdown requested
                 }
-                // Otherwise yield to prevent busy spinning
-                std::thread::yield_now();
+                Self::idle_backoff(&mut idle_spins);
             }
         }
 
@@ -324,15 +359,24 @@ impl EventPipeline {
         self.shutdown.store(true, Ordering::Release);
     }
 
+    /// Hard stop: consumers exit at their next iteration without draining the
+    /// remaining queue. Callers must account for the leftover events (see
+    /// `StreamJunction::abandon_pending`). Implies `shutdown()`.
+    pub fn halt(&self) {
+        self.shutdown.store(true, Ordering::Release);
+        self.halted.store(true, Ordering::Release);
+    }
+
     /// Check if pipeline is shutting down
     pub fn is_shutdown(&self) -> bool {
         self.shutdown.load(Ordering::Acquire)
     }
 
-    /// Clear the shutdown flag so the pipeline can be reused after a
-    /// `shutdown()`. Consumers must be re-spawned by the caller — any consumer
-    /// that already observed the flag has exited.
+    /// Clear the shutdown and halt flags so the pipeline can be reused after a
+    /// `shutdown()`/`halt()`. Consumers must be re-spawned by the caller — any
+    /// consumer that already observed the flags has exited.
     pub fn clear_shutdown(&self) {
+        self.halted.store(false, Ordering::Release);
         self.shutdown.store(false, Ordering::Release);
     }
 

@@ -131,18 +131,36 @@ impl EventFluxManager {
         api_eventflux_app: Arc<ApiEventFluxApp>,
         eventflux_app_str_opt: Option<String>,
     ) -> Result<Arc<EventFluxAppRuntime>, String> {
+        // Load the configuration once for the global reads below
+        // (get_config() deep-clones the cached EventFluxConfig per call).
+        let loaded_config = match self.get_config().await {
+            Ok(config) => Some(config),
+            Err(e) => {
+                log::warn!(
+                    "Failed to load configuration, proceeding with defaults \
+                     (application name fallback, async_default=false): {}",
+                    e
+                );
+                None
+            }
+        };
+        let application_global = loaded_config
+            .as_ref()
+            .and_then(|config| config.eventflux.application.as_ref());
+
         // Determine app name using config-based naming (not annotations)
         // Priority: YAML config.eventflux.application.name > api_eventflux_app.name > generated UUID
-        let app_name = if let Some(config_name) = self.get_config_app_name().await {
-            // 1. YAML config has highest priority
-            config_name
-        } else if !api_eventflux_app.name.is_empty() {
-            // 2. Use name from SQL application parsing
-            api_eventflux_app.name.clone()
-        } else {
-            // 3. Generate UUID-based name as fallback
-            format!("eventflux_app_{}", uuid::Uuid::new_v4().hyphenated())
-        };
+        let app_name =
+            if let Some(config_name) = application_global.and_then(|app| app.name.clone()) {
+                // 1. YAML config has highest priority
+                config_name
+            } else if !api_eventflux_app.name.is_empty() {
+                // 2. Use name from SQL application parsing
+                api_eventflux_app.name.clone()
+            } else {
+                // 3. Generate UUID-based name as fallback
+                format!("eventflux_app_{}", uuid::Uuid::new_v4().hyphenated())
+            };
 
         // Check if app with this name already exists
         if self
@@ -157,17 +175,14 @@ impl EventFluxManager {
         }
 
         // Apply global stream defaults (eventflux.application.async_default)
-        // to the shared context before parsing, so junction creation sees them
-        if let Ok(config) = self.get_config().await {
-            if let Some(async_default) = config
-                .eventflux
-                .application
-                .as_ref()
-                .and_then(|app| app.async_default)
-            {
-                self.eventflux_context.set_default_async_mode(async_default);
-            }
-        }
+        // to the shared context before parsing, so junction creation sees
+        // them. Always resolved (missing key or load failure → false) so one
+        // config's setting cannot leak into the next app created on this
+        // manager after the config changes.
+        let async_default = application_global
+            .and_then(|app| app.async_default)
+            .unwrap_or(false);
+        self.eventflux_context.set_default_async_mode(async_default);
 
         // Get application-specific configuration
         let app_config = self.get_application_config(&app_name).await?;
@@ -225,28 +240,37 @@ impl EventFluxManager {
     }
 
     pub fn shutdown_app_runtime(&self, app_name: &str) -> bool {
-        if let Some(runtime) = self
+        // Bind the removal before shutting down: shutdown() can block on the
+        // junction drain (up to its timeout), and an `if let` on the locked
+        // map would hold the guard across that wait, blocking every other
+        // manager operation.
+        let runtime = self
             .eventflux_app_runtime_map
             .lock()
             .expect("Mutex poisoned")
-            .remove(app_name)
-        {
-            runtime.shutdown();
-            true
-        } else {
-            false
+            .remove(app_name);
+        match runtime {
+            Some(runtime) => {
+                runtime.shutdown();
+                true
+            }
+            None => false,
         }
     }
 
     pub fn shutdown_all_app_runtimes(&self) {
-        let mut map = self
+        // Take the runtimes out under the lock, shut them down without it —
+        // shutdown() can block on the junction drain.
+        let runtimes: Vec<_> = self
             .eventflux_app_runtime_map
             .lock()
-            .expect("Mutex poisoned");
-        for runtime in map.values() {
+            .expect("Mutex poisoned")
+            .drain()
+            .map(|(_, runtime)| runtime)
+            .collect();
+        for runtime in runtimes {
             runtime.shutdown();
         }
-        map.clear();
     }
 
     // --- Setters for EventFluxContext components (placeholders) ---

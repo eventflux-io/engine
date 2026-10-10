@@ -173,9 +173,10 @@ fn test_wait_quiescent_drains_slow_subscriber() {
 }
 
 /// A subscriber too slow for the timeout: quiescence fails, and after
-/// stop_processing the leftover queue is counted via abandon_pending.
+/// halt_processing the leftover queue is frozen (not drained behind the
+/// caller's back) and counted via abandon_pending.
 #[test]
-fn test_drain_timeout_abandons_pending() {
+fn test_drain_timeout_halts_and_abandons_pending() {
     // Single-threaded executor forces inline subscriber processing, so the
     // 200ms/event subscriber backs the queue up deterministically.
     let executor = Arc::new(ExecutorService::new("drain-timeout-test", 1));
@@ -191,7 +192,8 @@ fn test_drain_timeout_abandons_pending() {
         "10ms cannot drain 50 events at 200ms each"
     );
 
-    junction.stop_processing();
+    // Mirrors the runtime's timeout path: halt (no further draining), then count
+    junction.halt_processing();
     let abandoned = junction.abandon_pending();
     assert!(
         abandoned > 0,
@@ -202,5 +204,31 @@ fn test_drain_timeout_abandons_pending() {
     assert!(
         metrics.events_dropped >= abandoned,
         "abandoned events must be counted in events_dropped"
+    );
+
+    // Halted means consumers stop popping. Each consumer may still finish the
+    // one event it already popped (and they serialize on the subscriber
+    // Mutex, 200ms apiece), so wait for the backlog to stop moving, then
+    // require it frozen with events remaining. A consumer that ignored the
+    // halt would keep decrementing the backlog every 200ms until empty.
+    let (mut queued, _) = junction.pending_drain_estimate();
+    let mut stable_samples = 0;
+    for _ in 0..40 {
+        thread::sleep(Duration::from_millis(200));
+        let (now, _) = junction.pending_drain_estimate();
+        if now == queued {
+            stable_samples += 1;
+            if stable_samples >= 4 {
+                break;
+            }
+        } else {
+            stable_samples = 0;
+            queued = now;
+        }
+    }
+    assert!(
+        stable_samples >= 4 && queued > 0,
+        "halted junction must not keep draining abandoned events \
+         (abandoned {abandoned}, backlog settled at {queued} with {stable_samples} stable samples)"
     );
 }
